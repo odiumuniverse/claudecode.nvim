@@ -420,3 +420,152 @@ describe("review.hunks.find", function()
     assert.equal(2, hunks.find(list, 5, 6))
   end)
 end)
+
+describe("review.hunks.word_diff", function()
+  ---@param old_line string
+  ---@param new_line string
+  local function assert_whole_line(old_line, new_line)
+    local old_ranges, new_ranges = hunks.word_diff(old_line, new_line)
+    assert.is_nil(old_ranges)
+    assert.is_nil(new_ranges)
+  end
+
+  it("returns empty ranges for identical lines", function()
+    local old_ranges, new_ranges = hunks.word_diff("foo bar", "foo bar")
+    assert.same({}, old_ranges)
+    assert.same({}, new_ranges)
+  end)
+
+  it("marks the changed word on both sides", function()
+    local old_ranges, new_ranges = hunks.word_diff("foo bar baz", "foo qux baz")
+    assert.same({ { 4, 7 } }, old_ranges)
+    assert.same({ { 4, 7 } }, new_ranges)
+  end)
+
+  it("marks only the new text for a pure insertion", function()
+    local old_ranges, new_ranges = hunks.word_diff("hello world", "hello world again")
+    assert.same({}, old_ranges)
+    assert.same({ { 11, 17 } }, new_ranges)
+  end)
+
+  it("marks only the old text for a pure deletion", function()
+    local old_ranges, new_ranges = hunks.word_diff("hello world again", "hello world")
+    assert.same({ { 11, 17 } }, old_ranges)
+    assert.same({}, new_ranges)
+  end)
+
+  it("joins a run of changed tokens into one range", function()
+    local old_ranges, new_ranges = hunks.word_diff("foo bar baz", "foo x-yy baz")
+    assert.same({ { 4, 7 } }, old_ranges)
+    assert.same({ { 4, 8 } }, new_ranges)
+  end)
+
+  it("keeps separate ranges for changes that have unchanged text between them", function()
+    local old_ranges, new_ranges = hunks.word_diff("x = foo + bar", "x = qux + zip")
+    assert.same({ { 4, 7 }, { 10, 13 } }, old_ranges)
+    assert.same({ { 4, 7 }, { 10, 13 } }, new_ranges)
+  end)
+
+  it("treats punctuation as one token per sign", function()
+    local old_ranges, new_ranges = hunks.word_diff("foo(bar)", "foo(baz)")
+    assert.same({ { 4, 7 } }, old_ranges)
+    assert.same({ { 4, 7 } }, new_ranges)
+  end)
+
+  it("treats underscores as part of a word", function()
+    local old_ranges, new_ranges = hunks.word_diff("foo_bar baz qux", "foo_qux baz qux")
+    assert.same({ { 0, 7 } }, old_ranges)
+    assert.same({ { 0, 7 } }, new_ranges)
+  end)
+
+  it("treats a run of spaces as one token", function()
+    local old_ranges, new_ranges = hunks.word_diff("a  b", "a b")
+    assert.same({ { 1, 3 } }, old_ranges)
+    assert.same({ { 1, 2 } }, new_ranges)
+  end)
+
+  it("counts bytes, not characters, for Cyrillic", function()
+    local old_ranges, new_ranges = hunks.word_diff("привет мир", "привет всем")
+    assert.same({ { 13, 19 } }, old_ranges)
+    assert.same({ { 13, 21 } }, new_ranges)
+  end)
+
+  it("never cuts a multibyte character in the middle of a word", function()
+    local old_ranges, new_ranges = hunks.word_diff("я сказал привет", "я сказал приказ")
+    assert.same({ { 16, 28 } }, old_ranges)
+    assert.same({ { 16, 28 } }, new_ranges)
+  end)
+
+  it("highlights the line as a whole when nothing is shared", function()
+    assert_whole_line("foo", "bar")
+  end)
+
+  it("highlights the line as a whole when less than 40% is unchanged", function()
+    -- 3 unchanged bytes of 10
+    assert_whole_line("ab xxxxxxx", "ab yyyyyyy")
+  end)
+
+  it("keeps word ranges when exactly 40% is unchanged", function()
+    -- 4 unchanged bytes of 10
+    local old_ranges, new_ranges = hunks.word_diff("abc xxxxxx", "abc yyyyyy")
+    assert.same({ { 4, 10 } }, old_ranges)
+    assert.same({ { 4, 10 } }, new_ranges)
+  end)
+
+  it("measures the unchanged share against the longer line", function()
+    -- 11 unchanged bytes of 36
+    assert_whole_line("hello world", "hello world and many more words here")
+  end)
+end)
+
+describe("review.hunks.pairs", function()
+  it("pairs the i-th base line with the i-th Claude line", function()
+    local h = hunk({
+      base_start = 1,
+      base_count = 2,
+      cur_start = 1,
+      cur_count = 2,
+      base_lines = { "foo bar baz", "see the old text here" },
+      cur_lines = { "foo qux baz", "see the new text here" },
+    })
+    assert.same({
+      { base = 1, cur = 1, base_ranges = { { 4, 7 } }, cur_ranges = { { 4, 7 } } },
+      { base = 2, cur = 2, base_ranges = { { 8, 11 } }, cur_ranges = { { 8, 11 } } },
+    }, hunks.pairs(h))
+  end)
+
+  it("skips pairs highlighted as a whole line", function()
+    local h = hunk({
+      base_start = 1,
+      base_count = 2,
+      cur_start = 1,
+      cur_count = 2,
+      base_lines = { "alpha", "foo bar baz" },
+      cur_lines = { "omega", "foo qux baz" },
+    })
+    assert.same({
+      { base = 2, cur = 2, base_ranges = { { 4, 7 } }, cur_ranges = { { 4, 7 } } },
+    }, hunks.pairs(h))
+  end)
+
+  it("pairs only up to the shorter side", function()
+    local h = hunk({
+      base_start = 1,
+      base_count = 1,
+      cur_start = 1,
+      cur_count = 3,
+      base_lines = { "foo bar baz" },
+      cur_lines = { "foo qux baz", "second", "third" },
+    })
+    assert.same({
+      { base = 1, cur = 1, base_ranges = { { 4, 7 } }, cur_ranges = { { 4, 7 } } },
+    }, hunks.pairs(h))
+  end)
+
+  it("returns nothing for a pure insertion or deletion", function()
+    local insertion = hunk({ base_start = 1, cur_start = 2, cur_count = 1, cur_lines = { "x" } })
+    local deletion = hunk({ base_start = 2, base_count = 1, cur_start = 1, base_lines = { "x" } })
+    assert.same({}, hunks.pairs(insertion))
+    assert.same({}, hunks.pairs(deletion))
+  end)
+end)

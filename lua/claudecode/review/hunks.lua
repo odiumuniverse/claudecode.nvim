@@ -111,6 +111,130 @@ function M.find(hunks, row, line_count)
   return nil
 end
 
+---Share of a line that must stay unchanged for word highlights to make sense, as a fraction 2/5.
+local MIN_UNCHANGED_NUM, MIN_UNCHANGED_DEN = 2, 5
+
+---@class ClaudeCodeToken
+---@field text string
+---@field start integer  -- byte offset from 0
+---@field stop integer   -- byte offset from 0, not included
+
+---@param byte integer
+---@return "word"|"space"|"punct"
+local function token_class(byte)
+  if
+    byte >= 0x80
+    or byte == 0x5F
+    or (byte >= 0x30 and byte <= 0x39)
+    or (byte >= 0x41 and byte <= 0x5A)
+    or (byte >= 0x61 and byte <= 0x7A)
+  then
+    return "word"
+  end
+  if byte == 0x20 or (byte >= 0x09 and byte <= 0x0D) then
+    return "space"
+  end
+  return "punct"
+end
+
+---Words (ASCII letters, digits, "_" and whole UTF-8 sequences), runs of whitespace, single punctuation signs.
+---@param line string
+---@return ClaudeCodeToken[]
+local function tokenize(line)
+  local tokens = {}
+  local i = 1
+  while i <= #line do
+    local class = token_class(line:byte(i))
+    local j = i + 1
+    if class ~= "punct" then
+      while j <= #line and token_class(line:byte(j)) == class do
+        j = j + 1
+      end
+    end
+    tokens[#tokens + 1] = { text = line:sub(i, j - 1), start = i - 1, stop = j - 1 }
+    i = j
+  end
+  return tokens
+end
+
+---@param tokens ClaudeCodeToken[]
+---@return string
+local function tokens_to_text(tokens)
+  local texts = {}
+  for i, token in ipairs(tokens) do
+    texts[i] = token.text
+  end
+  return to_text(texts)
+end
+
+---A run of changed tokens is one range, so neighbouring changes come out already merged.
+---@param tokens ClaudeCodeToken[]
+---@param first integer
+---@param count integer
+---@param ranges integer[][]
+local function add_range(tokens, first, count, ranges)
+  if count > 0 then
+    ranges[#ranges + 1] = { tokens[first].start, tokens[first + count - 1].stop }
+  end
+end
+
+---@param ranges integer[][]
+---@return integer
+local function total_length(ranges)
+  local total = 0
+  for _, range in ipairs(ranges) do
+    total = total + range[2] - range[1]
+  end
+  return total
+end
+
+---Changed byte ranges inside a pair of lines, `{ start_col, end_col }` from 0, end not included.
+---Returns `nil, nil` when so little is shared that highlighting the whole line reads better.
+---@param old_line string
+---@param new_line string
+---@return integer[][]|nil old_ranges
+---@return integer[][]|nil new_ranges
+function M.word_diff(old_line, new_line)
+  local old_tokens, new_tokens = tokenize(old_line), tokenize(new_line)
+  local indices = vim.text.diff(tokens_to_text(old_tokens), tokens_to_text(new_tokens), {
+    result_type = "indices",
+    algorithm = "histogram",
+  })
+
+  local old_ranges, new_ranges = {}, {}
+  for _, idx in ipairs(indices) do
+    add_range(old_tokens, idx[1], idx[2], old_ranges)
+    add_range(new_tokens, idx[3], idx[4], new_ranges)
+  end
+
+  local unchanged = #old_line - total_length(old_ranges)
+  local longest = math.max(#old_line, #new_line)
+  if unchanged * MIN_UNCHANGED_DEN < longest * MIN_UNCHANGED_NUM then
+    return nil, nil
+  end
+  return old_ranges, new_ranges
+end
+
+---@class ClaudeCodeWordPair
+---@field base integer  -- line inside the hunk's base_lines, from 1
+---@field cur integer   -- line inside the hunk's cur_lines, from 1
+---@field base_ranges integer[][]
+---@field cur_ranges integer[][]
+
+---The i-th base line against the i-th Claude line, only where word highlights apply.
+---@param hunk ClaudeCodeHunk
+---@return ClaudeCodeWordPair[]
+function M.pairs(hunk)
+  local result = {}
+  for i = 1, math.min(hunk.base_count, hunk.cur_count) do
+    local base_ranges, cur_ranges = M.word_diff(hunk.base_lines[i], hunk.cur_lines[i])
+    if base_ranges and cur_ranges then
+      result[#result + 1] = { base = i, cur = i, base_ranges = base_ranges, cur_ranges = cur_ranges }
+    end
+  end
+  return result
+end
+
 ---New base after the user keeps `hunk`: its base range is replaced by Claude's lines.
 ---@param base_lines string[]
 ---@param hunk ClaudeCodeHunk
