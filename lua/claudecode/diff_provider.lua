@@ -60,7 +60,7 @@ function M.setup(provider, params, resolution_callback)
     resolve("saved", {
       content = {
         { type = "text", text = "FILE_SAVED" },
-        -- Claude Code (2.1.303) drops one trailing "\n" before writing; give it one to drop.
+        -- Claude Code (2.1.303, 2.1.304) drops one trailing "\n" before writing; give it one to drop.
         { type = "text", text = content .. "\n" },
       },
     })
