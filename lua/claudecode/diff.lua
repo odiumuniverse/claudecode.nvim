@@ -845,6 +845,12 @@ function M._resolve_diff_as_saved(tab_name, buffer_id)
     return
   end
 
+  -- Dispatch to a custom provider
+  if diff_data.layout == "provider" then
+    require("claudecode.diff_provider").accept_command(diff_data)
+    return
+  end
+
   logger.debug("diff", "Accepting diff for", tab_name)
 
   -- Get content from buffer
@@ -1321,6 +1327,13 @@ function M._setup_blocking_diff(params, resolution_callback)
     local old_file_exists = vim.fn.filereadable(params.old_file_path) == 1
     local is_new_file = not old_file_exists
 
+    -- Dispatch to a custom provider if configured. Before the dirty check: a provider shows the
+    -- proposal in a buffer of its own, so your unsaved edits are no reason to refuse the diff.
+    if config and config.diff_opts and config.diff_opts.provider then
+      require("claudecode.diff_provider").setup(config.diff_opts.provider, params, resolution_callback)
+      return
+    end
+
     if old_file_exists then
       local is_dirty = is_buffer_dirty(params.old_file_path)
       if is_dirty then
@@ -1330,12 +1343,6 @@ function M._setup_blocking_diff(params, resolution_callback)
           data = "Please save (:w) or discard (:e!) changes to " .. params.old_file_path .. " before creating diff",
         })
       end
-    end
-
-    -- Dispatch to a custom provider if configured
-    if config and config.diff_opts and config.diff_opts.provider then
-      require("claudecode.diff_provider").setup(config.diff_opts.provider, params, resolution_callback)
-      return
     end
 
     -- Dispatch to unified diff if configured

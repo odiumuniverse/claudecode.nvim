@@ -76,7 +76,7 @@ describe("diff_opts.provider", function()
     assert.equal(wins_before, #vim.api.nvim_list_wins())
   end)
 
-  it("answers FILE_SAVED with exactly the text passed to ctx.accept", function()
+  it("answers FILE_SAVED so that Claude writes exactly the text passed to ctx.accept", function()
     local provider = recording_provider()
     diff.setup({ terminal = {}, diff_opts = { provider = provider } })
     local handle = open_pending(file, "tab-accept")
@@ -84,10 +84,11 @@ describe("diff_opts.provider", function()
     provider.opened[1].accept("line 1\nline 2 edited\n")
 
     assert.equal("dead", coroutine.status(handle.co))
+    -- Claude Code 2.1.303 drops one trailing "\n" from the text before writing it.
     assert.same({
       content = {
         { type = "text", text = "FILE_SAVED" },
-        { type = "text", text = "line 1\nline 2 edited\n" },
+        { type = "text", text = "line 1\nline 2 edited\n\n" },
       },
     }, handle.result)
   end)
@@ -186,6 +187,44 @@ describe("diff_opts.provider", function()
     -- The provider gets a chance to tear down whatever it managed to build.
     assert.equal(1, #provider.closed)
     assert.equal("setup failed", provider.closed[1].reason)
+  end)
+
+  it("announces the provider diff with ClaudeCodeDiffOpened", function()
+    local provider = recording_provider()
+    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
+
+    local opened = capture_user_events("ClaudeCodeDiffOpened", function()
+      open_pending(file, "tab-opened")
+    end)
+
+    assert.equal(1, #opened)
+    assert.equal("tab-opened", opened[1].tab_name)
+    assert.equal(file, opened[1].file_path)
+    assert.equal("provider", opened[1].layout)
+  end)
+
+  it("lets :ClaudeCodeDiffAccept accept through the provider", function()
+    local provider = recording_provider()
+    provider.accept_command = function(ctx)
+      ctx.accept("from the provider\n")
+    end
+    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
+    local handle = open_pending(file, "tab-command")
+
+    diff._resolve_diff_as_saved("tab-command", 0)
+
+    assert.equal("FILE_SAVED", handle.result.content[1].text)
+    assert.equal("from the provider\n\n", handle.result.content[2].text)
+  end)
+
+  it("accepts Claude's proposal on :ClaudeCodeDiffAccept when the provider has no command handler", function()
+    local provider = recording_provider()
+    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
+    local handle = open_pending(file, "tab-command-default")
+
+    diff._resolve_diff_as_saved("tab-command-default", 0)
+
+    assert.equal("line 1\nline 2\nnew line\n\n", handle.result.content[2].text)
   end)
 
   it("removes the diff even when provider.close throws", function()
