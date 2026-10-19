@@ -22,6 +22,7 @@ local M = {}
 ---@field base_text string
 ---@field base_lines string[]
 ---@field eol boolean
+---@field dos boolean
 ---@field reverts ClaudeCodeRevertRecord[]
 ---@field from_zen boolean
 ---@field done boolean
@@ -112,7 +113,7 @@ local function finish(session)
   if vim.deep_equal(lines, session.base_lines) then
     session.ctx.reject()
   else
-    local content = text.to_text(lines, session.eol)
+    local content = text.to_text(lines, session.eol, session.dos)
     mark_reviewed(session, content)
     local store = require("claudecode.review.controller").store()
     if store then
@@ -167,6 +168,7 @@ function M.open(ctx)
     base_text = base_text,
     base_lines = base_lines,
     eol = eol,
+    dos = dos,
     reverts = {},
     from_zen = from_zen,
     done = false,

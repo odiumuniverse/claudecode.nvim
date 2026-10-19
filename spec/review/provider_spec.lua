@@ -242,4 +242,28 @@ describe("review provider", function()
     assert.is_nil(proposal_buf())
     assert.equal(file_buf, vim.api.nvim_get_current_buf())
   end)
+
+  it("keeps the CRLF line endings of the file in what it hands to Claude", function()
+    local file = work .. "/crlf.txt"
+    write_file(file, "one\r\ntwo\r\nthree\r\n")
+    local handle = propose(file, "one\r\nTWO\r\nthree\r\n")
+
+    engine.keep_all(proposal_buf())
+    vim.wait(100)
+
+    assert.equal("one\r\nTWO\r\nthree\r\n", written(handle))
+  end)
+
+  it("keeps CRLF in the hunks you kept when you reverted another one", function()
+    local file = work .. "/crlf.txt"
+    write_file(file, "a\r\nb\r\nc\r\nd\r\ne\r\n")
+    local handle = propose(file, "A\r\nb\r\nc\r\nd\r\nE\r\n")
+    local buf = proposal_buf()
+
+    engine.revert(buf, 2)
+    engine.keep(buf, 1)
+    vim.wait(100)
+
+    assert.equal("A\r\nb\r\nc\r\nd\r\ne\r\n", written(handle))
+  end)
 end)
