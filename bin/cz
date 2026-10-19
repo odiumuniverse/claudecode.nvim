@@ -1,0 +1,7 @@
+#!/bin/sh
+# Open Neovim with Claude full screen (zen mode). Arguments go to Claude, e.g. `cz --resume`.
+# Put this directory on PATH or symlink the script, e.g. ln -s "$PWD/bin/cz" ~/.local/bin/cz
+if [ "$#" -gt 0 ]; then
+  exec nvim -c "ClaudeCodeZen $*"
+fi
+exec nvim -c "ClaudeCodeZen"
