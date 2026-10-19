@@ -124,13 +124,15 @@ review.revert_all(bufnr)
 **Каталог состояния** (`stdpath("state")/claudecode/review/<sha256 корня проекта>/`, права 0700):
 
 ```
-bases/<sha256 пути>.base    -- байты файла до первой правки Claude
-bases/<sha256 пути>.json    -- { path, new_file, created_at }
-bash/<tool_use_id>.json     -- снимок перед Bash: { stash, untracked }
-reverts.jsonl               -- по записи ClaudeCodeRevertRecord на строку
+bases/<sha256 пути>      -- строка JSON { path, new_file, created_at }, дальше байты файла до первой правки Claude
+bash/<tool_use_id>.json  -- снимок перед Bash: { top, stash, untracked = { [путь] = mtime:size } }
+reverts.jsonl            -- по записи ClaudeCodeRevertRecord на строку
+hooks.log                -- ошибки хуков, не больше 64 КБ
 ```
 
-База создаётся атомарно и только если её ещё нет (п. 15): текст во временный файл, потом `fs_link`. База, равная текущему тексту файла, удаляется при первой встрече. Хуки получают каталог через `CLAUDECODE_REVIEW_DIR`, а адрес nvim через `CLAUDECODE_NVIM`, и шлют в nvim только `rpcnotify`: хук не ждёт nvim, потому что nvim может стоять на hit-enter (см. опыт с openDiff). Любая ошибка в хуке завершает его с кодом 0: ревью может пропустить правку, но Claude не застрянет.
+Заголовок и текст лежат в одном файле, поэтому база создаётся одним атомарным `fs_link` и только если её ещё нет (п. 15). База, равная текущему тексту файла, удаляется при первой встрече. Пути баз проходят через `realpath`: `/tmp` на macOS — ссылка на `/private/tmp`. Двоичные файлы и файлы больше 2 МБ в ревью не попадают.
+
+Каталог ключуется по cwd nvim в момент запуска Claude. Хуки получают его через `CLAUDECODE_REVIEW_DIR`, а адрес nvim через `CLAUDECODE_NVIM`. В nvim хук шлёт только msgpack-уведомление (`nvim_exec_lua` → `claudecode.review.bridge.on_hook(payload)`), ответа не ждёт: nvim может стоять на hit-enter (см. опыт с openDiff). Любая ошибка в хуке пишется в `hooks.log`, хук выходит с кодом 0: ревью может пропустить правку, но Claude не застрянет. Пути в сводке откатов — относительно cwd Claude из входа хука.
 
 ## Тесты
 

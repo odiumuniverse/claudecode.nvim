@@ -374,6 +374,9 @@ local function get_claude_command_and_env(cmd_args)
     env_table[key] = value
   end
 
+  -- Fork: sessions started from Neovim get the review hooks (no-op while the review is off)
+  cmd_string = require("claudecode.hooks").decorate(base_cmd, cmd_args, env_table) or cmd_string
+
   -- Issue #70: Claude honors http_proxy/all_proxy (proxy-from-env semantics) and, without a
   -- localhost exclusion, tunnels even its ws://127.0.0.1:<port> IDE connection through the
   -- proxy, so the handshake never reaches our server and queued @ mentions time out. Guarantee
