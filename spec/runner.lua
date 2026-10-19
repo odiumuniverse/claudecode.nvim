@@ -16,4 +16,21 @@ package.path = table.concat({
 }, ";")
 package.cpath = rocks .. "/lib/lua/5.1/?.so;" .. package.cpath
 
-require("busted.runner")({ standalone = false })
+-- Neovim quits with status 0 when a y/n prompt has no terminal to answer it, which would pass a
+-- run that was cut off. fork/test-nvim.sh hands over a path; the file exists only once busted is done.
+local function mark_done()
+  local path = vim.env.CLAUDECODE_SPEC_DONE
+  if path and path ~= "" then
+    io.open(path, "w"):close()
+  end
+end
+
+-- On LuaJIT busted reports failed specs by throwing an empty error(); turn that into exit status 1.
+local ok, err = pcall(require("busted.runner"), { standalone = false })
+mark_done()
+if not ok then
+  if err ~= nil then
+    io.stderr:write(tostring(err) .. "\n")
+  end
+  os.exit(1)
+end
