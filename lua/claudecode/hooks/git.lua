@@ -91,6 +91,41 @@ function M.snapshot(cwd)
   return { top = top, stash = stash, untracked = untracked }
 end
 
+local SNIFF_BYTES = 8000
+
+local function head_of(path)
+  local f = io.open(path, "rb")
+  if not f then
+    return nil
+  end
+  local data = f:read(SNIFF_BYTES)
+  f:close()
+  return data
+end
+
+---Git keeps a file that it checks out with CRLF (`eol=crlf`, `core.autocrlf`) as LF in its objects,
+---so the blob is not the text that was on disk before the call. Ask git what a checkout of the blob
+---writes: that is the old file. Where git converts nothing, it answers with the blob itself.
+---@param top string
+---@param stash string
+---@param rel string
+---@param blob string|nil
+---@return string|nil
+local function checkout_text(top, stash, rel, blob)
+  if not blob or blob:find("\r", 1, true) then
+    return blob
+  end
+  local head = head_of(top .. "/" .. rel)
+  if not head or not head:find("\r\n", 1, true) then
+    return blob
+  end
+  -- Checking out a Git LFS pointer would fetch the object it points to.
+  if blob:find("^version https://git%-lfs") then
+    return blob
+  end
+  return run(top, { "cat-file", "--filters", stash .. ":" .. rel }) or blob
+end
+
 ---What a Bash call changed since `snap`.
 ---@param snap table From M.snapshot
 ---@return table changes { tracked = { {path, text|nil} }, created = {path}, untracked_changed = {path} }
@@ -100,8 +135,8 @@ function M.changes(snap)
 
   for _, rel in ipairs(split_z(run(top, { "diff", "--name-only", "-z", "--no-renames", stash }))) do
     -- Missing from the snapshot tree means the file was added to the index meanwhile: new.
-    local text = run(top, { "cat-file", "blob", stash .. ":" .. rel })
-    changes.tracked[#changes.tracked + 1] = { path = top .. "/" .. rel, text = text }
+    local blob = run(top, { "cat-file", "blob", stash .. ":" .. rel })
+    changes.tracked[#changes.tracked + 1] = { path = top .. "/" .. rel, text = checkout_text(top, stash, rel, blob) }
   end
 
   local before = snap.untracked or {}

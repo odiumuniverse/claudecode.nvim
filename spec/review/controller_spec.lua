@@ -501,6 +501,94 @@ describe("review controller", function()
     end)
   end)
 
+  describe("after a Bash call in a repository", function()
+    local picker = require("claudecode.review.picker")
+    local handlers = require("claudecode.hooks.handlers")
+    local file
+
+    local function git(...)
+      local res = vim
+        .system(
+          { "git", "-C", work, "-c", "user.email=t@example.com", "-c", "user.name=t", ... },
+          { text = true, env = { GIT_CONFIG_GLOBAL = "/dev/null", GIT_CONFIG_SYSTEM = "/dev/null" } }
+        )
+        :wait()
+      assert(res.code == 0, res.stderr)
+    end
+
+    ---A repository with `a.txt` committed as LF, and checked out again with the line endings `attributes`
+    ---(and `core.autocrlf`) ask for.
+    local function repo(attributes, autocrlf)
+      git("init", "-q")
+      git("config", "core.autocrlf", autocrlf or "false")
+      write_file(work .. "/.gitattributes", attributes)
+      file = work .. "/a.txt"
+      write_file(file, "a\nb\n")
+      git("add", "-A")
+      git("commit", "-qm", "init")
+      vim.fn.delete(file)
+      git("checkout", "--", "a.txt")
+    end
+
+    ---Run `command` the way the hooks see a Bash call.
+    local function bash(command)
+      local input = { tool_name = "Bash", tool_use_id = "toolu_bash", cwd = work, tool_input = {} }
+      handlers.handle("PreToolUse", input, { dir = dir })
+      command()
+      handlers.handle("PostToolUse", input, { dir = dir })
+    end
+
+    describe("that checks its files out with CRLF", function()
+      before_each(function()
+        repo("* text eol=crlf\n")
+      end)
+
+      it("does not list a file Bash only made executable", function()
+        assert.equal("a\r\nb\r\n", read_file(file))
+
+        bash(function()
+          vim.uv.fs_chmod(file, 493)
+        end)
+
+        assert.same({}, controller.refresh_pending())
+      end)
+
+      it("reverts a file Bash changed to the CRLF bytes it had", function()
+        bash(function()
+          write_file(file, "a\r\nB\r\n")
+        end)
+        assert.same({ file }, controller.refresh_pending())
+
+        picker.revert_all(file)
+
+        assert.equal("a\r\nb\r\n", read_file(file))
+      end)
+    end)
+
+    it("with core.autocrlf does not list a file Bash only made executable", function()
+      repo("", "true")
+      assert.equal("a\r\nb\r\n", read_file(file))
+
+      bash(function()
+        vim.uv.fs_chmod(file, 493)
+      end)
+
+      assert.same({}, controller.refresh_pending())
+    end)
+
+    it("that does not convert line endings still lists a file Bash turned into CRLF", function()
+      repo("")
+
+      bash(function()
+        write_file(file, "a\r\nb\r\n")
+      end)
+
+      assert.same({ file }, controller.refresh_pending())
+      picker.revert_all(file)
+      assert.equal("a\nb\n", read_file(file))
+    end)
+  end)
+
   it("follows the state directory a new Claude session reports", function()
     local other = vim.fn.tempname()
     local other_store = store_mod.new(other)
