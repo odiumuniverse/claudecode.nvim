@@ -1240,3 +1240,294 @@ describe("review engine and the file on disk", function()
     assert.equal(1, #calls.revert)
   end)
 end)
+
+describe("review engine hint and appearance", function()
+  local base = { "a", "b", "c", "d", "e" }
+  local cur = { "a", "X", "c", "d", "e" }
+
+  ---@param bufnr integer
+  ---@return table[]
+  local function hints(bufnr)
+    return vim.tbl_filter(function(mark)
+      return mark.details.virt_text ~= nil
+    end, helpers.marks(bufnr))
+  end
+
+  ---@param bufnr integer
+  local function cursor_moved(bufnr)
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = bufnr, modeline = false })
+  end
+
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("shows the hint at the hunk under the cursor and takes it away with the cursor", function()
+    local bufnr = helpers.buffer(cur)
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    review.attach(bufnr, base, {})
+    assert.equal("ko keep · kx revert", hints(bufnr)[1].details.virt_text[1][1])
+    assert.equal(1, hints(bufnr)[1].row)
+
+    vim.api.nvim_win_set_cursor(0, { 4, 0 })
+    cursor_moved(bufnr)
+    assert.same({}, hints(bufnr))
+
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    cursor_moved(bufnr)
+    assert.equal(1, #hints(bufnr))
+  end)
+
+  it("moves the hint without redrawing the other marks", function()
+    local bufnr = helpers.buffer(cur)
+    review.attach(bufnr, base, {})
+    local function ids_without_hint()
+      return vim.tbl_map(
+        function(mark)
+          return mark.id
+        end,
+        vim.tbl_filter(function(mark)
+          return mark.details.virt_text == nil
+        end, helpers.marks(bufnr))
+      )
+    end
+    local before = ids_without_hint()
+
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    cursor_moved(bufnr)
+    vim.api.nvim_win_set_cursor(0, { 5, 0 })
+    cursor_moved(bufnr)
+
+    assert.same(before, ids_without_hint())
+  end)
+
+  it("takes the hint text from setup, or leaves it out", function()
+    review.setup({ hint = "ok / x" })
+    local bufnr = helpers.buffer(cur)
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    review.attach(bufnr, base, {})
+    assert.equal("ok / x", hints(bufnr)[1].details.virt_text[1][1])
+    review.detach(bufnr)
+
+    review.setup({ hint = false })
+    review.attach(bufnr, base, {})
+    assert.same({}, hints(bufnr))
+  end)
+
+  it("leaves out the word highlights when setup turns word_diff off", function()
+    local function word_marks(bufnr)
+      return vim.tbl_filter(function(mark)
+        return mark.details.hl_group == "ClaudeCodeReviewAddText"
+      end, helpers.marks(bufnr))
+    end
+    local words = { "foo bar baz", "x", "y", "z", "w" }
+    local words_cur = { "foo qux baz", "x", "y", "z", "w" }
+
+    local on = helpers.buffer(words_cur)
+    review.attach(on, words, {})
+    assert.equal(1, #word_marks(on))
+    review.detach(on)
+
+    review.setup({ word_diff = false })
+    local off = helpers.buffer(words_cur)
+    review.attach(off, words, {})
+    assert.same({}, word_marks(off))
+  end)
+
+  it("draws the lines of an emptied file above line 1", function()
+    local bufnr = helpers.buffer({ "" })
+    review.attach(bufnr, { "a", "b" }, {})
+
+    local deleted = vim.tbl_filter(function(mark)
+      return mark.details.virt_lines ~= nil
+    end, helpers.marks(bufnr))
+    assert.equal(1, #deleted)
+    assert.equal(0, deleted[1].row)
+    assert.is_true(deleted[1].details.virt_lines_above)
+    assert.equal(2, #deleted[1].details.virt_lines)
+  end)
+
+  it("puts a deleted file tail under the last line, and kx on it brings it back", function()
+    local bufnr = helpers.buffer({ "a", "b" })
+    review.attach(bufnr, { "a", "b", "c", "d" }, { write_on_revert = false })
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+    local deleted = vim.tbl_filter(function(mark)
+      return mark.details.virt_lines ~= nil
+    end, helpers.marks(bufnr))
+    assert.equal(1, deleted[1].row)
+    assert.is_falsy(deleted[1].details.virt_lines_above)
+
+    press("kx")
+    assert.same({ "a", "b", "c", "d" }, lines(bufnr))
+  end)
+end)
+
+describe("review engine setup", function()
+  ---@param opts any
+  ---@return string
+  local function setup_error(opts)
+    local ok, err = pcall(review.setup, opts)
+    assert.is_false(ok)
+    return tostring(err)
+  end
+
+  after_each(function()
+    review.setup({})
+  end)
+
+  it("accepts nothing, an empty table and valid options", function()
+    review.setup()
+    review.setup({})
+    review.setup({ hint = false, word_diff = false, keymaps = { keep = "gk", revert = false } })
+  end)
+
+  it("explains what is wrong with an option", function()
+    local cases = {
+      { opts = "ko", needle = "opts must be a table" },
+      { opts = { hint = 1 }, needle = "hint must be a string or false" },
+      { opts = { word_diff = "yes" }, needle = "word_diff must be a boolean" },
+      { opts = { keymaps = "ko" }, needle = "keymaps must be a table" },
+      { opts = { keymaps = { bogus = "x" } }, needle = "unknown keymap 'bogus'" },
+      { opts = { keymaps = { keep = 1 } }, needle = "keymaps.keep must be a non-empty string or false" },
+      { opts = { keymaps = { keep = "" } }, needle = "keymaps.keep must be a non-empty string or false" },
+      { opts = { bogus = true }, needle = "unknown option 'bogus'" },
+    }
+    for _, case in ipairs(cases) do
+      local err = setup_error(case.opts)
+      assert.is_truthy(err:find("claudecode.review.setup", 1, true), err)
+      assert.is_truthy(err:find(case.needle, 1, true), err)
+    end
+  end)
+
+  it("keeps the earlier settings when the new ones are rejected", function()
+    review.setup({ keymaps = { keep = "gk" } })
+    setup_error({ hint = 1 })
+
+    local bufnr = helpers.buffer({ "a", "X", "c" })
+    review.attach(bufnr, { "a", "b", "c" }, {})
+    assert.equal(
+      1,
+      vim.api.nvim_buf_call(bufnr, function()
+        return vim.fn.maparg("gk", "n", false, true).buffer
+      end)
+    )
+    helpers.reset()
+  end)
+end)
+
+describe("review engine edge cases", function()
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("sees no hunk when the base is a single empty line and so is the buffer", function()
+    local opts, calls = recorder()
+    local bufnr = helpers.buffer({ "" })
+
+    review.attach(bufnr, { "" }, opts)
+
+    assert.same({ "resolved" }, calls.done)
+  end)
+
+  it("resolves when an emptied file is typed back to the base", function()
+    local bufnr = helpers.buffer({ "" })
+    local opts, calls = recorder()
+    review.attach(bufnr, { "a", "b" }, opts)
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "a", "b" })
+    helpers.flush()
+
+    assert.same({ "resolved" }, calls.done)
+  end)
+
+  it("lets the caller attach again from on_done", function()
+    local bufnr = helpers.buffer({ "a", "X", "c" })
+    local done = 0
+    review.attach(bufnr, { "a", "b", "c" }, {
+      on_done = function()
+        done = done + 1
+        review.attach(bufnr, { "a", "Z", "c" }, {})
+      end,
+    })
+
+    review.keep(bufnr, 1)
+
+    assert.equal(1, done)
+    assert.is_true(review.is_attached(bufnr))
+    assert.same({ "Z" }, review.hunks(bufnr)[1].base_lines)
+    assert.equal(
+      1,
+      vim.api.nvim_buf_call(bufnr, function()
+        return vim.fn.maparg("ko", "n", false, true).buffer
+      end)
+    )
+  end)
+
+  it("survives callbacks that throw", function()
+    local messages = {}
+    local notify = vim.notify
+    vim.notify = function(msg)
+      messages[#messages + 1] = msg
+    end
+    local bufnr, path = helpers.file_buffer("a\nX\nc\nd\nY\n")
+    review.attach(bufnr, { "a", "b", "c", "d", "e" }, {
+      on_revert = function()
+        error("revert boom")
+      end,
+      on_done = function()
+        error("done boom")
+      end,
+    })
+
+    review.revert_all(bufnr)
+    vim.notify = notify
+
+    assert.equal("a\nb\nc\nd\ne\n", helpers.read_file(path))
+    -- one failed on_revert per hunk, then on_done
+    assert.equal(3, #messages)
+    assert.is_truthy(messages[1]:find("revert boom", 1, true))
+    assert.is_truthy(messages[2]:find("revert boom", 1, true))
+    assert.is_truthy(messages[3]:find("done boom", 1, true))
+  end)
+
+  it("keeps two reviewed buffers apart", function()
+    local first = helpers.buffer({ "a", "X", "c" })
+    review.attach(first, { "a", "b", "c" }, {})
+    local second = helpers.buffer({ "1", "Y", "3" })
+    review.attach(second, { "1", "2", "3" }, {})
+
+    review.keep(first, 1)
+
+    assert.is_false(review.is_attached(first))
+    assert.is_true(review.is_attached(second))
+    assert.same({ "2" }, review.hunks(second)[1].base_lines)
+  end)
+
+  it("ignores commands for a buffer that is not under review", function()
+    local bufnr = helpers.buffer({ "a" })
+
+    review.keep(bufnr)
+    review.revert(bufnr)
+    review.keep_all(bufnr)
+    review.revert_all(bufnr)
+    review.detach(bufnr)
+
+    assert.is_false(review.is_attached(bufnr))
+    assert.same({}, review.hunks(bufnr))
+    assert.same({}, review.base(bufnr))
+  end)
+
+  it("treats buffer 0 as the current buffer", function()
+    local bufnr = helpers.buffer({ "a", "X", "c" })
+
+    review.attach(0, { "a", "b", "c" }, {})
+
+    assert.is_true(review.is_attached(bufnr))
+    assert.is_true(review.is_attached(0))
+  end)
+end)
