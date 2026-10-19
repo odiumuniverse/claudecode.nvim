@@ -1531,3 +1531,73 @@ describe("review engine edge cases", function()
     assert.is_true(review.is_attached(0))
   end)
 end)
+
+describe("review engine on screen", function()
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("draws added lines, deleted lines and changed words", function()
+    local base = { "foo bar baz", "keep1", "keep2", "keep3", "gone", "keep4", "keep5" }
+    local cur = { "foo qux baz", "keep1", "keep2", "keep3", "keep4", "keep5", "added" }
+    local bufnr = helpers.buffer(cur)
+
+    review.attach(bufnr, base, {})
+
+    local marks = helpers.marks(bufnr)
+    local function with(key)
+      return vim.tbl_filter(function(mark)
+        return mark.details[key] ~= nil
+      end, marks)
+    end
+    -- rows of the added lines: the changed line 1 and the new last line
+    assert.same(
+      { 0, 6 },
+      vim.tbl_map(function(mark)
+        return mark.row
+      end, with("line_hl_group"))
+    )
+    -- the changed word inside the first line
+    local words = with("hl_group")
+    assert.equal(1, #words)
+    assert.equal(4, words[1].col)
+    assert.equal(7, words[1].details.end_col)
+    -- deleted lines: the old first line above row 0, "gone" above the line that followed it
+    local deleted = with("virt_lines")
+    assert.same(
+      { 0, 4 },
+      vim.tbl_map(function(mark)
+        return mark.row
+      end, deleted)
+    )
+    assert.is_true(deleted[1].details.virt_lines_above)
+    assert.is_true(deleted[2].details.virt_lines_above)
+  end)
+
+  it("pads the deleted lines again when the window is resized", function()
+    local bufnr = helpers.buffer({ "a", "c" })
+    review.attach(bufnr, { "a", "b", "c" }, {})
+    local function padded_width()
+      local deleted = vim.tbl_filter(function(mark)
+        return mark.details.virt_lines ~= nil
+      end, helpers.marks(bufnr))
+      local width = 0
+      for _, chunk in ipairs(deleted[1].details.virt_lines[1]) do
+        width = width + vim.fn.strdisplaywidth(chunk[1])
+      end
+      return width
+    end
+    local before = padded_width()
+
+    vim.cmd("vsplit")
+    vim.cmd("vertical resize 30")
+    vim.api.nvim_exec_autocmds("WinResized", { modeline = false })
+    helpers.flush()
+
+    assert.equal(30, vim.api.nvim_win_get_width(0))
+    assert.equal(30, padded_width())
+    assert.is_true(before > 30)
+  end)
+end)

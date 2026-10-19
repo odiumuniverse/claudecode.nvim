@@ -257,6 +257,21 @@ local function schedule_flush(st)
   end)
 end
 
+---Deleted lines are padded to the width of the window, so a resize makes the padding wrong.
+local function watch_resizes()
+  local group = vim.api.nvim_create_augroup("ClaudeCodeReviewResize", { clear = true })
+  vim.api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
+    group = group,
+    desc = "Claude review: pad deleted lines to the new window width",
+    callback = function()
+      for _, st in pairs(states) do
+        st.dirty.draw = true
+        schedule_flush(st)
+      end
+    end,
+  })
+end
+
 ---@param list string[]
 ---@param first integer 0-based start of the replaced range
 ---@param last integer 0-based end of the replaced range, not included
@@ -564,6 +579,7 @@ function M.attach(bufnr, base_lines, opts)
   })
   st.maps = keymaps.set(bufnr, mappings_for(bufnr))
   watch_buffer(st)
+  watch_resizes()
   flush(st)
 end
 
@@ -651,7 +667,7 @@ local function revert_hunks(st, indices)
 
   -- Close the undo step the user was in, so that one `u` takes back exactly this revert.
   vim.api.nvim_buf_call(bufnr, function()
-    vim.cmd("let &undolevels = &undolevels")
+    vim.cmd("let &g:undolevels = &g:undolevels")
   end)
   st.own_edit = true
   local ok, err = pcall(function()

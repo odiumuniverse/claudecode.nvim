@@ -53,8 +53,9 @@ function M.flush()
   end, 1)
 end
 
----Wipe every buffer a spec left behind.
+---Wipe every buffer a spec left behind, and the extra windows.
 function M.reset()
+  vim.cmd("silent! only!")
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
     if vim.api.nvim_buf_is_valid(bufnr) then
       pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
