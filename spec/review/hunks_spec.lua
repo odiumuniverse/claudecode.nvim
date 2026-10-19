@@ -299,3 +299,124 @@ describe("review.hunks.revert", function()
     assert.are_not.equal(cur, result)
   end)
 end)
+
+describe("review.hunks.anchor", function()
+  it("anchors a changed hunk on its first line, above", function()
+    local h = hunk({
+      base_start = 3,
+      base_count = 1,
+      cur_start = 3,
+      cur_count = 2,
+      base_lines = { "c" },
+      cur_lines = { "x", "y" },
+    })
+    local row, above = hunks.anchor(h, 6)
+    assert.equal(3, row)
+    assert.is_true(above)
+  end)
+
+  it("anchors a pure insertion on its first line, above", function()
+    local h = hunk({ base_start = 1, cur_start = 2, cur_count = 1, cur_lines = { "x" } })
+    local row, above = hunks.anchor(h, 3)
+    assert.equal(2, row)
+    assert.is_true(above)
+  end)
+
+  it("anchors a deletion after line k above line k + 1", function()
+    local h = hunk({ base_start = 3, base_count = 1, cur_start = 2, base_lines = { "c" } })
+    local row, above = hunks.anchor(h, 5)
+    assert.equal(3, row)
+    assert.is_true(above)
+  end)
+
+  it("anchors a deletion before the first line above line 1", function()
+    local h = hunk({ base_start = 1, base_count = 1, base_lines = { "a" } })
+    local row, above = hunks.anchor(h, 2)
+    assert.equal(1, row)
+    assert.is_true(above)
+  end)
+
+  it("anchors a deletion of the file tail below the last line", function()
+    local h = hunk({ base_start = 4, base_count = 2, cur_start = 3, base_lines = { "d", "e" } })
+    local row, above = hunks.anchor(h, 3)
+    assert.equal(3, row)
+    assert.is_false(above)
+  end)
+
+  it("anchors a deletion of the last line, when the next line does not exist", function()
+    local h = hunk({ base_start = 3, base_count = 1, cur_start = 2, base_lines = { "c" } })
+    local row, above = hunks.anchor(h, 2)
+    assert.equal(2, row)
+    assert.is_false(above)
+  end)
+
+  it("anchors on line 1, above, when the buffer is empty", function()
+    local h = hunk({ base_start = 1, base_count = 2, base_lines = { "a", "b" } })
+    local row, above = hunks.anchor(h, 0)
+    assert.equal(1, row)
+    assert.is_true(above)
+  end)
+end)
+
+describe("review.hunks.find", function()
+  local changed = hunk({
+    base_start = 3,
+    base_count = 1,
+    cur_start = 3,
+    cur_count = 2,
+    base_lines = { "c" },
+    cur_lines = { "x", "y" },
+  })
+
+  it("returns nil when there are no hunks", function()
+    assert.is_nil(hunks.find({}, 1))
+  end)
+
+  it("covers cur_start .. cur_start + cur_count - 1 and nothing around", function()
+    local list = { changed }
+    assert.is_nil(hunks.find(list, 2))
+    assert.equal(1, hunks.find(list, 3))
+    assert.equal(1, hunks.find(list, 4))
+    assert.is_nil(hunks.find(list, 5))
+  end)
+
+  it("puts a pure deletion on the line its virtual lines hang above", function()
+    local deletion = hunk({ base_start = 3, base_count = 1, cur_start = 2, base_lines = { "c" } })
+    local list = { deletion }
+    assert.is_nil(hunks.find(list, 2, 5))
+    assert.equal(1, hunks.find(list, 3, 5))
+    assert.is_nil(hunks.find(list, 4, 5))
+  end)
+
+  it("puts a deleted file tail on the last line", function()
+    local tail = hunk({ base_start = 4, base_count = 2, cur_start = 3, base_lines = { "d", "e" } })
+    assert.equal(1, hunks.find({ tail }, 3, 3))
+    assert.is_nil(hunks.find({ tail }, 4, 3))
+  end)
+
+  it("puts a deletion in an empty buffer on line 1", function()
+    local all_gone = hunk({ base_start = 1, base_count = 2, base_lines = { "a", "b" } })
+    assert.equal(1, hunks.find({ all_gone }, 1, 0))
+  end)
+
+  it("puts a deletion at the top on line 1", function()
+    local first_gone = hunk({ base_start = 1, base_count = 1, base_lines = { "a" } })
+    assert.equal(1, hunks.find({ first_gone }, 1, 2))
+  end)
+
+  it("assumes the next line exists when line_count is not given", function()
+    local deletion = hunk({ base_start = 3, base_count = 1, cur_start = 2, base_lines = { "c" } })
+    assert.equal(1, hunks.find({ deletion }, 3))
+  end)
+
+  it("picks the right hunk among several", function()
+    local first =
+      hunk({ base_start = 1, base_count = 1, cur_start = 1, cur_count = 1, base_lines = { "a" }, cur_lines = { "A" } })
+    local second =
+      hunk({ base_start = 5, base_count = 1, cur_start = 5, cur_count = 1, base_lines = { "e" }, cur_lines = { "E" } })
+    local list = { first, second }
+    assert.equal(1, hunks.find(list, 1, 6))
+    assert.is_nil(hunks.find(list, 3, 6))
+    assert.equal(2, hunks.find(list, 5, 6))
+  end)
+end)

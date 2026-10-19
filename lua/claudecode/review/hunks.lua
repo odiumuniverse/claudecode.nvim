@@ -68,6 +68,49 @@ function M.compute(base_lines, cur_lines)
   return result
 end
 
+---Row (from 1) the hunk is drawn on, and whether its deleted lines go above that row.
+---A pure deletion "after line k" hangs above line k + 1; at the end of the buffer there is no such
+---line, so it goes below line k; in an empty buffer it goes above line 1.
+---@param hunk ClaudeCodeHunk
+---@param line_count integer
+---@return integer row
+---@return boolean above
+function M.anchor(hunk, line_count)
+  if hunk.cur_count > 0 then
+    return hunk.cur_start, true
+  end
+  if line_count == 0 then
+    return 1, true
+  end
+  if hunk.cur_start + 1 > line_count then
+    return hunk.cur_start, false
+  end
+  return hunk.cur_start + 1, true
+end
+
+---Index of the hunk under `row` (from 1). A pure deletion belongs to the row it hangs on.
+---Without `line_count` a deletion is assumed to have a line below it, so a deleted file tail
+---is only found when `line_count` is passed.
+---@param hunks ClaudeCodeHunk[]
+---@param row integer
+---@param line_count? integer
+---@return integer|nil
+function M.find(hunks, row, line_count)
+  for i, hunk in ipairs(hunks) do
+    if hunk.cur_count > 0 then
+      if row >= hunk.cur_start and row < hunk.cur_start + hunk.cur_count then
+        return i
+      end
+    else
+      local anchor_row = line_count and M.anchor(hunk, line_count) or hunk.cur_start + 1
+      if row == anchor_row then
+        return i
+      end
+    end
+  end
+  return nil
+end
+
 ---New base after the user keeps `hunk`: its base range is replaced by Claude's lines.
 ---@param base_lines string[]
 ---@param hunk ClaudeCodeHunk
