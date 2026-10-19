@@ -160,6 +160,12 @@ function M.validate(config)
   if config.diff_opts.auto_resize_terminal ~= nil then
     assert(type(config.diff_opts.auto_resize_terminal) == "boolean", "diff_opts.auto_resize_terminal must be a boolean")
   end
+  if config.diff_opts.provider ~= nil then
+    local provider = config.diff_opts.provider
+    assert(type(provider) == "table", "diff_opts.provider must be a table with open and close functions")
+    assert(type(provider.open) == "function", "diff_opts.provider.open must be a function")
+    assert(type(provider.close) == "function", "diff_opts.provider.close must be a function")
+  end
 
   -- Legacy diff options (accept if present to avoid breaking old configs)
   if config.diff_opts.auto_close_on_accept ~= nil then

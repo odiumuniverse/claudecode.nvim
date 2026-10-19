@@ -1166,6 +1166,18 @@ function M._cleanup_diff_state(tab_name, reason)
     return
   end
 
+  -- Dispatch to a custom provider
+  if diff_data.layout == "provider" then
+    require("claudecode.diff_provider").cleanup(diff_data, reason)
+    active_diffs[tab_name] = nil
+    fire_diff_event("ClaudeCodeDiffClosed", {
+      tab_name = tab_name,
+      file_path = diff_data.old_file_path,
+      reason = reason,
+    })
+    return
+  end
+
   -- Dispatch to unified diff handler
   if diff_data.layout == "unified" then
     local inline = require("claudecode.diff_inline")
@@ -1318,6 +1330,12 @@ function M._setup_blocking_diff(params, resolution_callback)
           data = "Please save (:w) or discard (:e!) changes to " .. params.old_file_path .. " before creating diff",
         })
       end
+    end
+
+    -- Dispatch to a custom provider if configured
+    if config and config.diff_opts and config.diff_opts.provider then
+      require("claudecode.diff_provider").setup(config.diff_opts.provider, params, resolution_callback)
+      return
     end
 
     -- Dispatch to unified diff if configured
