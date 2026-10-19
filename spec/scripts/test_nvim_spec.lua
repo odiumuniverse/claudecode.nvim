@@ -1,13 +1,13 @@
---- Tests for fork/test-nvim.sh: its exit status and message tell a failing run from a cut-off one.
+--- Tests for scripts/test-nvim.sh: its exit status and message tell a failing run from a cut-off one.
 local root = vim.fn.fnamemodify(package.searchpath("claudecode.features", package.path), ":p:h:h:h:h")
 
-describe("fork/test-nvim.sh", function()
+describe("scripts/test-nvim.sh", function()
   local dir
 
   local function run(body)
     local spec = dir .. "/sample_spec.lua"
     vim.fn.writefile({ 'describe("sample", function() it("runs", function() ' .. body .. " end) end)" }, spec)
-    return vim.system({ root .. "/fork/test-nvim.sh", spec }, { text = true }):wait()
+    return vim.system({ root .. "/scripts/test-nvim.sh", spec }, { text = true }):wait()
   end
 
   before_each(function()

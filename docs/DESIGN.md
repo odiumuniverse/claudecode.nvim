@@ -78,7 +78,7 @@ lua/claudecode/review/provider.lua   review before write
 lua/claudecode/hooks/                settings.json for --settings, the hook entry script, git snapshots
 lua/claudecode/zen/init.lua          zen
 lua/claudecode/features/             options, setup, the review and zen sections of :checkhealth claudecode (checks.lua)
-spec/                                tests in a real headless Neovim (fork/test-nvim.sh)
+spec/                                tests in a real headless Neovim (scripts/test-nvim.sh)
 ```
 
 **A hunk** uses the indices of `vim.text.diff(..., { result_type = "indices" })`, lines counted from 1:
@@ -162,6 +162,6 @@ Done on 2026-10-19 and 2026-10-20:
 3. Review after write: hooks, bases, carrying your edits, the list of files, the revert summary.
 4. Review before write: our provider on the same engine.
 5. Zen and `cz`.
-6. LazyVim spec: `fork/lazyvim/claudecode.lua`.
+6. LazyVim spec: `lazyvim/claudecode.lua`.
 
 Next: `:help claudecode`.

@@ -17,7 +17,7 @@ package.path = table.concat({
 package.cpath = rocks .. "/lib/lua/5.1/?.so;" .. package.cpath
 
 -- Neovim quits with status 0 when a y/n prompt has no terminal to answer it, which would pass a
--- run that was cut off. fork/test-nvim.sh hands over a path; the file exists only once busted is done.
+-- run that was cut off. scripts/test-nvim.sh hands over a path; the file exists only once busted is done.
 local function mark_done()
   local path = vim.env.CLAUDECODE_SPEC_DONE
   if path and path ~= "" then

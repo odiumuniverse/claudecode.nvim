@@ -83,7 +83,7 @@ jobs:
         run: mise run setup
 
       - name: Run specs in headless Neovim
-        run: fork/test-nvim.sh
+        run: scripts/test-nvim.sh
 
       - name: Run luacheck on specs
         run: ./.luarocks/bin/luacheck spec/ --no-unused-args --no-max-line-length

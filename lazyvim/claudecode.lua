@@ -1,7 +1,7 @@
 -- LazyVim spec for this fork: LazyVim's ai.claudecode keys plus review and zen.
 -- Toggle Claude sits on <leader>at, not the extra's <leader>ac.
 -- Link it into your config instead of the extra:
---   ln -s ~/src/claudecode.nvim/fork/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
+--   ln -s ~/src/claudecode.nvim/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
 return {
   "odiumuniverse/claudecode.nvim",
   dir = vim.fn.expand("~/src/claudecode.nvim"),

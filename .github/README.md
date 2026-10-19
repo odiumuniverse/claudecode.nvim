@@ -26,7 +26,7 @@ More documentation:
 With LazyVim, link the ready spec instead of the `ai.claudecode` extra. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>ak` and `<M-z>`:
 
 ```sh
-ln -s ~/src/claudecode.nvim/fork/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
+ln -s ~/src/claudecode.nvim/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
 ```
 
 The spec loads the plugin on `VeryLazy`, not on a key: a file Claude edited before a restart comes back under review only if the plugin is running when you open it.
@@ -204,10 +204,10 @@ How it behaves:
 mise install          # Neovim, LuaJIT, formatters and linters
 mise run setup        # busted, luacheck and luacov into ./.luarocks
 mise run all          # format, lint and upstream's tests (mocked vim)
-fork/test-nvim.sh     # the fork's tests, inside a real headless Neovim
+scripts/test-nvim.sh  # the fork's tests, inside a real headless Neovim
 
 mise exec -- busted tests/unit/diff_provider_spec.lua   # one upstream-style spec
-fork/test-nvim.sh spec/review/hunks_spec.lua            # one real-Neovim spec
+scripts/test-nvim.sh spec/review/hunks_spec.lua         # one real-Neovim spec
 ```
 
 The fork's code lives in its own modules: `lua/claudecode/review/`, `lua/claudecode/hooks/`, `lua/claudecode/zen/` and `lua/claudecode/features/`. Upstream's files get only small marked seams, so rebasing stays cheap.
