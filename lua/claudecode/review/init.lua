@@ -272,16 +272,17 @@ local function hunk_under_cursor(st)
   return hunk_logic.find(st.hunks, vim.api.nvim_win_get_cursor(win)[1], st.line_count)
 end
 
+---The hunk a command works on: the given one, else the one under the cursor.
 ---@param st ClaudeCodeReviewState
 ---@param index integer|nil
----@return ClaudeCodeHunk|nil
-local function pick_hunk(st, index)
+---@return integer|nil
+local function pick_index(st, index)
   index = index or hunk_under_cursor(st)
-  local hunk = index and st.hunks[index]
-  if not hunk then
+  if not (index and st.hunks[index]) then
     vim.notify("claudecode review: no hunk here", vim.log.levels.INFO)
+    return nil
   end
-  return hunk
+  return index
 end
 
 ---Move the cursor to the start of a hunk. Like `]c`, it never wraps and a count that is too big
@@ -469,6 +470,91 @@ function M.base(bufnr)
   return st and vim.deepcopy(st.base) or {}
 end
 
+---Revert hunks (indices ascending) in one undo step, tell the caller about each, then save the file.
+---@param st ClaudeCodeReviewState
+---@param indices integer[]
+---@return boolean done
+local function revert_hunks(st, indices)
+  local bufnr = st.bufnr
+  local write = st.opts.write_on_revert ~= false and disk.path(bufnr) ~= nil
+
+  local reverted = {}
+  for i, index in ipairs(indices) do
+    reverted[i] = st.hunks[index]
+  end
+  -- An empty file is one empty line in the buffer: replace that line instead of inserting next to it.
+  local buffer_is_empty = #current_lines(st) == 0
+
+  -- Close the undo step the user was in, so that one `u` takes back exactly this revert.
+  vim.api.nvim_buf_call(bufnr, function()
+    vim.cmd("let &undolevels = &undolevels")
+  end)
+  st.own_edit = true
+  local ok, err = pcall(function()
+    -- Last hunk first: the rows of the ones above it do not move.
+    for i = #reverted, 1, -1 do
+      local hunk = reverted[i]
+      local first, last
+      if buffer_is_empty then
+        first, last = 0, -1
+      elseif hunk.cur_count > 0 then
+        first, last = hunk.cur_start - 1, hunk.cur_start - 1 + hunk.cur_count
+      else
+        first, last = hunk.cur_start, hunk.cur_start
+      end
+      vim.api.nvim_buf_set_lines(bufnr, first, last, false, hunk.base_lines)
+    end
+  end)
+  st.own_edit = false
+  recompute(st)
+  if not ok then
+    report_error("revert", err)
+    flush(st)
+    return false
+  end
+
+  local shift = 0
+  for _, hunk in ipairs(reverted) do
+    local line = (hunk.cur_count > 0 and hunk.cur_start or hunk.cur_start + 1) + shift
+    shift = shift + hunk.base_count - hunk.cur_count
+    call(st, "on_revert", {
+      path = vim.api.nvim_buf_get_name(bufnr),
+      line = line,
+      base_lines = vim.deepcopy(hunk.base_lines),
+      claude_lines = vim.deepcopy(hunk.cur_lines),
+      time = os.time(),
+    })
+  end
+
+  if write then
+    local written, write_err = disk.write(bufnr)
+    if not written then
+      report_error("write", write_err)
+    end
+    st.stamp = disk.stamp(bufnr)
+  end
+  flush(st)
+  return true
+end
+
+---Revert a hunk: the base text comes back into the buffer and the file is written.
+---@param bufnr integer
+---@param index? integer Hunk number; the hunk under the cursor by default
+function M.revert(bufnr, index)
+  local st = state_of(bufnr)
+  if not st then
+    return
+  end
+  flush(st)
+  if st.dead then
+    return
+  end
+  index = pick_index(st, index)
+  if index then
+    revert_hunks(st, { index })
+  end
+end
+
 ---Keep a hunk: Claude's text becomes the base, the buffer stays as it is.
 ---@param bufnr integer
 ---@param index? integer Hunk number; the hunk under the cursor by default
@@ -481,14 +567,49 @@ function M.keep(bufnr, index)
   if st.dead then
     return
   end
-  local hunk = pick_hunk(st, index)
-  if not hunk then
+  index = pick_index(st, index)
+  if not index then
     return
   end
-  st.base = hunk_logic.keep(st.base, hunk)
+  st.base = hunk_logic.keep(st.base, st.hunks[index])
   st.dirty.base = true
   recompute(st)
   flush(st)
+end
+
+---Keep every hunk at once: the base becomes the whole text of the buffer.
+---@param bufnr integer
+function M.keep_all(bufnr)
+  local st = state_of(bufnr)
+  if not st then
+    return
+  end
+  flush(st)
+  if st.dead or #st.hunks == 0 then
+    return
+  end
+  st.base = current_lines(st)
+  st.dirty.base = true
+  recompute(st)
+  flush(st)
+end
+
+---Revert every hunk at once: one undo step, one write of the file.
+---@param bufnr integer
+function M.revert_all(bufnr)
+  local st = state_of(bufnr)
+  if not st then
+    return
+  end
+  flush(st)
+  if st.dead or #st.hunks == 0 then
+    return
+  end
+  local indices = {}
+  for i = 1, #st.hunks do
+    indices[i] = i
+  end
+  revert_hunks(st, indices)
 end
 
 return M

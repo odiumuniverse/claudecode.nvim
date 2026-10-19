@@ -479,3 +479,322 @@ describe("review engine navigation", function()
     assert.equal(3, row())
   end)
 end)
+
+---Open a file holding `text` and put it under review against `base`.
+---@param text string
+---@param base string[]
+---@param opts? ClaudeCodeReviewAttachOpts
+---@return integer bufnr
+---@return string path
+---@return table calls
+local function review_file(text, base, opts)
+  local bufnr, path = helpers.file_buffer(text)
+  local recorded_opts, calls = recorder()
+  review.attach(bufnr, base, vim.tbl_extend("force", recorded_opts, opts or {}))
+  return bufnr, path, calls
+end
+
+describe("review engine revert", function()
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("puts the base lines back and keeps the base", function()
+    local bufnr, _, calls = review_file("a\nX\nc\nd\nY\n", { "a", "b", "c", "d", "e" })
+
+    review.revert(bufnr, 1)
+
+    assert.same({ "a", "b", "c", "d", "Y" }, lines(bufnr))
+    assert.same({ "a", "b", "c", "d", "e" }, review.base(bufnr))
+    assert.equal(1, #review.hunks(bufnr))
+    assert.same({}, calls.base)
+    assert.same({}, calls.done)
+  end)
+
+  it("reports what was reverted, in the file's lines after the revert", function()
+    local bufnr, path, calls = review_file("a\nX\nY\nc\nd\n", { "a", "b", "c", "d" })
+    local before = os.time()
+
+    review.revert(bufnr, 1)
+
+    assert.equal(1, #calls.revert)
+    local rec = calls.revert[1]
+    assert.equal(vim.api.nvim_buf_get_name(bufnr), rec.path)
+    assert.equal(vim.uv.fs_realpath(path), vim.uv.fs_realpath(rec.path))
+    assert.equal(2, rec.line)
+    assert.same({ "b" }, rec.base_lines)
+    assert.same({ "X", "Y" }, rec.claude_lines)
+    assert.is_true(rec.time >= before and rec.time <= os.time())
+  end)
+
+  it("points at Claude's text for an insertion, where nothing comes back", function()
+    local bufnr, _, calls = review_file("a\nnew1\nnew2\nb\n", { "a", "b" })
+
+    review.revert(bufnr, 1)
+
+    assert.equal(2, calls.revert[1].line)
+    assert.same({}, calls.revert[1].base_lines)
+    assert.same({ "new1", "new2" }, calls.revert[1].claude_lines)
+    assert.same({ "a", "b" }, lines(bufnr))
+  end)
+
+  it("brings back deleted lines, from the first returned one", function()
+    local bufnr, _, calls = review_file("a\nd\n", { "a", "b", "c", "d" })
+
+    review.revert(bufnr, 1)
+
+    assert.same({ "a", "b", "c", "d" }, lines(bufnr))
+    assert.equal(2, calls.revert[1].line)
+    assert.same({ "b", "c" }, calls.revert[1].base_lines)
+    assert.same({}, calls.revert[1].claude_lines)
+  end)
+
+  it("brings back a deleted first line and a deleted last line", function()
+    local first = review_file("b\nc\n", { "a", "b", "c" })
+    review.revert(first, 1)
+    assert.same({ "a", "b", "c" }, lines(first))
+
+    local last = review_file("a\nb\n", { "a", "b", "c" })
+    review.revert(last, 1)
+    assert.same({ "a", "b", "c" }, lines(last))
+  end)
+
+  it("removes a new file's text and leaves an empty file on disk", function()
+    local opts, calls = recorder()
+    local bufnr, path = helpers.file_buffer("a\nb\n")
+    review.attach(bufnr, {}, opts)
+
+    review.revert(bufnr, 1)
+
+    assert.equal("", helpers.read_file(path))
+    assert.same({ "resolved" }, calls.done)
+  end)
+
+  it("restores an emptied file", function()
+    local bufnr, path = helpers.file_buffer("")
+    local opts = recorder()
+    review.attach(bufnr, { "a", "b" }, opts)
+    assert.equal(1, #review.hunks(bufnr))
+
+    review.revert(bufnr, 1)
+
+    assert.same({ "a", "b" }, lines(bufnr))
+    assert.equal("a\nb\n", helpers.read_file(path))
+  end)
+
+  it("writes the file at once", function()
+    local bufnr, path = review_file("a\nX\nc\nd\nY\n", { "a", "b", "c", "d", "e" })
+
+    review.revert(bufnr, 1)
+
+    assert.equal("a\nb\nc\nd\nY\n", helpers.read_file(path))
+    assert.is_false(vim.bo[bufnr].modified)
+  end)
+
+  it("leaves the file alone with write_on_revert = false", function()
+    local bufnr, path = review_file("a\nX\nc\nd\nY\n", { "a", "b", "c", "d", "e" }, { write_on_revert = false })
+
+    review.revert(bufnr, 1)
+
+    assert.equal("a\nX\nc\nd\nY\n", helpers.read_file(path))
+    assert.is_true(vim.bo[bufnr].modified)
+  end)
+
+  it("does not run the buffer's BufWritePre, but tells BufWritePost", function()
+    local bufnr = review_file("a\nX\nc\nd\nY\n", { "a", "b", "c", "d", "e" })
+    local seen = {}
+    vim.api.nvim_create_autocmd("BufWritePre", {
+      buffer = bufnr,
+      callback = function()
+        seen[#seen + 1] = "pre"
+      end,
+    })
+    vim.api.nvim_create_autocmd("BufWritePost", {
+      buffer = bufnr,
+      callback = function()
+        seen[#seen + 1] = "post"
+      end,
+    })
+
+    review.revert(bufnr, 1)
+
+    assert.same({ "post" }, seen)
+  end)
+
+  it("is one undo step", function()
+    local bufnr = review_file("a\nX\nc\nd\nY\n", { "a", "b", "c", "d", "e" })
+
+    review.revert(bufnr, 1)
+    vim.cmd("normal! u")
+
+    assert.same({ "a", "X", "c", "d", "Y" }, lines(bufnr))
+  end)
+
+  it("keeps your own edit out of its undo step", function()
+    local bufnr = review_file("a\nX\nc\nd\nY\nf\n", { "a", "b", "c", "d", "e", "f" })
+    vim.api.nvim_buf_set_lines(bufnr, 5, 6, false, { "typed" })
+
+    review.revert(bufnr, 1)
+    assert.same({ "a", "b", "c", "d", "Y", "typed" }, lines(bufnr))
+    vim.cmd("normal! u")
+
+    assert.same({ "a", "X", "c", "d", "Y", "typed" }, lines(bufnr))
+  end)
+
+  it("works from the key, on the hunk under the cursor", function()
+    local bufnr, path = review_file("a\nX\nc\nd\nY\n", { "a", "b", "c", "d", "e" })
+    vim.api.nvim_win_set_cursor(0, { 5, 0 })
+
+    press("kx")
+
+    assert.same({ "a", "X", "c", "d", "e" }, lines(bufnr))
+    assert.equal("a\nX\nc\nd\ne\n", helpers.read_file(path))
+  end)
+
+  it("resolves the review when the last hunk is reverted", function()
+    local bufnr, _, calls = review_file("a\nX\nc\n", { "a", "b", "c" })
+
+    review.revert(bufnr, 1)
+
+    assert.same({ "resolved" }, calls.done)
+    assert.is_false(review.is_attached(bufnr))
+    assert.same({}, helpers.marks(bufnr))
+  end)
+
+  it("reverts a buffer that has no file without writing", function()
+    local opts, calls = recorder()
+    local bufnr = helpers.buffer({ "a", "X", "c" })
+    review.attach(bufnr, { "a", "b", "c" }, opts)
+
+    review.revert(bufnr, 1)
+
+    assert.same({ "a", "b", "c" }, lines(bufnr))
+    assert.equal(1, #calls.revert)
+  end)
+
+  it("reverts a buffer with CRLF line endings", function()
+    local bufnr, path = helpers.file_buffer("a\r\nX\r\nc\r\n")
+    assert.equal("dos", vim.bo[bufnr].fileformat)
+    review.attach(bufnr, { "a", "b", "c" }, {})
+
+    review.revert(bufnr, 1)
+
+    assert.same({ "a", "b", "c" }, lines(bufnr))
+    assert.equal("a\r\nb\r\nc\r\n", helpers.read_file(path))
+  end)
+end)
+
+describe("review engine keep_all and revert_all", function()
+  -- Three hunks: b -> X1 X2 (rows 2-3), e deleted (after row 5), "new" added at the end (row 8).
+  local base = { "a", "b", "c", "d", "e", "f", "g" }
+  local text = "a\nX1\nX2\nc\nd\nf\ng\nnew\n"
+
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("keeps everything at once: the base becomes the text", function()
+    local bufnr, _, calls = review_file(text, base)
+    assert.equal(3, #review.hunks(bufnr))
+
+    review.keep_all(bufnr)
+
+    assert.same({ { "a", "X1", "X2", "c", "d", "f", "g", "new" } }, calls.base)
+    assert.same({ "resolved" }, calls.done)
+    assert.same({ "a", "X1", "X2", "c", "d", "f", "g", "new" }, lines(bufnr))
+  end)
+
+  it("keeps an emptied file as an empty base", function()
+    local opts, calls = recorder()
+    local bufnr = helpers.file_buffer("")
+    review.attach(bufnr, { "a", "b" }, opts)
+
+    review.keep_all(bufnr)
+
+    assert.same({ {} }, calls.base)
+    assert.same({ "resolved" }, calls.done)
+  end)
+
+  it("keeps everything from the key", function()
+    local bufnr, _, calls = review_file(text, base)
+
+    press("KO")
+
+    assert.equal(1, #calls.base)
+    assert.same({ "resolved" }, calls.done)
+    assert.is_false(review.is_attached(bufnr))
+  end)
+
+  it("reverts everything: the buffer becomes the base, the file is written once", function()
+    local bufnr, path, calls = review_file(text, base)
+    local writes = 0
+    vim.api.nvim_create_autocmd("BufWritePost", {
+      buffer = bufnr,
+      callback = function()
+        writes = writes + 1
+      end,
+    })
+
+    review.revert_all(bufnr)
+
+    assert.same(base, lines(bufnr))
+    assert.equal("a\nb\nc\nd\ne\nf\ng\n", helpers.read_file(path))
+    assert.equal(1, writes)
+    assert.same({ "resolved" }, calls.done)
+    assert.same({}, calls.base)
+  end)
+
+  it("tells about every hunk, in the file's lines after all reverts", function()
+    local bufnr, _, calls = review_file(text, base)
+
+    review.revert_all(bufnr)
+
+    assert.equal(3, #calls.revert)
+    assert.same({ 2, 5, 8 }, {
+      calls.revert[1].line,
+      calls.revert[2].line,
+      calls.revert[3].line,
+    })
+    assert.same({ { "b" }, { "e" }, {} }, {
+      calls.revert[1].base_lines,
+      calls.revert[2].base_lines,
+      calls.revert[3].base_lines,
+    })
+    assert.same({ { "X1", "X2" }, {}, { "new" } }, {
+      calls.revert[1].claude_lines,
+      calls.revert[2].claude_lines,
+      calls.revert[3].claude_lines,
+    })
+  end)
+
+  it("is one undo step", function()
+    local bufnr = review_file(text, base)
+
+    review.revert_all(bufnr)
+    vim.cmd("normal! u")
+
+    assert.same({ "a", "X1", "X2", "c", "d", "f", "g", "new" }, lines(bufnr))
+  end)
+
+  it("reverts everything from the key", function()
+    local bufnr, path = review_file(text, base)
+
+    press("KX")
+
+    assert.same(base, lines(bufnr))
+    assert.equal("a\nb\nc\nd\ne\nf\ng\n", helpers.read_file(path))
+  end)
+
+  it("leaves the file alone with write_on_revert = false", function()
+    local bufnr, path = review_file(text, base, { write_on_revert = false })
+
+    review.revert_all(bufnr)
+
+    assert.same(base, lines(bufnr))
+    assert.equal(text, helpers.read_file(path))
+  end)
+end)
