@@ -19,6 +19,7 @@ local ok, err = pcall(function()
   local output = require("claudecode.hooks.handlers").handle(event, input, {
     dir = dir,
     nvim = os.getenv("CLAUDECODE_NVIM") or os.getenv("NVIM"),
+    before_write = os.getenv("CLAUDECODE_REVIEW_BEFORE_WRITE") == "1",
   })
   if output then
     io.write(vim.json.encode(output))

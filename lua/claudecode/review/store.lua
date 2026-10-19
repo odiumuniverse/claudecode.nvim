@@ -177,14 +177,16 @@ end
 ---Replace the base for `path`: you kept a hunk, so its text is reviewed.
 ---@param path string
 ---@param text string
-function Store:set(path, text)
+---@param new_file boolean|nil Keep the base marked new (default: no longer new)
+function Store:set(path, text, new_file)
   path = M.normalize(path)
   ensure_dir(self.dir)
   ensure_dir(self.dir .. "/bases")
   local final = self:_base_file(path)
   local old = self:get(path)
   local tmp = tmp_name(final)
-  local base = { path = path, text = text, new_file = false, created_at = old and old.created_at or os.time() }
+  local base =
+    { path = path, text = text, new_file = new_file == true, created_at = old and old.created_at or os.time() }
   if write_all(tmp, encode_base(base)) then
     uv.fs_rename(tmp, final)
   else
@@ -267,6 +269,51 @@ end
 
 local function bash_file(self, id)
   return id_file(self, "bash", id)
+end
+
+-- An accepted edit whose PostToolUse never came (the call failed) leaves its file behind.
+local STALE_BEFORE_S = 24 * 3600
+
+---Keep the file text from before an edit that needs no review, until its PostToolUse.
+---@param id string tool_use_id of the edit
+---@param text string
+---@return boolean saved
+function Store:save_before(id, text)
+  local file = id_file(self, "accepting", id)
+  if not file then
+    return false
+  end
+  ensure_dir(self.dir)
+  ensure_dir(self.dir .. "/accepting")
+  local handle = uv.fs_scandir(self.dir .. "/accepting")
+  local cutoff = os.time() - STALE_BEFORE_S
+  while handle do
+    local name = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+    local stat = uv.fs_stat(self.dir .. "/accepting/" .. name)
+    if stat and stat.mtime.sec < cutoff then
+      uv.fs_unlink(self.dir .. "/accepting/" .. name)
+    end
+  end
+  local tmp = tmp_name(file)
+  if not write_all(tmp, text) then
+    uv.fs_unlink(tmp)
+    return false
+  end
+  return uv.fs_rename(tmp, file) == true
+end
+
+---@param id string
+---@return string|nil text The file before the edit, once
+function Store:take_before(id)
+  local file = id_file(self, "accepting", id)
+  local text = file and read_all(file)
+  if file then
+    uv.fs_unlink(file)
+  end
+  return text or nil
 end
 
 ---@param id string tool_use_id of the Bash call

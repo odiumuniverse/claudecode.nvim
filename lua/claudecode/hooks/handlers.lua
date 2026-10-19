@@ -54,6 +54,42 @@ local function edit_path(input)
   return type(path) == "string" and path ~= "" and path or nil
 end
 
+-- Claude's permission mode picks the review (docs/DESIGN.md, "Modes"): manual asks before every
+-- edit, so the proposal opens in Neovim; accept-edits takes edits without review; the other modes
+-- let Claude go on and leave hunks behind.
+local ASK_MODES = { default = true, manual = true }
+
+local function accepting(input)
+  return input.permission_mode == "acceptEdits"
+end
+
+local function ask()
+  return {
+    hookSpecificOutput = {
+      hookEventName = "PreToolUse",
+      permissionDecision = "ask",
+      permissionDecisionReason = "Review this edit in Neovim",
+    },
+  }
+end
+
+---Move a base along an edit made without review: only the hunks still waiting for you stay.
+local function carry(store, path, before, current)
+  local base = store:get(path)
+  if not base or not before or not current then
+    return false
+  end
+  local text = require("claudecode.review.text")
+  local lines = require("claudecode.review.hunks").carry(
+    (text.to_lines(base.text)),
+    (text.to_lines(before)),
+    (text.to_lines(current))
+  )
+  local eol = base.text == "" and current:sub(-1) == "\n" or base.text:sub(-1) == "\n"
+  store:set(path, text.to_text(lines, eol), base.new_file)
+  return true
+end
+
 local function context(event, text)
   if not text then
     return nil
@@ -67,14 +103,28 @@ local function take_summary(store, input)
   return require("claudecode.review.summary").render(records, input.cwd)
 end
 
-local function pre_tool_use(store, input)
+local function pre_tool_use(store, input, env)
   if EDIT_TOOLS[input.tool_name] then
     local path = edit_path(input)
-    if path and reviewable(read_all(path)) then
+    local text, too_big = nil, false
+    if path then
+      text, too_big = read_all(path)
+    end
+    if path and reviewable(text, too_big) then
+      if accepting(input) then
+        -- No review for this edit: a base already waiting for you only moves along with it.
+        if store:get(path) then
+          store:save_before(input.tool_use_id, text or "")
+        end
+        return nil
+      end
       local stamp = require("claudecode.review.store").stamp(path)
       -- An earlier edit of this file was refused and you changed the file since: its base is out of date.
       store:forget_refused(path, stamp)
       store:begin_edit(input.tool_use_id, path, store:snapshot(path), stamp)
+      if ASK_MODES[input.permission_mode] and env.before_write then
+        return ask()
+      end
     end
   elseif input.tool_name == "Bash" then
     store:drop_stale_bash(M.STALE_BASH_S)
@@ -89,7 +139,16 @@ local function post_tool_use(store, input, env)
   local payload =
     { event = "PostToolUse", dir = env.dir, tool_name = input.tool_name, files = {}, untracked_changed = {} }
 
-  if EDIT_TOOLS[input.tool_name] then
+  if EDIT_TOOLS[input.tool_name] and accepting(input) then
+    local path = edit_path(input)
+    if path then
+      local current, too_big = read_all(path)
+      local before = store:take_before(input.tool_use_id)
+      if not too_big and carry(store, path, before, current) then
+        payload.files[1] = require("claudecode.review.store").normalize(path)
+      end
+    end
+  elseif EDIT_TOOLS[input.tool_name] then
     local path = edit_path(input)
     store:end_edit(input.tool_use_id, path)
     if path then
@@ -104,21 +163,31 @@ local function post_tool_use(store, input, env)
     local snap = store:take_bash(input.tool_use_id)
     if snap then
       local changes = require("claudecode.hooks.git").changes(snap)
-      for _, change in ipairs(changes.tracked) do
-        if reviewable(change.text) and reviewable(read_all(change.path)) then
-          store:forget_refused(change.path)
-          store:snapshot_text(change.path, change.text or "", change.text == nil)
-          payload.files[#payload.files + 1] = change.path
+      if accepting(input) then
+        -- Bash's edits need no review either: only bases already waiting for you move along.
+        for _, change in ipairs(changes.tracked) do
+          local current, too_big = read_all(change.path)
+          if not too_big and carry(store, change.path, change.text, current) then
+            payload.files[#payload.files + 1] = change.path
+          end
         end
-      end
-      for _, path in ipairs(changes.created) do
-        if reviewable(read_all(path)) then
-          store:forget_refused(path)
-          store:snapshot_text(path, "", true)
-          payload.files[#payload.files + 1] = path
+      else
+        for _, change in ipairs(changes.tracked) do
+          if reviewable(change.text) and reviewable(read_all(change.path)) then
+            store:forget_refused(change.path)
+            store:snapshot_text(change.path, change.text or "", change.text == nil)
+            payload.files[#payload.files + 1] = change.path
+          end
         end
+        for _, path in ipairs(changes.created) do
+          if reviewable(read_all(path)) then
+            store:forget_refused(path)
+            store:snapshot_text(path, "", true)
+            payload.files[#payload.files + 1] = path
+          end
+        end
+        payload.untracked_changed = changes.untracked_changed
       end
-      payload.untracked_changed = changes.untracked_changed
       for _, file in ipairs(payload.files) do
         store:end_edit(nil, file)
       end
@@ -131,12 +200,12 @@ end
 
 ---@param event string Hook event name from argv
 ---@param input table Decoded hook input
----@param env { dir: string, nvim: string|nil }
+---@param env { dir: string, nvim: string|nil, before_write: boolean|nil }
 ---@return table|nil output JSON object for stdout
 function M.handle(event, input, env)
   local store = require("claudecode.review.store").new(env.dir)
   if event == "PreToolUse" then
-    pre_tool_use(store, input)
+    return pre_tool_use(store, input, env)
   elseif event == "PostToolUse" then
     return post_tool_use(store, input, env)
   elseif event == "UserPromptSubmit" then
