@@ -84,10 +84,11 @@ The keys exist only in buffers under review. The list of files uses snacks.picke
 
 ### What gets reviewed
 
-- `Edit`, `Write` and `NotebookEdit`: always.
-- `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list.
+- `Edit`, `Write`, `MultiEdit` and `NotebookEdit`: always.
+- `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. A file that git checks out with CRLF (`eol=crlf`, `core.autocrlf`) is compared and reverted with its CRLF endings.
 - An untracked file Bash rewrote: only when the file is open in Neovim, because its old text exists nowhere else.
-- Not reviewed: binary files, files over 2 MB, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
+- Not reviewed: binary files, files over 2 MB (they are not even read), files that `.gitignore` covers and Bash creates, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
+- A file Claude was not allowed to create or edit stays yours: if you made or changed it meanwhile, it is not taken for Claude's work.
 
 ### How it works
 
@@ -107,7 +108,7 @@ Set `review.before_write = false` to keep upstream's diff views, or set your own
 
 ## Zen mode
 
-`<M-z>` puts Claude full screen in a tab of its own and brings you back to the code, with Claude in its split. It works in normal mode and inside the Claude terminal; other terminals still get the key. Above Claude, zen shows how many files wait for review. When Claude asks to approve an edit in Manual mode, zen steps aside for the proposal and comes back once you have decided.
+`<M-z>` puts Claude full screen in a tab of its own and brings you back to the code, with Claude in its split. It works in normal mode and inside the Claude terminal; other terminals still get the key. Above Claude, zen shows how many files wait for review. When Claude asks to approve an edit in Manual mode, zen steps aside for the proposal and comes back once you have decided. Zen remembers the tab it started from and returns there. If you switch to another tab while zen is open, the key takes you back into zen instead of opening a second one.
 
 `:ClaudeCodeZen` does the same; arguments start a new session, as in `:ClaudeCodeZen --resume`.
 
@@ -150,7 +151,7 @@ Highlight groups, all linked by default so your colorscheme applies: `ClaudeCode
 
 `User` events for your config:
 
-- `ClaudeCodeReviewChanged`, `data = { bufnr, path, hunks }`: a buffer's hunks changed.
+- `ClaudeCodeReviewChanged`, `data = { bufnr, path, hunks }`: a buffer's hunks changed; `hunks` is how many are left.
 - `ClaudeCodeReviewPending`, `data = { count, files }`: the list of files waiting for review changed.
 - `ClaudeCodeDiffOpened` now also fires for proposals, with `layout = "provider"`.
 
