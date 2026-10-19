@@ -98,11 +98,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Neovim
-        uses: rhysd/action-setup-vim@8e931b9954b19d4203d5caa5ff5521f3bc21dcc7 # v1.4.2
+      # Neovim pinned in mise.toml, as in the jobs above. rhysd/action-setup-vim broke on the
+      # Ubuntu 26 runners (EXDEV renaming its download across devices).
+      - name: Set up Neovim with mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          neovim: true
-          version: stable
+          install_args: neovim
 
       - name: Install test dependencies
         run: |
