@@ -1,0 +1,6 @@
+*claudecode-fork.txt*  Hunk review and zen mode for claudecode.nvim
+
+                                                          *claudecode-fork*
+Skeleton.
+
+ vim:tw=78:ts=8:ft=help:norl:
