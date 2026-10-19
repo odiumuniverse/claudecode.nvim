@@ -1,6 +1,545 @@
 *claudecode-fork.txt*  Hunk review and zen mode for claudecode.nvim
 
-                                                          *claudecode-fork*
-Skeleton.
+==============================================================================
+CONTENTS                                            *claudecode-fork-contents*
+
+    Introduction ........................................... |claudecode-fork|
+    Requirements .............................. |claudecode-fork-requirements|
+    Hunk review .......................................... |claudecode-review|
+      Keys .......................................... |claudecode-review-keys|
+      Files waiting for review ..................... |claudecode-review-files|
+      What gets reviewed ........................... |claudecode-review-scope|
+      Your edits ................................... |claudecode-review-edits|
+      Reverts and Claude ........................... |claudecode-review-notes|
+      Hooks and state .............................. |claudecode-review-state|
+    Review before write ..................... |claudecode-review-before-write|
+    Zen mode ................................................ |claudecode-zen|
+    Commands ...................................... |claudecode-fork-commands|
+    Options ........................................ |claudecode-fork-options|
+    Events .......................................... |claudecode-fork-events|
+    Highlight groups ............................ |claudecode-fork-highlights|
+    Diff provider ................................. |claudecode-diff-provider|
+    Health check .................................... |claudecode-fork-health|
+
+==============================================================================
+INTRODUCTION                                                 *claudecode-fork*
+
+This fork of claudecode.nvim keeps everything upstream does: the IDE
+connection to the Claude Code CLI, its commands, keymaps and options. It adds
+two features:
+
+    Hunk review   Keep or revert each change Claude makes, as Cursor does,
+                  instead of accepting or rejecting a whole file.
+    Zen mode      Run Claude full screen inside Neovim and flip to the code
+                  with one key.
+
+Claude runs as the unmodified `claude` binary, so you sign in with your own
+Claude subscription.
+
+Upstream has no Vim help. Its commands and options are in the README:
+https://github.com/coder/claudecode.nvim#readme
+
+The reasons behind the design are in docs/DESIGN.md (in Russian).
+
+==============================================================================
+REQUIREMENTS                                    *claudecode-fork-requirements*
+
+- Neovim 0.11 or newer. Older versions skip the fork's setup, so the plugin
+  behaves as upstream and nothing in this file exists.
+- Claude started from Neovim: `:ClaudeCode`, |:ClaudeCodeZen| or `cz`. Review
+  after write rides on hooks attached at launch (|claudecode-review-state|).
+- `git`, to review the edits Claude makes through Bash.
+- For zen, the Claude terminal inside Neovim: `terminal.provider` set to
+  "snacks", "native" or "auto".
+
+==============================================================================
+HUNK REVIEW                                                *claudecode-review*
+
+Claude edits your files right away, as it does in a terminal. The plugin then
+draws what changed on top of the code:
+
+- deleted lines appear in red above the change, as virtual lines that are
+  not part of the file;
+- added lines get a green background;
+- inside a changed line, only the changed words stand out
+  (|claudecode-review.word_diff|);
+- the hunk under the cursor shows a hint at the end of its first line:
+  "ko keep · kx revert" (|claudecode-review.hint|).
+
+A hunk is a run of changed lines. The plugin does not use the sign column.
+
+A buffer is under review while its file holds hunks you have not decided on.
+Hunks are measured against the file as it was before Claude's first edit that
+you have not reviewed. They pile up across Claude's turns until you keep or
+revert them.
+
+------------------------------------------------------------------------------
+KEYS                                                  *claudecode-review-keys*
+
+The keys exist only in buffers under review. They are buffer-local normal
+mode mappings. A mapping the buffer already had on the same key comes back
+when the review ends. Set a key to `false` to leave it unmapped
+(|claudecode-review.keymaps|).
+
+    Key   Option                      Action ~
+    ko    review.keymaps.keep         Keep the hunk under the cursor
+    kx    review.keymaps.revert       Revert it; the file is written at once
+    KO    review.keymaps.keep_all     Keep every hunk in the buffer
+    KX    review.keymaps.revert_all   Revert every hunk in the buffer
+    ]k    review.keymaps.next         Next hunk; takes a count
+    [k    review.keymaps.prev         Previous hunk; takes a count
+    ]K    review.keymaps.last         Last hunk
+    [K    review.keymaps.first        First hunk
+
+Keeping makes Claude's text the new base. The buffer and the file stay as
+they are.
+
+Reverting brings the base text back into the buffer and writes the file at
+once, together with your unsaved edits in that buffer. One undo step takes
+the revert back. If the file changed on disk since the buffer last read or
+wrote it, because Claude wrote again, nothing is reverted. The plugin warns,
+reloads the buffer when it can, and you revert again.
+
+`]k` and `[k` never wrap. A count past the last hunk goes as far as it can.
+They set the jump mark, so <C-o> goes back. `ko` and `kx` outside a hunk say
+"no hunk here".
+
+------------------------------------------------------------------------------
+FILES WAITING FOR REVIEW                             *claudecode-review-files*
+
+|:ClaudeCodeReview| and `review.files_keymap` (`<leader>ak`) open a list of
+the files that have hunks you have not decided on. Each entry shows the path,
+"(new)" for a file Claude created, and the lines added and removed. For each
+file you can:
+
+    open          Go to the file, at its first hunk.
+    keep all      Keep every hunk in the file.
+    revert all    Revert every hunk in the file and tell Claude.
+
+The list uses snacks.picker, fzf-lua or `vim.ui.select`, whichever
+`review.picker` picks (|claudecode-review.picker|). In snacks.picker and
+fzf-lua, <CR> opens the file, <A-o> keeps all of it and <A-x> reverts all of
+it. `vim.ui.select` asks which of the three to do. When no file waits, the
+command says "nothing waits for review".
+
+------------------------------------------------------------------------------
+WHAT GETS REVIEWED                                   *claudecode-review-scope*
+
+Reviewed:
+
+- Edit, Write, MultiEdit and NotebookEdit: always.
+- Bash in a git repository: every file it changed, created or deleted. The
+  plugin snapshots the work tree before the call with `git stash create`,
+  which does not touch your stash list. Files that git checks out with CRLF
+  endings (`eol=crlf`, `core.autocrlf`) keep them through review and revert.
+- An untracked file Bash rewrote: only when the file is open in Neovim and
+  unmodified, because its old text exists nowhere else.
+
+Not reviewed:
+
+- binary files (a NUL byte in the first 8000 bytes) and files over 2 MB;
+- new files Bash creates in paths that `.gitignore` covers;
+- edits outside a Claude tool call: yours, `git pull`, other programs;
+- Bash edits outside git repositories.
+
+If you refuse an edit and then create or change that file yourself, review
+treats the file as yours.
+
+------------------------------------------------------------------------------
+YOUR EDITS                                           *claudecode-review-edits*
+
+You can edit a buffer under review.
+
+- An edit outside a hunk becomes part of the file and of the base. It does
+  not become a hunk.
+- An edit inside a hunk changes Claude's proposal. The hunk waits for `ko` or
+  `kx`.
+- After `kx`, `u` brings Claude's text back as your own edit: it joins the
+  base and is no hunk.
+
+When Claude writes a file, the PostToolUse hook tells Neovim to run
+`:checktime`, and open buffers reload. A buffer with unsaved edits does not
+reload: the plugin warns you, and review starts once `:edit!` loads Claude's
+version.
+
+------------------------------------------------------------------------------
+REVERTS AND CLAUDE                                   *claudecode-review-notes*
+
+Claude Code never tells the model that you rejected part of an edit. The
+plugin adds a short note to Claude's context instead. The note arrives right
+after Claude's next file edit or Bash call, or with your next message,
+whichever comes first. Then the plugin forgets it.
+
+The note names the file and line, shows Claude's text and the text that came
+back, and asks Claude not to reapply the change unless you ask. It shows at
+most 20 lines of each text and 8000 characters in all; changes past that limit
+appear as a list of file names.
+
+------------------------------------------------------------------------------
+HOOKS AND STATE                                      *claudecode-review-state*
+
+Every Claude session the plugin starts gets `claude --settings {file}` with
+three hooks: PreToolUse and PostToolUse for Edit, Write, MultiEdit,
+NotebookEdit and Bash, and UserPromptSubmit. Claude Code adds them to the
+hooks you already have. It does not replace them. The plugin rewrites the
+settings file, `stdpath("state")/claudecode/hooks-settings.json`, at every
+launch.
+
+Each hook is a short `nvim --clean --headless -l` script. It copies the file
+before the edit and sends Neovim a notification without waiting for an
+answer. A hook never blocks Claude: on any error it writes to `hooks.log` and
+exits with 0, so at worst one edit escapes review.
+
+If you start Claude yourself (`terminal.provider = "none"`), no hooks are
+attached and review after write stays off. Review before write still works,
+because it needs only the IDE connection.
+
+The state lives in `stdpath("state")/claudecode/review/{hash}/`, where {hash}
+is the SHA-256 of the project root. Only you can read the directory (mode
+0700). It holds the text of each file before Claude's first unreviewed edit,
+the reverts not yet reported to Claude, and `hooks.log` with the last hook
+errors (kept under 64 KB). The directory empties as you decide on the hunks.
+
+The root is the git repository around Neovim's working directory when Claude
+starts, or the directory itself outside git. Start Neovim anywhere in the same
+repository to get your reviews back.
+
+==============================================================================
+REVIEW BEFORE WRITE                           *claudecode-review-before-write*
+
+In Manual mode Claude asks before each edit and sends its proposal over the
+IDE connection. With `review.before_write` on, the plugin opens the proposal
+in place of the file (|claudecode-review.before_write|). It draws the same
+hunks and keys as review after write. The window shows "Claude proposes
+changes to {file} · :w accepts the rest", and the buffer sets
+`b:claudecode_proposal`.
+
+You decide hunk by hunk. `ko` keeps a hunk of the proposal, `kx` reverts it
+without touching the file on disk. When no hunk is left, the plugin answers
+Claude: the text you kept goes to Claude, who writes it; if you reverted every
+hunk, Claude gets a rejection.
+
+- `:w` in the proposal answers with what is there now. A buffer equal to the
+  file is a rejection. `:ClaudeCodeDiffAccept` does the same.
+- `:ClaudeCodeDiffDeny` refuses the whole proposal, whatever hunks you kept,
+  and gives the window back to your file at once.
+- The text you accept becomes the base, so review after write does not show
+  it again. Hunks you reverted reach Claude as a note
+  (|claudecode-review-notes|); the CLI itself only says that you modified the
+  proposed content.
+- The proposal opens even when the file's buffer has unsaved edits.
+- When zen is open, it steps aside for the proposal and comes back once you
+  have decided (|claudecode-zen|).
+
+Claude sends UTF-8. The plugin compares it with the file in the file's own
+encoding, so a Latin-1 or UTF-16 file shows only what Claude changed. It reads
+the encoding from the open buffer, or else from the byte order mark and
+'fileencodings'. The protocol carries text only, so Claude writes UTF-8 after
+you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
+The file's CRLF endings stay; the final newline follows Claude's text.
+
+If your Claude settings allow `Edit` without asking (`permissions.allow`),
+Claude never asks about edits and this mode only shows up for `Write`. Review
+after write covers the rest.
+
+Set `review.before_write = false` to keep upstream's diff views, or set your
+own `diff_opts.provider` (|claudecode-diff-provider|).
+
+==============================================================================
+ZEN MODE                                                      *claudecode-zen*
+
+|:ClaudeCodeZen| and `zen.keymap` (`<M-z>`) put Claude full screen in a tab of
+its own, and bring you back to the code with Claude in its split. The key
+works in normal mode and inside the Claude terminal; other terminals still
+get the key (|claudecode-zen.keymap|).
+
+- Above Claude, zen shows how many files wait for review, and the key that
+  lists them: "2 files wait for review · <leader>ak".
+- Leaving zen returns you to the tab you entered from.
+- If you switch to another tab while zen is open, the key takes you back into
+  zen instead of building a second one.
+- When Claude asks to approve an edit in Manual mode, zen steps aside for the
+  proposal and comes back once you have decided
+  (|claudecode-review-before-write|).
+- When the Claude process ends, zen closes.
+
+                                                           *claudecode-zen-cz*
+`bin/cz` opens Neovim straight into zen. Put it on your PATH, then:
+>sh
+    ln -s ~/src/claudecode.nvim/bin/cz ~/.local/bin/cz
+    cz            # new session
+    cz --resume   # pick a session to resume
+<
+Leaving zen after `cz` builds a tab for the code, since there was none.
+
+Zen needs Claude inside Neovim. With `terminal.provider` set to "external" or
+"none", it warns about that.
+
+==============================================================================
+COMMANDS                                            *claudecode-fork-commands*
+
+Upstream's commands all work as before. The fork adds two commands. Two of
+upstream's also work on proposals (|claudecode-review-before-write|).
+
+                                                           *:ClaudeCodeReview*
+:ClaudeCodeReview       Open the list of files with hunks you have not
+                        decided on (|claudecode-review-files|). Defined when
+                        `review.enabled` is true.
+
+                                                              *:ClaudeCodeZen*
+:ClaudeCodeZen [{args}] Toggle zen (|claudecode-zen|). {args} go to the
+                        `claude` command when zen has to start Claude, as in
+                        `:ClaudeCodeZen --resume`. They do nothing when
+                        Claude already runs. Defined when `zen.enabled` is
+                        true.
+
+:ClaudeCodeDiffAccept   In a proposal, accept what is there now.
+:ClaudeCodeDiffDeny     In a proposal, refuse all of it.
+
+==============================================================================
+OPTIONS                                              *claudecode-fork-options*
+
+The options go into the same table as upstream's, passed to
+`require("claudecode").setup()`. The fork reads two keys, `review` and `zen`.
+A wrong type or an unknown key in `review.keymaps` makes `setup()` fail with
+a message that names the option. Defaults:
+>lua
+    require("claudecode").setup({
+      review = {
+        enabled = true,
+        before_write = true,
+        keymaps = {
+          keep = "ko", revert = "kx", keep_all = "KO", revert_all = "KX",
+          next = "]k", prev = "[k", last = "]K", first = "[K",
+        },
+        files_keymap = "<leader>ak",
+        hint = true,
+        word_diff = true,
+        picker = "auto",
+      },
+      zen = {
+        enabled = true,
+        keymap = "<M-z>",
+      },
+    })
+<
+The `review` table is described under |claudecode-review|, the `zen` table
+under |claudecode-zen|.
+
+review.enabled                                     *claudecode-review.enabled*
+    Type: boolean. Default: `true`.
+    Turns hunk review on. With `false` no hooks are attached, and the review
+    keys, |:ClaudeCodeReview| and review before write are gone.
+
+review.before_write                           *claudecode-review.before_write*
+    Type: boolean. Default: `true`.
+    Review Manual-mode proposals with the same engine
+    (|claudecode-review-before-write|). The plugin sets `diff_opts.provider`
+    unless you did. With `false` upstream's diff views stay.
+
+review.keymaps                                     *claudecode-review.keymaps*
+    Type: table. The keys below. Each is a key string or `false`, which
+    leaves the action unmapped. A name that is not below makes `setup()` fail.
+    Buffer-local while a file is under review (|claudecode-review-keys|).
+
+review.keymaps.keep                           *claudecode-review.keymaps.keep*
+    Type: string or false. Default: `"ko"`.
+    Keep the hunk under the cursor.
+
+review.keymaps.revert                       *claudecode-review.keymaps.revert*
+    Type: string or false. Default: `"kx"`.
+    Revert the hunk under the cursor and write the file.
+
+review.keymaps.keep_all                   *claudecode-review.keymaps.keep_all*
+    Type: string or false. Default: `"KO"`.
+    Keep every hunk in the buffer.
+
+review.keymaps.revert_all               *claudecode-review.keymaps.revert_all*
+    Type: string or false. Default: `"KX"`.
+    Revert every hunk in the buffer.
+
+review.keymaps.next                           *claudecode-review.keymaps.next*
+    Type: string or false. Default: `"]k"`.
+    Jump to the next hunk. Takes a count.
+
+review.keymaps.prev                           *claudecode-review.keymaps.prev*
+    Type: string or false. Default: `"[k"`.
+    Jump to the previous hunk. Takes a count.
+
+review.keymaps.last                           *claudecode-review.keymaps.last*
+    Type: string or false. Default: `"]K"`.
+    Jump to the last hunk.
+
+review.keymaps.first                         *claudecode-review.keymaps.first*
+    Type: string or false. Default: `"[K"`.
+    Jump to the first hunk.
+
+review.files_keymap                           *claudecode-review.files_keymap*
+    Type: string or false. Default: `"<leader>ak"`.
+    Global normal-mode key for |:ClaudeCodeReview|. `false` leaves it
+    unmapped. Zen shows the key next to its counter.
+
+review.hint                                           *claudecode-review.hint*
+    Type: boolean or string. Default: `true`.
+    The hint at the hunk under the cursor. `true` builds it from your keys,
+    "ko keep · kx revert" with the defaults. A string replaces it, `false`
+    hides it.
+
+review.word_diff                                 *claudecode-review.word_diff*
+    Type: boolean. Default: `true`.
+    Highlight only the changed words inside changed lines.
+
+review.picker                                       *claudecode-review.picker*
+    Type: string. Default: `"auto"`.
+    Which list shows the files waiting for review: "snacks", "fzf" (fzf-lua)
+    or "select" (`vim.ui.select`). "auto" takes the first one it finds, in
+    that order.
+
+zen.enabled                                           *claudecode-zen.enabled*
+    Type: boolean. Default: `true`.
+    Turns zen on. With `false` |:ClaudeCodeZen| and the zen key do not exist.
+
+zen.keymap                                             *claudecode-zen.keymap*
+    Type: string or false. Default: `"<M-z>"`.
+    Toggles zen in normal mode and inside the Claude terminal. `false`
+    leaves it unmapped; |:ClaudeCodeZen| still works.
+
+==============================================================================
+EVENTS                                                *claudecode-fork-events*
+
+The fork emits these `User` autocmds. The handler gets the fields in
+`ev.data`:
+>lua
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "ClaudeCodeReviewPending",
+      callback = function(ev)
+        vim.g.claude_waiting = ev.data.count
+      end,
+    })
+<
+ClaudeCodeReviewChanged                              *ClaudeCodeReviewChanged*
+    The hunks of a buffer were worked out again.
+        bufnr    integer  the buffer
+        path     string   the buffer's file name
+        hunks    integer  how many hunks are left
+
+ClaudeCodeReviewPending                              *ClaudeCodeReviewPending*
+    The plugin counted the files waiting for review again. The list may be
+    unchanged. Zen draws its counter from this event.
+        count    integer  how many files wait
+        files    string[] their absolute paths, sorted
+
+ClaudeCodeDiffOpened
+    Upstream's event. For proposals shown by a diff provider, including
+    review before write, it fires too, once `open` has returned. It carries
+    only these fields, none of the window fields of upstream's own diffs:
+        tab_name, file_path, new_file_path, is_new_file
+        layout   string   always "provider"
+
+ClaudeCodeDiffClosed
+    Upstream's event. Provider diffs fire it after `close` ran.
+        tab_name, file_path, reason
+
+==============================================================================
+HIGHLIGHT GROUPS                                  *claudecode-fork-highlights*
+
+All groups are defined with `default = true`, so your colorscheme and
+config win. The review groups are defined again after `:colorscheme`.
+
+    ClaudeCodeReviewAdd         link to DiffAdd; background of added lines
+    ClaudeCodeReviewAddText     link to DiffText; changed words in an added
+                                line
+    ClaudeCodeReviewDelete      link to DiffDelete; deleted lines, which are
+                                virtual lines
+    ClaudeCodeReviewDeleteText  bold and strikethrough only, drawn over
+                                ClaudeCodeReviewDelete for the changed words
+                                in a deleted line
+    ClaudeCodeReviewHint        link to Comment; the hint, and the window bar
+                                of a proposal
+    ClaudeCodeZenPending        link to DiagnosticWarn; the counter in zen
+
+==============================================================================
+DIFF PROVIDER                                       *claudecode-diff-provider*
+
+`diff_opts.provider` takes over the `openDiff` call from the built-in native
+and unified views. Review before write is one such provider; yours replaces
+it.
+>lua
+    require("claudecode").setup({
+      diff_opts = {
+        provider = {
+          open = function(ctx)
+            -- Show ctx.new_file_contents against ctx.old_file_path, then
+            -- answer Claude once:
+            --   ctx.accept(text)  Claude writes `text` to the file
+            --   ctx.reject()      the file stays as it is
+          end,
+          close = function(ctx, reason)
+            -- Remove your UI.
+          end,
+          accept_command = function(ctx) -- optional
+            ctx.accept(ctx.new_file_contents)
+          end,
+          reject_command = function(ctx) -- optional
+            ctx.reject()
+          end,
+        },
+      },
+    })
+<
+`open` and `close` are required. `accept_command` is what
+`:ClaudeCodeDiffAccept` calls; without it the proposal is accepted as is.
+`reject_command` is what `:ClaudeCodeDiffDeny` calls.
+
+`ctx` has these fields:
+    tab_name           string   name of the diff, unique per proposal
+    old_file_path      string   the file as it is now
+    new_file_path      string   where Claude will write
+    new_file_contents  string   Claude's proposed text
+    is_new_file        boolean  the file does not exist yet
+    accept(content)    Claude writes `content` to the file
+    reject()           the file stays as it is
+
+How it behaves:
+
+- Claude waits until you call `accept` or `reject`. Only the first call
+  counts.
+- The plugin calls `reject_command` when you run `:ClaudeCodeDiffDeny`, when
+  Claude closes the tab, when the Claude session disconnects and when a new
+  diff reuses the tab name. Claude gets a rejection once the handler
+  returns, even if the handler never called `reject`.
+- `accept` may pass text that differs from Claude's proposal. Claude writes
+  your text, but learns only that "the user modified your proposed content",
+  not what you changed.
+- `close` runs once per diff: after Claude closes the tab, when the session
+  disconnects, when a new diff reuses the tab name, and when `open` throws
+  (`reason` is "setup failed"). Make it safe to run on a half-built UI.
+- A provider gets the diff even when the file's buffer has unsaved edits. The
+  built-in views refuse it.
+- Claude Code (checked on 2.1.303 and 2.1.304) drops one trailing newline
+  from the text it gets back. `accept` adds one before answering, so the file
+  ends up with exactly your text. Upstream's own diff views lose the final
+  newline this way.
+
+The fork fires the User events ClaudeCodeDiffOpened and ClaudeCodeDiffClosed
+for provider diffs too (|claudecode-fork-events|).
+
+==============================================================================
+HEALTH CHECK                                          *claudecode-fork-health*
+
+>vim
+    :checkhealth claudecode.fork
+<
+The check reports:
+
+- whether Neovim is 0.11 or newer;
+- whether the review hooks are attached, and where their settings file is;
+- whether `git` is installed and Neovim has a server address;
+- how many files wait for review, where the state directory is, whether other
+  users can read it, and the last errors in `hooks.log`;
+- which list shows the files (|claudecode-review-files|);
+- whether zen can work with your `terminal.provider` (|claudecode-zen|).
+
+Upstream's own check, `:checkhealth claudecode`, covers the IDE connection.
 
  vim:tw=78:ts=8:ft=help:norl:
