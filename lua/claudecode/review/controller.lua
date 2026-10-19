@@ -181,7 +181,13 @@ function M.refresh_pending()
   if state.store then
     -- PreToolUse takes the base before Claude writes: it equals the file until then (or the file
     -- is not there yet), and the user may well be refreshing the list while Claude waits for permission.
-    local editing = state.store:editing(M.EDITING_MAX_AGE_S)
+    local editing, stale = state.store:editing(M.EDITING_MAX_AGE_S)
+    -- A refused edit never reports back, and what you changed since is yours, not Claude's.
+    for _, note in ipairs(stale) do
+      if note.created then
+        state.store:remove(note.path)
+      end
+    end
     for _, base in ipairs(state.store:list()) do
       local current = read_file(base.path)
       local unchanged = (current == nil and base.new_file) or (current ~= nil and same_lines(base.text, current, false))

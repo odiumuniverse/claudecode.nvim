@@ -220,6 +220,22 @@ describe("hook script", function()
       assert.is_nil(read_file(dir .. "/bash/toolu_01.json"))
     end)
 
+    it("takes over the base of an edit that was refused earlier, once Bash changes the file", function()
+      local file = work .. "/tracked.txt"
+      run_hook("PreToolUse", tool("PreToolUse", "Edit", { file_path = file }, { tool_use_id = "toolu_refused" }))
+      assert.is_not_nil(store:get(file))
+      local when = os.time() - 3 * 3600
+      vim.uv.fs_utime(dir .. "/editing/toolu_refused.json", when, when)
+      run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "sed" }))
+      write_file(file, "by bash\n")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Bash", { command = "sed" }))
+
+      -- no note of the refused edit is left to take the base away later
+      assert.is_nil(vim.uv.fs_stat(dir .. "/editing/toolu_refused.json"))
+      assert.equal("committed\n", store:get(file).text)
+    end)
+
     it("marks files Bash created as new and leaves untouched files alone", function()
       write_file(work .. "/old-untracked.txt", "mine\n")
       run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "touch" }))

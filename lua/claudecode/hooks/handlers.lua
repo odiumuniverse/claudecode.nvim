@@ -58,8 +58,7 @@ local function pre_tool_use(store, input)
   if EDIT_TOOLS[input.tool_name] then
     local path = edit_path(input)
     if path and reviewable(read_all(path)) then
-      store:snapshot(path)
-      store:begin_edit(input.tool_use_id, path)
+      store:begin_edit(input.tool_use_id, path, store:snapshot(path))
     end
   elseif input.tool_name == "Bash" then
     store:drop_stale_bash(M.STALE_BASH_S)
@@ -75,8 +74,8 @@ local function post_tool_use(store, input, env)
     { event = "PostToolUse", dir = env.dir, tool_name = input.tool_name, files = {}, untracked_changed = {} }
 
   if EDIT_TOOLS[input.tool_name] then
-    store:end_edit(input.tool_use_id)
     local path = edit_path(input)
+    store:end_edit(input.tool_use_id, path)
     if path then
       local base = store:get(path)
       if base and base.text == (read_all(path) or "") and not base.new_file then
@@ -101,6 +100,9 @@ local function post_tool_use(store, input, env)
         end
       end
       payload.untracked_changed = changes.untracked_changed
+      for _, file in ipairs(payload.files) do
+        store:end_edit(nil, file)
+      end
     end
   end
 

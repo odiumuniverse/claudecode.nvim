@@ -312,6 +312,67 @@ describe("review controller", function()
       assert.is_true(store:get(file).new_file)
     end)
 
+    ---Claude Code asked for permission an hour ago and was refused: PostToolUse never came.
+    local function age_notes(seconds)
+      local when = os.time() - seconds
+      for name in vim.fs.dir(dir .. "/editing") do
+        vim.uv.fs_utime(dir .. "/editing/" .. name, when, when)
+      end
+    end
+
+    it("forgets the base of an edit that was refused, so your own edits are not taken for Claude's", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\ntwo\n")
+      handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+      -- refused; you make the change yourself
+      write_file(file, "one\nmine\n")
+      age_notes(controller.EDITING_MAX_AGE_S + 60)
+
+      assert.same({}, controller.refresh_pending())
+      assert.is_nil(store:get(file))
+    end)
+
+    it("keeps the base of a refused edit when a later edit of the file did finish", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\ntwo\n")
+      handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+      age_notes(controller.EDITING_MAX_AGE_S + 60)
+      local again = { tool_name = "Edit", tool_use_id = "toolu_again", cwd = work, tool_input = { file_path = file } }
+      handlers.handle("PreToolUse", again, { dir = dir })
+      write_file(file, "one\nclaude\n")
+      handlers.handle("PostToolUse", again, { dir = dir })
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("one\ntwo\n", store:get(file).text)
+    end)
+
+    it("keeps the base of an earlier edit when a later one was refused", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\n")
+      handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+      write_file(file, "one\nclaude\n")
+      handlers.handle("PostToolUse", edit_input(file), { dir = dir })
+      local refused = { tool_name = "Edit", tool_use_id = "toolu_no", cwd = work, tool_input = { file_path = file } }
+      handlers.handle("PreToolUse", refused, { dir = dir })
+      age_notes(controller.EDITING_MAX_AGE_S + 60)
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("one\n", store:get(file).text)
+    end)
+
+    it("keeps the base of a Bash change when an edit of the same file was refused before it", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\n")
+      handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+      store:snapshot_text(file, "one\n", false)
+      write_file(file, "one\nbash\n")
+      -- what PostToolUse(Bash) does for a tracked file
+      store:end_edit(nil, file)
+      age_notes(controller.EDITING_MAX_AGE_S + 60)
+
+      assert.same({ file }, controller.refresh_pending())
+    end)
+
     it("drops the base again once the edit has finished and changed nothing", function()
       local file = work .. "/a.txt"
       write_file(file, "one\n")

@@ -284,8 +284,9 @@ end
 ---then the base of that path equals the file and must not be mistaken for a leftover.
 ---@param id string tool_use_id of the edit
 ---@param path string
+---@param created boolean|nil This PreToolUse created the base (it did not exist before)
 ---@return boolean saved
-function Store:begin_edit(id, path)
+function Store:begin_edit(id, path, created)
   local file = id_file(self, "editing", id)
   if not file then
     return false
@@ -293,30 +294,55 @@ function Store:begin_edit(id, path)
   ensure_dir(self.dir)
   ensure_dir(self.dir .. "/editing")
   local tmp = tmp_name(file)
-  if not write_all(tmp, vim.json.encode({ path = M.normalize(path) })) then
+  if not write_all(tmp, vim.json.encode({ path = M.normalize(path), created = created == true })) then
     uv.fs_unlink(tmp)
     return false
   end
   return uv.fs_rename(tmp, file) == true
 end
 
----@param id string
-function Store:end_edit(id)
+---The edit is done. Notes of earlier edits of the same path go too: whatever became of them, the
+---base now serves this edit, and a base is only forgotten for an edit that nothing followed.
+---@param id string|nil tool_use_id of the edit
+---@param path string|nil
+function Store:end_edit(id, path)
   local file = id_file(self, "editing", id)
   if file then
     uv.fs_unlink(file)
   end
+  if not path then
+    return
+  end
+  path = M.normalize(path)
+  local handle = uv.fs_scandir(self.dir .. "/editing")
+  while handle do
+    local name = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+    local note = self.dir .. "/editing/" .. name
+    local ok, rec = pcall(vim.json.decode, read_all(note) or "")
+    if ok and type(rec) == "table" and rec.path == path then
+      uv.fs_unlink(note)
+    end
+  end
 end
 
+---@class ClaudeCodeReviewStaleEdit
+---@field path string
+---@field created boolean The base was made by that edit's PreToolUse
+
 ---Paths of the edits that have started and not finished. An edit that Claude Code was not allowed
----to make never finishes, so a note older than `max_age` seconds is dropped.
+---to make never finishes: a note older than `max_age` seconds is dropped and handed back, so the
+---caller can forget the base it made.
 ---@param max_age integer
----@return table<string, true>
+---@return table<string, true> paths
+---@return ClaudeCodeReviewStaleEdit[] stale
 function Store:editing(max_age)
-  local paths = {}
+  local paths, stale = {}, {}
   local handle = uv.fs_scandir(self.dir .. "/editing")
   if not handle then
-    return paths
+    return paths, stale
   end
   local cutoff = os.time() - max_age
   while true do
@@ -326,16 +352,18 @@ function Store:editing(max_age)
     end
     local file = self.dir .. "/editing/" .. name
     local stat = uv.fs_stat(file)
+    local ok, rec = pcall(vim.json.decode, read_all(file) or "")
+    local valid = name:match("%.json$") and ok and type(rec) == "table" and type(rec.path) == "string"
     if stat and stat.mtime.sec < cutoff then
       uv.fs_unlink(file)
-    elseif name:match("%.json$") then
-      local ok, rec = pcall(vim.json.decode, read_all(file) or "")
-      if ok and type(rec) == "table" and type(rec.path) == "string" then
-        paths[rec.path] = true
+      if valid then
+        stale[#stale + 1] = { path = rec.path, created = rec.created == true }
       end
+    elseif valid then
+      paths[rec.path] = true
     end
   end
-  return paths
+  return paths, stale
 end
 
 ---@param id string

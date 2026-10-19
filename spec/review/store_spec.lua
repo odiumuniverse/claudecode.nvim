@@ -157,7 +157,7 @@ describe("review store", function()
     write_file(file, "x\n")
 
     assert.is_true(store:begin_edit("toolu_1", file))
-    assert.same({ [vim.uv.fs_realpath(file)] = true }, store:editing(3600))
+    assert.same({ [vim.uv.fs_realpath(file)] = true }, (store:editing(3600)))
 
     store:end_edit("toolu_1")
     assert.same({}, store:editing(3600))
@@ -170,8 +170,47 @@ describe("review store", function()
     local hour_ago = os.time() - 3700
     vim.uv.fs_utime(dir .. "/editing/toolu_old.json", hour_ago, hour_ago)
 
-    assert.same({}, store:editing(3600))
+    local paths, stale = store:editing(3600)
+
+    assert.same({}, paths)
+    assert.same({ { path = vim.uv.fs_realpath(file), created = false } }, stale)
     assert.is_nil(vim.uv.fs_stat(dir .. "/editing/toolu_old.json"))
+  end)
+
+  it("says whether the forgotten edit had made the base", function()
+    local file = work .. "/a.txt"
+    write_file(file, "x\n")
+    store:begin_edit("toolu_made", file, true)
+    local hour_ago = os.time() - 3700
+    vim.uv.fs_utime(dir .. "/editing/toolu_made.json", hour_ago, hour_ago)
+
+    local _, stale = store:editing(3600)
+
+    assert.same({ { path = vim.uv.fs_realpath(file), created = true } }, stale)
+  end)
+
+  it("ends every note of a path at once", function()
+    local file = work .. "/a.txt"
+    local other = work .. "/b.txt"
+    write_file(file, "x\n")
+    write_file(other, "x\n")
+    store:begin_edit("toolu_1", file, true)
+    store:begin_edit("toolu_2", file, false)
+    store:begin_edit("toolu_3", other, false)
+
+    store:end_edit("toolu_2", file)
+
+    assert.same({ [vim.uv.fs_realpath(other)] = true }, (store:editing(3600)))
+  end)
+
+  it("ends the notes of a path when only the path is known, as after a Bash call", function()
+    local file = work .. "/a.txt"
+    write_file(file, "x\n")
+    store:begin_edit("toolu_1", file, true)
+
+    store:end_edit(nil, file)
+
+    assert.same({}, (store:editing(3600)))
   end)
 
   it("keeps a path with quotes, spaces and Cyrillic in the list of edits", function()
@@ -180,7 +219,7 @@ describe("review store", function()
 
     store:begin_edit("toolu_1", file)
 
-    assert.same({ [vim.uv.fs_realpath(file)] = true }, store:editing(3600))
+    assert.same({ [vim.uv.fs_realpath(file)] = true }, (store:editing(3600)))
   end)
 
   it("rejects an edit id that would escape the state directory", function()
