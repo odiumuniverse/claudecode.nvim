@@ -164,4 +164,4 @@ Done on 2026-10-19 and 2026-10-20:
 5. Zen and `cz`.
 6. LazyVim spec: `fork/lazyvim/claudecode.lua`.
 
-Next: `:help claudecode-fork`.
+Next: `:help claudecode`.

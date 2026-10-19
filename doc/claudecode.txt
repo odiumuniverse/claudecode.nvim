@@ -1,10 +1,10 @@
-*claudecode-fork.txt*  Hunk review and zen mode for claudecode.nvim
+*claudecode.txt*  Hunk review and zen mode for claudecode.nvim
 
 ==============================================================================
-CONTENTS                                            *claudecode-fork-contents*
+CONTENTS                                                 *claudecode-contents*
 
-    Introduction ........................................... |claudecode-fork|
-    Requirements .............................. |claudecode-fork-requirements|
+    Introduction ................................................ |claudecode|
+    Requirements ................................... |claudecode-requirements|
     Hunk review .......................................... |claudecode-review|
       Keys .......................................... |claudecode-review-keys|
       Files waiting for review ..................... |claudecode-review-files|
@@ -14,15 +14,15 @@ CONTENTS                                            *claudecode-fork-contents*
       Hooks and state .............................. |claudecode-review-state|
     Review before write ..................... |claudecode-review-before-write|
     Zen mode ................................................ |claudecode-zen|
-    Commands ...................................... |claudecode-fork-commands|
-    Options ........................................ |claudecode-fork-options|
-    Events .......................................... |claudecode-fork-events|
-    Highlight groups ............................ |claudecode-fork-highlights|
+    Commands ........................................... |claudecode-commands|
+    Options ............................................. |claudecode-options|
+    Events ............................................... |claudecode-events|
+    Highlight groups ................................. |claudecode-highlights|
     Diff provider ................................. |claudecode-diff-provider|
-    Health check .................................... |claudecode-fork-health|
+    Health check ......................................... |claudecode-health|
 
 ==============================================================================
-INTRODUCTION                                                 *claudecode-fork*
+INTRODUCTION                                                      *claudecode*
 
 This fork of claudecode.nvim keeps everything upstream does: the IDE
 connection to the Claude Code CLI, its commands, keymaps and options. It adds
@@ -42,7 +42,7 @@ https://github.com/coder/claudecode.nvim#readme
 The reasons behind the design are in docs/DESIGN.md (in Russian).
 
 ==============================================================================
-REQUIREMENTS                                    *claudecode-fork-requirements*
+REQUIREMENTS                                         *claudecode-requirements*
 
 - Neovim 0.11 or newer. Older versions skip the fork's setup, so the plugin
   behaves as upstream and nothing in this file exists.
@@ -276,7 +276,7 @@ Zen needs Claude inside Neovim. With `terminal.provider` set to "external" or
 "none", it warns about that.
 
 ==============================================================================
-COMMANDS                                            *claudecode-fork-commands*
+COMMANDS                                                 *claudecode-commands*
 
 Upstream's commands all work as before. The fork adds two commands. Two of
 upstream's also work on proposals (|claudecode-review-before-write|).
@@ -297,7 +297,7 @@ upstream's also work on proposals (|claudecode-review-before-write|).
 :ClaudeCodeDiffDeny     In a proposal, refuse all of it.
 
 ==============================================================================
-OPTIONS                                              *claudecode-fork-options*
+OPTIONS                                                   *claudecode-options*
 
 The options go into the same table as upstream's, passed to
 `require("claudecode").setup()`. The fork reads two keys, `review` and `zen`.
@@ -405,7 +405,7 @@ zen.keymap                                             *claudecode-zen.keymap*
     leaves it unmapped; |:ClaudeCodeZen| still works.
 
 ==============================================================================
-EVENTS                                                *claudecode-fork-events*
+EVENTS                                                     *claudecode-events*
 
 The fork emits these `User` autocmds. The handler gets the fields in
 `ev.data`:
@@ -441,7 +441,7 @@ ClaudeCodeDiffClosed
         tab_name, file_path, reason
 
 ==============================================================================
-HIGHLIGHT GROUPS                                  *claudecode-fork-highlights*
+HIGHLIGHT GROUPS                                       *claudecode-highlights*
 
 All groups are defined with `default = true`, so your colorscheme and
 config win. The review groups are defined again after `:colorscheme`.
@@ -522,10 +522,10 @@ How it behaves:
   newline this way.
 
 The fork fires the User events ClaudeCodeDiffOpened and ClaudeCodeDiffClosed
-for provider diffs too (|claudecode-fork-events|).
+for provider diffs too (|claudecode-events|).
 
 ==============================================================================
-HEALTH CHECK                                          *claudecode-fork-health*
+HEALTH CHECK                                               *claudecode-health*
 
 >vim
     :checkhealth claudecode.fork

@@ -1,10 +1,10 @@
---- Tests for doc/claudecode-fork.txt: it builds into help tags, the tags the fork documents resolve,
+--- Tests for doc/claudecode.txt: it builds into help tags, the tags the fork documents resolve,
 --- and every option of `fork.defaults` has its entry.
 local fork = require("claudecode.fork")
 local helpers = require("helpers")
 
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
-local doc_file = root .. "/doc/claudecode-fork.txt"
+local doc_file = root .. "/doc/claudecode.txt"
 
 describe("fork help", function()
   local scratch = {} ---@type string[] runtime directories to remove again
@@ -17,7 +17,7 @@ describe("fork help", function()
     local dir = vim.fn.tempname()
     scratch[#scratch + 1] = dir
     vim.fn.mkdir(dir .. "/doc", "p")
-    assert(vim.uv.fs_copyfile(doc_file, dir .. "/doc/claudecode-fork.txt"))
+    assert(vim.uv.fs_copyfile(doc_file, dir .. "/doc/claudecode.txt"))
     vim.cmd("helptags " .. vim.fn.fnameescape(dir .. "/doc"))
 
     local tags = {}
@@ -38,7 +38,7 @@ describe("fork help", function()
   it("builds into help tags without a duplicate", function()
     local _, tags = build()
 
-    assert.is_true(tags["claudecode-fork.txt"])
+    assert.is_true(tags["claudecode.txt"])
   end)
 
   it("answers :help for the sections, commands and topics of the fork", function()
@@ -48,16 +48,16 @@ describe("fork help", function()
     -- `:help` falls back to a tag that merely contains the word, so it also needs the exact tag.
     local failed = {}
     for _, tag in ipairs({
-      "claudecode-fork",
+      "claudecode",
       "claudecode-review",
       "claudecode-review-keys",
       "claudecode-review-before-write",
       "claudecode-zen",
-      "claudecode-fork-options",
-      "claudecode-fork-events",
-      "claudecode-fork-highlights",
+      "claudecode-options",
+      "claudecode-events",
+      "claudecode-highlights",
       "claudecode-diff-provider",
-      "claudecode-fork-health",
+      "claudecode-health",
       ":ClaudeCodeReview",
       ":ClaudeCodeZen",
     }) do
