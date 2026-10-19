@@ -24,10 +24,12 @@ local function state_root()
   return state.state_root or (vim.fn.stdpath("state") .. "/claudecode")
 end
 
----@param opts { state_root: string|nil }|nil
+---@param opts { state_root: string|nil, before_write: boolean|nil }|nil
 function M.setup(opts)
   opts = opts or {}
   state.state_root = opts.state_root
+  -- In Claude's manual mode the hooks ask before each edit so that it opens for review in Neovim.
+  state.before_write = opts.before_write ~= false
   state.active = true
 end
 
@@ -91,6 +93,7 @@ function M.decorate(base_cmd, cmd_args, env)
   end
   env.CLAUDECODE_REVIEW_DIR = M.state_dir(vim.fn.getcwd())
   env.CLAUDECODE_NVIM = vim.v.servername
+  env.CLAUDECODE_REVIEW_BEFORE_WRITE = state.before_write and "1" or nil
   local cmd = base_cmd .. " --settings " .. vim.fn.shellescape(M.settings_file())
   if cmd_args and cmd_args ~= "" then
     cmd = cmd .. " " .. cmd_args

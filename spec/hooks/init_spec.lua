@@ -34,6 +34,17 @@ describe("review hooks wiring", function()
     assert.equal(vim.v.servername, env.CLAUDECODE_NVIM)
   end)
 
+  it("tells the hooks whether manual mode should open edits for review first", function()
+    local env = {}
+    hooks.decorate("claude", nil, env)
+    assert.equal("1", env.CLAUDECODE_REVIEW_BEFORE_WRITE)
+
+    hooks.setup({ state_root = state, before_write = false })
+    env = {}
+    hooks.decorate("claude", nil, env)
+    assert.is_nil(env.CLAUDECODE_REVIEW_BEFORE_WRITE)
+  end)
+
   it("keys the state directory by project", function()
     assert.are_not.equal(hooks.state_dir("/a"), hooks.state_dir("/b"))
     assert.equal(hooks.state_dir("/a"), hooks.state_dir("/a"))
