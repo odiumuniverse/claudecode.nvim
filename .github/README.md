@@ -80,7 +80,7 @@ Claude edits your files right away, the way it does in the terminal. The plugin 
 | `]K` / `[K`  | Last or first hunk                                   |
 | `<leader>ak` | Files waiting for review: open, keep all, revert all |
 
-The keys exist only in buffers under review. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
+The hunk keys exist only in buffers under review; `<leader>ak` works everywhere. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
 
 **Claude learns what you reverted.** Claude Code itself never tells the model that you rejected part of an edit. The plugin adds a short note to Claude's context instead: right after Claude's next file edit or Bash call, or with your next message. The note names the file and line, shows Claude's text and the text that came back, and asks Claude not to reapply the change unless you ask.
 
@@ -116,7 +116,7 @@ Set `review.before_write = false` to keep upstream's diff views, or set your own
 
 `<M-z>` puts Claude full screen in a tab of its own and brings you back to the code, with Claude in its split. It works in normal mode and inside the Claude terminal; other terminals still get the key. Above Claude, zen shows how many files wait for review. When Claude asks to approve an edit in Manual mode, zen steps aside for the proposal and comes back once you have decided. Leaving zen returns you to the tab you entered from. If you switch to another tab while zen is open, the key brings you back into zen instead of opening a second one.
 
-`:ClaudeCodeZen` does the same; arguments start a new session, as in `:ClaudeCodeZen --resume`.
+`:ClaudeCodeZen` does the same. Its arguments go to `claude` when zen has to start it, as in `:ClaudeCodeZen --resume`; they do nothing while Claude runs.
 
 `bin/cz` opens Neovim straight into zen:
 
@@ -153,13 +153,13 @@ opts = {
 }
 ```
 
-Highlight groups, all linked by default so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeZenPending`.
+Highlight groups, all defined with `default = true` so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeZenPending`.
 
 `User` events for your config:
 
 - `ClaudeCodeReviewChanged`, `data = { bufnr, path, hunks }`: a buffer's hunks changed; `hunks` is how many are left.
 - `ClaudeCodeReviewPending`, `data = { count, files }`: the list of files waiting for review changed.
-- `ClaudeCodeDiffOpened` now also fires for proposals, with `layout = "provider"`.
+- `ClaudeCodeDiffOpened` and `ClaudeCodeDiffClosed` now also fire for proposals. The opened event has `layout = "provider"` and none of the window fields of upstream's diffs.
 
 ## Custom diff provider
 
