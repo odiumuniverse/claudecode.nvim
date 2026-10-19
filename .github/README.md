@@ -85,10 +85,10 @@ The keys exist only in buffers under review. The list of files uses snacks.picke
 ### What gets reviewed
 
 - `Edit`, `Write`, `MultiEdit` and `NotebookEdit`: always.
-- `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. A file that git checks out with CRLF (`eol=crlf`, `core.autocrlf`) is compared and reverted with its CRLF endings.
+- `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. Files that git checks out with CRLF endings (`eol=crlf`, `core.autocrlf`) keep them through review and `kx`.
 - An untracked file Bash rewrote: only when the file is open in Neovim, because its old text exists nowhere else.
-- Not reviewed: binary files, files over 2 MB (they are not even read), files that `.gitignore` covers and Bash creates, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
-- A file Claude was not allowed to create or edit stays yours: if you made or changed it meanwhile, it is not taken for Claude's work.
+- Not reviewed: binary files, files over 2 MB, new files Bash creates in paths that `.gitignore` covers, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
+- If you refuse an edit and then create or change that file yourself, review treats the file as yours.
 
 ### How it works
 
@@ -100,7 +100,7 @@ If you start Claude yourself (`terminal.provider = "none"`), the hooks are not a
 
 In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal accepts what is left as it is. `:ClaudeCodeDiffAccept` and `:ClaudeCodeDiffDeny` work too.
 
-Claude's text is UTF-8, and the proposal is compared with the file in the file's own encoding (found from its open buffer, else from the byte order mark and `'fileencodings'`), so a Latin-1 or UTF-16 file shows only what Claude changed. The IDE protocol carries text, so what goes back to Claude is UTF-8: after you accept, a file that was Latin-1 or UTF-16 is UTF-8. A byte order mark is kept.
+Claude sends UTF-8. The plugin compares it with the file in the file's own encoding, so a Latin-1 or UTF-16 file shows only what Claude changed. It reads the encoding from the open buffer, or else from the byte order mark and `'fileencodings'`. The protocol carries text only, so Claude writes UTF-8 after you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
 
 If your Claude settings allow `Edit` without asking (`permissions.allow`), Claude never asks about edits and this mode only shows up for `Write`. Review after write covers the rest.
 
@@ -108,7 +108,7 @@ Set `review.before_write = false` to keep upstream's diff views, or set your own
 
 ## Zen mode
 
-`<M-z>` puts Claude full screen in a tab of its own and brings you back to the code, with Claude in its split. It works in normal mode and inside the Claude terminal; other terminals still get the key. Above Claude, zen shows how many files wait for review. When Claude asks to approve an edit in Manual mode, zen steps aside for the proposal and comes back once you have decided. Zen remembers the tab it started from and returns there. If you switch to another tab while zen is open, the key takes you back into zen instead of opening a second one.
+`<M-z>` puts Claude full screen in a tab of its own and brings you back to the code, with Claude in its split. It works in normal mode and inside the Claude terminal; other terminals still get the key. Above Claude, zen shows how many files wait for review. When Claude asks to approve an edit in Manual mode, zen steps aside for the proposal and comes back once you have decided. Leaving zen returns you to the tab you entered from. If you switch to another tab while zen is open, the key brings you back into zen instead of opening a second one.
 
 `:ClaudeCodeZen` does the same; arguments start a new session, as in `:ClaudeCodeZen --resume`.
 
@@ -186,7 +186,7 @@ require("claudecode").setup({
 
 How it behaves:
 
-- Claude waits until you call `accept` or `reject`. Only the first call counts. `:ClaudeCodeDiffDeny` goes to `reject_command`; whatever it does, Claude gets a rejection once it returns.
+- Claude waits until you call `accept` or `reject`. Only the first call counts. `:ClaudeCodeDiffDeny` calls `reject_command`. Claude gets a rejection when the handler returns, even if the handler never called `reject`.
 - `accept` may pass text that differs from Claude's proposal. Claude writes your text, but it only learns that "the user modified your proposed content", not what you changed.
 - The plugin calls `close` once per diff: after Claude closes the tab, when the Claude session disconnects, when a new diff reuses the tab name, and when `open` throws (`reason` is `"setup failed"`). Make `close` safe to run on a half-built UI.
 - A provider gets the diff even when the file's buffer has unsaved edits; the built-in views refuse it.
