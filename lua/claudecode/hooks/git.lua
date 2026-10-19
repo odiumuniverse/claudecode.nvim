@@ -60,14 +60,28 @@ function M.snapshot(cwd)
   if not top then
     return nil
   end
-  -- `stash create` stores the work tree as a dangling commit without touching the stash list;
-  -- it prints nothing on a clean tree, where HEAD already is the snapshot.
-  local stash = (run(top, { "stash", "create" }) or ""):gsub("%s+$", "")
-  if stash == "" then
-    stash = (run(top, { "rev-parse", "--verify", "-q", "HEAD" }) or ""):gsub("%s+$", "")
-  end
-  if stash == "" then
-    stash = EMPTY_TREE
+  local head = (run(top, { "rev-parse", "--verify", "-q", "HEAD" }) or ""):gsub("%s+$", "")
+  local stash = EMPTY_TREE
+  if head ~= "" then
+    -- `stash create` stores the work tree as a dangling commit without touching the stash list;
+    -- it prints nothing on a clean tree, where HEAD already is the snapshot.
+    local out = run(top, { "stash", "create" })
+    for _ = 1, 2 do
+      if out ~= nil then
+        break
+      end
+      uv.sleep(100) -- a parallel hook or your own git command usually lets go of the index lock at once
+      out = run(top, { "stash", "create" })
+    end
+    if out == nil then
+      -- It takes the index lock, so it fails next to another git process. Falling back to HEAD
+      -- would make all of your uncommitted work look like Claude's change: better no snapshot.
+      return nil
+    end
+    stash = out:gsub("%s+$", "")
+    if stash == "" then
+      stash = head
+    end
   end
   local untracked = {}
   local files = split_z(run(top, { "ls-files", "--others", "--exclude-standard", "-z" }))
