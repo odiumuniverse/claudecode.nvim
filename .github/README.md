@@ -80,7 +80,7 @@ The keys exist only in buffers under review. The list of files uses snacks.picke
 
 **Your own edits stay yours.** Edit the buffer outside a hunk and the change simply becomes part of the file. Edit inside a hunk and you change Claude's proposal; the hunk still waits for `ko` or `kx`. After `kx`, `u` brings Claude's text back as your own edit.
 
-**Review survives restarts.** The text of each file before Claude's first edit lives in `stdpath("state")/claudecode/review/`, in a directory only you can read. Hunks pile up across Claude's turns until you decide on them.
+**Review survives restarts.** The text of each file before Claude's first edit lives in `stdpath("state")/claudecode/review/`, in a directory only you can read. Hunks pile up across Claude's turns until you decide on them. The state belongs to the git repository around Neovim's working directory (or to the directory itself outside git), so start Neovim anywhere in the same repository to get your reviews back.
 
 ### What gets reviewed
 

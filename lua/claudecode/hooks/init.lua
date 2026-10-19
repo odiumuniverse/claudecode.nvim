@@ -40,9 +40,12 @@ function M.is_active()
   return state.active
 end
 
----@param root string Project root (Neovim's cwd when Claude starts)
+---State for a project. Inside a git repository the project is the repository, so Neovim
+---started from any of its subdirectories finds the same reviews.
+---@param cwd string Neovim's cwd when Claude starts
 ---@return string
-function M.state_dir(root)
+function M.state_dir(cwd)
+  local root = vim.fs.root(cwd, ".git") or cwd
   return state_root() .. "/review/" .. vim.fn.sha256(root)
 end
 
