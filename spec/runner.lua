@@ -25,6 +25,13 @@ local function mark_done()
   end
 end
 
+-- Busted may end the run with os.exit itself (failed specs); the run is complete then too.
+local exit = os.exit
+os.exit = function(...) -- luacheck: ignore 122
+  mark_done()
+  return exit(...)
+end
+
 -- On LuaJIT busted reports failed specs by throwing an empty error(); turn that into exit status 1.
 local ok, err = pcall(require("busted.runner"), { standalone = false })
 mark_done()
