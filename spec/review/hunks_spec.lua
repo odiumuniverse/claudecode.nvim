@@ -716,3 +716,57 @@ describe("review.hunks.map_edit", function()
     assert.same(before, layout)
   end)
 end)
+
+describe("review.hunks round trips", function()
+  local cases = {
+    { name = "a new file", base = {}, cur = { "a", "b" } },
+    { name = "an emptied file", base = { "a", "b" }, cur = {} },
+    { name = "a deleted first line", base = { "a", "b", "c" }, cur = { "b", "c" } },
+    { name = "a deleted last line", base = { "a", "b", "c" }, cur = { "a", "b" } },
+    { name = "an insertion at the start", base = { "b", "c" }, cur = { "a", "b", "c" } },
+    { name = "an insertion at the end", base = { "a", "b" }, cur = { "a", "b", "c" } },
+    {
+      name = "several hunks",
+      base = { "a", "b", "c", "d", "e", "f", "g" },
+      cur = { "A", "b", "c", "x", "y", "f", "g", "h" },
+    },
+  }
+
+  for _, case in ipairs(cases) do
+    it("keeping every hunk of " .. case.name .. " gives the current text", function()
+      local list = hunks.compute(case.base, case.cur)
+      local base = case.base
+      for i = #list, 1, -1 do
+        base = hunks.keep(base, list[i])
+      end
+      assert.same(case.cur, base)
+    end)
+
+    it("reverting every hunk of " .. case.name .. " gives the base", function()
+      local list = hunks.compute(case.base, case.cur)
+      local cur = case.cur
+      for i = #list, 1, -1 do
+        cur = hunks.revert(cur, list[i])
+      end
+      assert.same(case.base, cur)
+    end)
+  end
+
+  it("carries an edit outside the hunks into the base without creating a hunk", function()
+    local base = { "a", "b", "c", "d", "e" }
+    local cur = { "a", "b", "X", "Y", "e" }
+    local list = hunks.compute(base, cur)
+    assert.equal(1, #list)
+
+    -- the user turns "a" into "A", away from the hunk
+    local base_first, base_last = hunks.map_edit(list, 0, 1, 1)
+    assert.equal(0, base_first)
+    assert.equal(1, base_last)
+    local new_base = vim.list_extend(vim.list_slice(base, 1, base_first), { "A" })
+    vim.list_extend(new_base, vim.list_slice(base, base_last + 1, #base))
+    assert.same({ "A", "b", "c", "d", "e" }, new_base)
+
+    local new_list = hunks.compute(new_base, { "A", "b", "X", "Y", "e" })
+    assert.same(list, new_list)
+  end)
+end)
