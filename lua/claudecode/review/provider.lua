@@ -19,10 +19,11 @@ local M = {}
 ---@field prev_buf integer|nil
 ---@field view table|nil
 ---@field winbar string
----@field base_text string
----@field base_lines string[]
+---@field base_text string The bytes of the file, as the base in the store holds them
+---@field base_lines string[] The same, as the lines of a UTF-8 buffer
 ---@field eol boolean
 ---@field dos boolean
+---@field bomb boolean The text handed to Claude starts with a byte order mark
 ---@field proposed_lines string[]
 ---@field reverts ClaudeCodeRevertRecord[]
 ---@field from_zen boolean
@@ -38,6 +39,24 @@ local function read_file(path)
   local data = f:read("*a")
   f:close()
   return data
+end
+
+---How the file is encoded: as its buffer says if one holds it, else as `:edit` would find out.
+---@param path string
+---@param bytes string The bytes of the file
+---@return string fileencoding
+---@return boolean bomb
+local function file_encoding(path, bytes)
+  local target = store_mod.normalize(path)
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf) and vim.bo[buf].buftype == "" then
+      local name = vim.api.nvim_buf_get_name(buf)
+      if name ~= "" and store_mod.normalize(name) == target then
+        return vim.bo[buf].fileencoding, vim.bo[buf].bomb
+      end
+    end
+  end
+  return text.detect(bytes)
 end
 
 local function editor_window()
@@ -128,6 +147,10 @@ local function finish(session)
     session.ctx.reject()
   else
     local content = text.to_text(lines, session.eol, session.dos)
+    -- Claude writes what it is given: UTF-8, and a file that had a mark keeps it.
+    if session.bomb and content ~= "" then
+      content = text.BOM .. content
+    end
     mark_reviewed(session, content)
     local store = require("claudecode.review.controller").store()
     if store then
@@ -148,11 +171,19 @@ function M.open(ctx)
     zen.leave()
   end
 
-  local base_text = read_file(ctx.old_file_path) or ""
+  -- Claude's text is UTF-8 without a byte order mark; the file may be neither. Compare like with like.
+  local file_bytes = read_file(ctx.old_file_path) or ""
+  local fenc, bomb = file_encoding(ctx.old_file_path, file_bytes)
+  local base_text = text.decode_as(file_bytes, fenc, bomb)
   local dos = base_text:find("\r\n", 1, true) ~= nil
   local base_lines = text.to_lines(base_text, dos)
-  local lines, eol = text.to_lines(ctx.new_file_contents, dos)
-  if ctx.new_file_contents == "" then
+  local proposal = ctx.new_file_contents
+  if proposal:sub(1, #text.BOM) == text.BOM then
+    proposal = proposal:sub(#text.BOM + 1)
+    bomb = true
+  end
+  local lines, eol = text.to_lines(proposal, dos)
+  if proposal == "" then
     eol = base_text == "" or base_text:sub(-1) == "\n"
   end
 
@@ -179,10 +210,11 @@ function M.open(ctx)
     prev_buf = vim.api.nvim_win_get_buf(win),
     view = vim.api.nvim_win_call(win, vim.fn.winsaveview),
     winbar = vim.wo[win].winbar,
-    base_text = base_text,
+    base_text = file_bytes,
     base_lines = base_lines,
     eol = eol,
     dos = dos,
+    bomb = bomb,
     proposed_lines = lines,
     reverts = {},
     from_zen = from_zen,

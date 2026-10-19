@@ -287,6 +287,86 @@ describe("review provider", function()
     assert.equal("A\r\nb\r\nc\r\nd\r\ne\r\n", written(handle))
   end)
 
+  describe("a file that is not plain UTF-8", function()
+    local BOM = "\239\187\191"
+
+    ---Propose `proposal` for `before` (file bytes), keep every hunk, and return what Claude is told to write.
+    local function accepted(before, proposal, opts)
+      opts = opts or {}
+      local file = work .. "/enc.txt"
+      write_file(file, before)
+      store:snapshot(file) -- PreToolUse already ran
+      if opts.open then
+        vim.cmd.edit(file)
+      end
+      local handle = propose(file, proposal)
+      local buf = proposal_buf()
+      local hunks = #engine.hunks(buf)
+      engine.keep_all(buf)
+      vim.wait(100)
+      return written(handle), hunks, file
+    end
+
+    it("shows only what Claude changed in a Latin-1 file that nobody has open", function()
+      local content, hunks, file = accepted("caf\233\nx\nb\n", "caf\195\169\nx\nB\n")
+
+      assert.equal(1, hunks)
+      assert.equal("caf\195\169\nx\nB\n", content)
+      -- Claude writes this text as it is: it becomes the base, so it is not reviewed a second time
+      assert.equal("caf\195\169\nx\nB\n", store:get(file).text)
+    end)
+
+    it("shows only what Claude changed in a Latin-1 file that is open", function()
+      local content, hunks = accepted("caf\233\nx\nb\n", "caf\195\169\nx\nB\n", { open = true })
+
+      assert.equal(1, hunks)
+      assert.equal("caf\195\169\nx\nB\n", content)
+    end)
+
+    it("takes your decision to revert the one hunk Claude made in a Latin-1 file", function()
+      local file = work .. "/enc.txt"
+      write_file(file, "caf\233\nb\nc\nd\ne\nf\ng\n")
+      local handle = propose(file, "caf\195\169!\nb\nc\nd\ne\nf\nG\n")
+      local buf = proposal_buf()
+      assert.equal(2, #engine.hunks(buf))
+
+      engine.revert(buf, 1)
+      engine.keep(buf, 1)
+      vim.wait(100)
+
+      assert.equal("caf\195\169\nb\nc\nd\ne\nf\nG\n", written(handle))
+    end)
+
+    it("keeps the byte order mark of a UTF-8 file that Claude's text leaves out", function()
+      local content, hunks = accepted(BOM .. "a\nb\n", "a\nB\n")
+
+      assert.equal(1, hunks)
+      assert.equal(BOM .. "a\nB\n", content)
+    end)
+
+    it("does not double the byte order mark when Claude's text has it", function()
+      local content, hunks = accepted(BOM .. "a\nb\n", BOM .. "a\nB\n")
+
+      assert.equal(1, hunks)
+      assert.equal(BOM .. "a\nB\n", content)
+    end)
+
+    it("shows only what Claude changed in a UTF-16 file, and hands over UTF-8 with the mark", function()
+      local utf16 = "\255\254" .. vim.iconv("a\nb\n", "utf-8", "utf-16le")
+
+      local content, hunks = accepted(utf16, "a\nB\n")
+
+      assert.equal(1, hunks)
+      assert.equal(BOM .. "a\nB\n", content)
+    end)
+
+    it("gives a plain UTF-8 file no mark", function()
+      local content = accepted("a\nb\n", "a\nB\n")
+
+      assert.equal("a\nB\n", content)
+    end)
+  end)
+
   it("hands Claude an empty file when it proposed one", function()
     local file = work .. "/emptied.txt"
     write_file(file, "a\nb\n")

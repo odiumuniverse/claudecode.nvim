@@ -99,6 +99,8 @@ If you start Claude yourself (`terminal.provider = "none"`), the hooks are not a
 
 In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal accepts what is left as it is. `:ClaudeCodeDiffAccept` and `:ClaudeCodeDiffDeny` work too.
 
+Claude's text is UTF-8, and the proposal is compared with the file in the file's own encoding (found from its open buffer, else from the byte order mark and `'fileencodings'`), so a Latin-1 or UTF-16 file shows only what Claude changed. The IDE protocol carries text, so what goes back to Claude is UTF-8: after you accept, a file that was Latin-1 or UTF-16 is UTF-8. A byte order mark is kept.
+
 If your Claude settings allow `Edit` without asking (`permissions.allow`), Claude never asks about edits and this mode only shows up for `Write`. Review after write covers the rest.
 
 Set `review.before_write = false` to keep upstream's diff views, or set your own `diff_opts.provider` (see below).
