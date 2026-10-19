@@ -1,4 +1,4 @@
---- Tests for doc/claudecode.txt: it builds into help tags, the tags the fork documents resolve,
+--- Tests for doc/claudecode.txt: it builds into help tags, the documented tags resolve,
 --- and every option of `features.defaults` has its entry.
 local features = require("claudecode.features")
 local helpers = require("helpers")
@@ -6,7 +6,7 @@ local helpers = require("helpers")
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
 local doc_file = root .. "/doc/claudecode.txt"
 
-describe("fork help", function()
+describe("help", function()
   local scratch = {} ---@type string[] runtime directories to remove again
 
   ---Copy the help file to a runtime directory of its own and run `:helptags` there. Specs run next to
@@ -41,7 +41,7 @@ describe("fork help", function()
     assert.is_true(tags["claudecode.txt"])
   end)
 
-  it("answers :help for the sections, commands and topics of the fork", function()
+  it("answers :help for the sections, commands and topics", function()
     local dir, tags = build()
     vim.opt.runtimepath:prepend(dir)
 

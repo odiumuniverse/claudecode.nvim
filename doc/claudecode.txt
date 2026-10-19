@@ -24,9 +24,9 @@ CONTENTS                                                 *claudecode-contents*
 ==============================================================================
 INTRODUCTION                                                      *claudecode*
 
-This fork of claudecode.nvim keeps everything upstream does: the IDE
-connection to the Claude Code CLI, its commands, keymaps and options. It adds
-two features:
+claudecode.nvim connects the Claude Code CLI to Neovim over the IDE protocol.
+Claude opens files, reads your selection and diagnostics, and shows its edits
+as diffs. Two features come on top:
 
     Hunk review   Keep or revert each change Claude makes, as Cursor does,
                   instead of accepting or rejecting a whole file.
@@ -36,15 +36,17 @@ two features:
 Claude runs as the unmodified `claude` binary, so you sign in with your own
 Claude subscription.
 
-Upstream has no Vim help. Its commands and options are in the README:
+This file documents hunk review and zen. The plugin is based on
+coder/claudecode.nvim (upstream), which has no Vim help. The IDE connection,
+its commands, keymaps and options are in the upstream README:
 https://github.com/coder/claudecode.nvim#readme
 
-The reasons behind the design are in docs/DESIGN.md (in Russian).
+The reasons behind the design are in docs/DESIGN.md.
 
 ==============================================================================
 REQUIREMENTS                                         *claudecode-requirements*
 
-- Neovim 0.11 or newer. Older versions skip the fork's setup, so the plugin
+- Neovim 0.11 or newer. Older versions skip review and zen, so the plugin
   behaves as upstream and nothing in this file exists.
 - Claude started from Neovim: `:ClaudeCode`, |:ClaudeCodeZen| or `cz`. Review
   after write rides on hooks attached at launch (|claudecode-review-state|).
@@ -278,8 +280,8 @@ Zen needs Claude inside Neovim. With `terminal.provider` set to "external" or
 ==============================================================================
 COMMANDS                                                 *claudecode-commands*
 
-Upstream's commands all work as before. The fork adds two commands. Two of
-upstream's also work on proposals (|claudecode-review-before-write|).
+Upstream's commands all work as before. Review and zen add two commands. Two
+of upstream's also work on proposals (|claudecode-review-before-write|).
 
                                                            *:ClaudeCodeReview*
 :ClaudeCodeReview       Open the list of files with hunks you have not
@@ -300,7 +302,7 @@ upstream's also work on proposals (|claudecode-review-before-write|).
 OPTIONS                                                   *claudecode-options*
 
 The options go into the same table as upstream's, passed to
-`require("claudecode").setup()`. The fork reads two keys, `review` and `zen`.
+`require("claudecode").setup()`. Two keys are new, `review` and `zen`.
 A wrong type or an unknown key in `review.keymaps` makes `setup()` fail with
 a message that names the option. Defaults:
 >lua
@@ -407,7 +409,7 @@ zen.keymap                                             *claudecode-zen.keymap*
 ==============================================================================
 EVENTS                                                     *claudecode-events*
 
-The fork emits these `User` autocmds. The handler gets the fields in
+Review and zen emit these `User` autocmds. The handler gets the fields in
 `ev.data`:
 >lua
     vim.api.nvim_create_autocmd("User", {
@@ -521,7 +523,7 @@ How it behaves:
   ends up with exactly your text. Upstream's own diff views lose the final
   newline this way.
 
-The fork fires the User events ClaudeCodeDiffOpened and ClaudeCodeDiffClosed
+The plugin fires the User events ClaudeCodeDiffOpened and ClaudeCodeDiffClosed
 for provider diffs too (|claudecode-events|).
 
 ==============================================================================

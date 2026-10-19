@@ -374,7 +374,7 @@ local function get_claude_command_and_env(cmd_args)
     env_table[key] = value
   end
 
-  -- Fork: sessions started from Neovim get the review hooks (no-op while the review is off)
+  -- Hunk review: sessions started from Neovim get the review hooks (no-op while the review is off)
   cmd_string = require("claudecode.hooks").decorate(base_cmd, cmd_args, env_table) or cmd_string
 
   -- Issue #70: Claude honors http_proxy/all_proxy (proxy-from-env semantics) and, without a

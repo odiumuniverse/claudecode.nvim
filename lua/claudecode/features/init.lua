@@ -1,5 +1,5 @@
 ---@brief [[
---- Entry point of the fork's features: hunk review (after and before Claude writes) and zen.
+--- Entry point of the hunk review (after and before Claude writes) and zen features.
 --- `require("claudecode").setup(opts)` calls `setup(opts)` with the same options table.
 ---@brief ]]
 ---@module 'claudecode.features'
@@ -122,7 +122,7 @@ M.state = { config = nil } ---@type { config: ClaudeCodeFeaturesConfig|nil }
 ---@param user table|nil The options passed to require("claudecode").setup
 ---@param plugin_config table|nil The plugin's applied config; its diff_opts gets the review provider
 function M.setup(user, plugin_config)
-  -- The fork needs vim.text.diff and the 0.11 vim.validate; older editors keep upstream behavior.
+  -- The features need vim.text.diff and the 0.11 vim.validate; older editors keep upstream behavior.
   -- Checked first: upstream's unit tests run setup against a minimal vim mock.
   if not (vim.text and vim.text.diff and vim.api.nvim_buf_attach) or vim.fn.has("nvim-0.11") ~= 1 then
     return

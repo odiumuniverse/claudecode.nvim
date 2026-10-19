@@ -1,4 +1,4 @@
--- LazyVim spec for this fork: LazyVim's ai.claudecode keys plus review and zen.
+-- LazyVim spec: LazyVim's ai.claudecode keys plus review and zen.
 -- Toggle Claude sits on <leader>at, not the extra's <leader>ac.
 -- Link it into your config instead of the extra:
 --   ln -s ~/src/claudecode.nvim/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
@@ -26,7 +26,7 @@ return {
     },
     { "<leader>aa", "<cmd>ClaudeCodeDiffAccept<cr>", desc = "Accept diff" },
     { "<leader>ad", "<cmd>ClaudeCodeDiffDeny<cr>", desc = "Deny diff" },
-    -- Fork: the review list and zen also get their keys from the plugin itself;
+    -- The review list and zen also get their keys from the plugin itself;
     -- listing them here lets which-key show them before the plugin loads.
     { "<leader>ak", "<cmd>ClaudeCodeReview<cr>", desc = "Files waiting for review" },
     { "<M-z>", "<cmd>ClaudeCodeZen<cr>", desc = "Claude zen" },

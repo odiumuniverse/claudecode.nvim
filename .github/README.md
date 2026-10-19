@@ -1,17 +1,17 @@
-# claudecode.nvim with hunk review and zen mode
+# claudecode.nvim
 
-A private fork of [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim).
-
-Upstream connects the Claude Code CLI to Neovim over the same WebSocket MCP protocol that Anthropic's VS Code extension uses. Claude opens files, reads your selection and diagnostics, and shows its edits as diffs. This fork keeps all of that and adds two things:
+The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP protocol that Anthropic's VS Code extension uses. Claude opens files, reads your selection and diagnostics, and shows its edits as diffs. Two features come on top:
 
 - **Hunk review.** Keep or revert each change Claude makes, the way Cursor does, instead of accepting or rejecting the whole file.
 - **Zen mode.** Run Claude full screen inside Neovim and flip to the code with one key.
 
 Claude runs as the unmodified `claude` binary, so you sign in with your own Claude subscription.
 
+Based on [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim).
+
 More documentation:
 
-- [docs/DESIGN.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/DESIGN.md): the fork's design and the reasons behind it;
+- [docs/DESIGN.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/DESIGN.md): the design and the reasons behind it;
 - [docs/ARCHITECTURE.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/ARCHITECTURE.md) and [docs/PROTOCOL.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/PROTOCOL.md): upstream's architecture and the IDE protocol;
 - [CONTRIBUTING.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/CONTRIBUTING.md): upstream's development guide.
 
@@ -58,9 +58,9 @@ Or from GitHub over SSH, since the repository is private:
 }
 ```
 
-Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode` to see whether the review hooks and zen are ready.
+Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode` to check the IDE connection, the review hooks and zen.
 
-`:help claudecode` documents the fork's options, keys and events.
+`:help claudecode` documents the options, keys and events of review and zen.
 
 ## Hunk review
 
@@ -204,17 +204,17 @@ How it behaves:
 mise install          # Neovim, LuaJIT, formatters and linters
 mise run setup        # busted, luacheck and luacov into ./.luarocks
 mise run all          # format, lint and upstream's tests (mocked vim)
-scripts/test-nvim.sh  # the fork's tests, inside a real headless Neovim
+scripts/test-nvim.sh  # our specs, inside a real headless Neovim
 
 mise exec -- busted tests/unit/diff_provider_spec.lua   # one upstream-style spec
 scripts/test-nvim.sh spec/review/hunks_spec.lua         # one real-Neovim spec
 ```
 
-The fork's code lives in its own modules: `lua/claudecode/review/`, `lua/claudecode/hooks/`, `lua/claudecode/zen/` and `lua/claudecode/features/`. Upstream's files get only small marked seams, so rebasing stays cheap.
+Our code lives in its own modules: `lua/claudecode/review/`, `lua/claudecode/hooks/`, `lua/claudecode/zen/` and `lua/claudecode/features/`. Upstream's files get only small marked seams, so rebasing stays cheap.
 
 ## Syncing with upstream
 
-The `upstream` remote points at coder/claudecode.nvim, with pushes disabled. `fork/sync.sh` rebases our commits onto `upstream/main` and then recreates the cleanup commit, which removes Coder's release and agent tooling listed in `fork/cleanup.txt`.
+For maintainers. The `upstream` remote points at coder/claudecode.nvim, with pushes disabled. `fork/sync.sh` rebases our commits onto `upstream/main` and then recreates the cleanup commit, which removes Coder's release and agent tooling listed in `fork/cleanup.txt`.
 
 ```sh
 fork/sync.sh

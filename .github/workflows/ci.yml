@@ -1,6 +1,6 @@
 name: CI
 
-# Fork CI: the Lua jobs of upstream's test.yml without release tooling and coverage summary.
+# The Lua jobs of upstream's test.yml, without release tooling and coverage summary.
 # A separate file so that rebasing onto upstream never conflicts here.
 
 on:

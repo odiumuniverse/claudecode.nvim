@@ -8,7 +8,7 @@ local uv = vim.uv or vim.loop
 
 local M = {}
 
--- Runs inside the editor. pcall keeps an editor without the fork's modules quiet.
+-- Runs inside the editor. pcall keeps an editor without the review modules quiet.
 local RECEIVER = "local ok, bridge = pcall(require, 'claudecode.review.bridge') "
   .. "if ok and type(bridge.on_hook) == 'function' then bridge.on_hook(...) end"
 
