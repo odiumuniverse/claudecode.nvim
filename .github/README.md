@@ -7,7 +7,7 @@ The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP pr
 
 Claude runs as the unmodified `claude` binary, so you sign in with your own Claude subscription.
 
-Based on [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim).
+Based on [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) (upstream).
 
 More documentation:
 

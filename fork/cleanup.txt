@@ -5,7 +5,7 @@
 .claude
 .devcontainer
 
-# Issue templates and workflows (fork CI lives in .github/workflows/ci.yml)
+# Issue templates and workflows (our CI lives in .github/workflows/ci.yml)
 .github/ISSUE_TEMPLATE
 .github/workflows/issue-triage.yaml
 .github/workflows/pr-title.yaml
