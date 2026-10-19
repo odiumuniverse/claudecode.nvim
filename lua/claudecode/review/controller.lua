@@ -11,6 +11,9 @@ local text = require("claudecode.review.text")
 
 local M = {}
 
+-- An edit that Claude Code was not allowed to make never reports back: forget its note after this long.
+M.EDITING_MAX_AGE_S = 30 * 60
+
 local state = {
   store = nil, ---@type ClaudeCodeReviewStore|nil
   group = nil, ---@type integer|nil
@@ -176,14 +179,17 @@ end
 function M.refresh_pending()
   local pending = {}
   if state.store then
+    -- PreToolUse takes the base before Claude writes: it equals the file until then (or the file
+    -- is not there yet), and the user may well be refreshing the list while Claude waits for permission.
+    local editing = state.store:editing(M.EDITING_MAX_AGE_S)
     for _, base in ipairs(state.store:list()) do
       local current = read_file(base.path)
-      if current == nil and base.new_file then
-        state.store:remove(base.path) -- Claude's new file is gone again
-      elseif current ~= nil and same_lines(base.text, current, false) then
-        state.store:remove(base.path)
-      else
+      local unchanged = (current == nil and base.new_file) or (current ~= nil and same_lines(base.text, current, false))
+      if not unchanged then
         pending[#pending + 1] = base.path
+      elseif not editing[base.path] then
+        -- a leftover: Claude's new file is gone again, or the file already equals its base
+        state.store:remove(base.path)
       end
     end
   end

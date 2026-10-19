@@ -246,6 +246,53 @@ describe("review controller", function()
     assert.equal("\239\187\191one\n2\n3\n4\n5\n6\nseven\n", store:get(file).text)
   end)
 
+  describe("while Claude is in the middle of an edit", function()
+    local handlers = require("claudecode.hooks.handlers")
+
+    local function edit_input(file)
+      return { tool_name = "Edit", tool_use_id = "toolu_edit", cwd = work, tool_input = { file_path = file } }
+    end
+
+    it("keeps the base that PreToolUse took, however often the list is refreshed", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\n")
+      handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+
+      -- you resolved another file, or opened the list, while Claude waits for permission
+      assert.same({}, controller.refresh_pending())
+      assert.equal("one\n", store:get(file).text)
+
+      write_file(file, "two\n")
+      handlers.handle("PostToolUse", edit_input(file), { dir = dir })
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("one\n", store:get(file).text)
+    end)
+
+    it("keeps the base of a file Claude is about to create", function()
+      local file = work .. "/new.txt"
+      handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+
+      assert.same({}, controller.refresh_pending())
+
+      write_file(file, "fresh\n")
+      handlers.handle("PostToolUse", edit_input(file), { dir = dir })
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.is_true(store:get(file).new_file)
+    end)
+
+    it("drops the base again once the edit has finished and changed nothing", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\n")
+      handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+      handlers.handle("PostToolUse", edit_input(file), { dir = dir })
+
+      assert.same({}, controller.refresh_pending())
+      assert.is_nil(store:get(file))
+    end)
+  end)
+
   it("follows the state directory a new Claude session reports", function()
     local other = vim.fn.tempname()
     local other_store = store_mod.new(other)

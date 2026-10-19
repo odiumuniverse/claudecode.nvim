@@ -59,6 +59,7 @@ local function pre_tool_use(store, input)
     local path = edit_path(input)
     if path and reviewable(read_all(path)) then
       store:snapshot(path)
+      store:begin_edit(input.tool_use_id, path)
     end
   elseif input.tool_name == "Bash" then
     store:drop_stale_bash(M.STALE_BASH_S)
@@ -74,6 +75,7 @@ local function post_tool_use(store, input, env)
     { event = "PostToolUse", dir = env.dir, tool_name = input.tool_name, files = {}, untracked_changed = {} }
 
   if EDIT_TOOLS[input.tool_name] then
+    store:end_edit(input.tool_use_id)
     local path = edit_path(input)
     if path then
       local base = store:get(path)

@@ -229,11 +229,15 @@ function Store:take_reverts()
 end
 
 ---tool_use_id comes from Claude's hook input: keep it to a plain file name.
-local function bash_file(self, id)
+local function id_file(self, subdir, id)
   if type(id) ~= "string" or not id:match("^[%w_-]+$") then
     return nil
   end
-  return self.dir .. "/bash/" .. id .. ".json"
+  return self.dir .. "/" .. subdir .. "/" .. id .. ".json"
+end
+
+local function bash_file(self, id)
+  return id_file(self, "bash", id)
 end
 
 ---@param id string tool_use_id of the Bash call
@@ -274,6 +278,64 @@ function Store:drop_stale_bash(max_age)
       uv.fs_unlink(path)
     end
   end
+end
+
+---PreToolUse announces that Claude is about to edit `path`; PostToolUse takes the note back. Until
+---then the base of that path equals the file and must not be mistaken for a leftover.
+---@param id string tool_use_id of the edit
+---@param path string
+---@return boolean saved
+function Store:begin_edit(id, path)
+  local file = id_file(self, "editing", id)
+  if not file then
+    return false
+  end
+  ensure_dir(self.dir)
+  ensure_dir(self.dir .. "/editing")
+  local tmp = tmp_name(file)
+  if not write_all(tmp, vim.json.encode({ path = M.normalize(path) })) then
+    uv.fs_unlink(tmp)
+    return false
+  end
+  return uv.fs_rename(tmp, file) == true
+end
+
+---@param id string
+function Store:end_edit(id)
+  local file = id_file(self, "editing", id)
+  if file then
+    uv.fs_unlink(file)
+  end
+end
+
+---Paths of the edits that have started and not finished. An edit that Claude Code was not allowed
+---to make never finishes, so a note older than `max_age` seconds is dropped.
+---@param max_age integer
+---@return table<string, true>
+function Store:editing(max_age)
+  local paths = {}
+  local handle = uv.fs_scandir(self.dir .. "/editing")
+  if not handle then
+    return paths
+  end
+  local cutoff = os.time() - max_age
+  while true do
+    local name = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+    local file = self.dir .. "/editing/" .. name
+    local stat = uv.fs_stat(file)
+    if stat and stat.mtime.sec < cutoff then
+      uv.fs_unlink(file)
+    elseif name:match("%.json$") then
+      local ok, rec = pcall(vim.json.decode, read_all(file) or "")
+      if ok and type(rec) == "table" and type(rec.path) == "string" then
+        paths[rec.path] = true
+      end
+    end
+  end
+  return paths
 end
 
 ---@param id string

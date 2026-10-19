@@ -152,6 +152,42 @@ describe("review store", function()
     assert.same({ stash = "b" }, store:take_bash("toolu_new"))
   end)
 
+  it("lists the files whose edit has started and not finished", function()
+    local file = work .. "/a.txt"
+    write_file(file, "x\n")
+
+    assert.is_true(store:begin_edit("toolu_1", file))
+    assert.same({ [vim.uv.fs_realpath(file)] = true }, store:editing(3600))
+
+    store:end_edit("toolu_1")
+    assert.same({}, store:editing(3600))
+  end)
+
+  it("forgets an edit that never finished: Claude Code did not get permission to make it", function()
+    local file = work .. "/a.txt"
+    write_file(file, "x\n")
+    store:begin_edit("toolu_old", file)
+    local hour_ago = os.time() - 3700
+    vim.uv.fs_utime(dir .. "/editing/toolu_old.json", hour_ago, hour_ago)
+
+    assert.same({}, store:editing(3600))
+    assert.is_nil(vim.uv.fs_stat(dir .. "/editing/toolu_old.json"))
+  end)
+
+  it("keeps a path with quotes, spaces and Cyrillic in the list of edits", function()
+    local file = work .. "/it's a 'тест'.txt"
+    write_file(file, "x\n")
+
+    store:begin_edit("toolu_1", file)
+
+    assert.same({ [vim.uv.fs_realpath(file)] = true }, store:editing(3600))
+  end)
+
+  it("rejects an edit id that would escape the state directory", function()
+    assert.is_false(store:begin_edit("../evil", work .. "/a.txt"))
+    assert.is_nil(read_file(dir .. "/evil.json"))
+  end)
+
   it("rejects a tool_use_id that would escape the state directory", function()
     assert.is_false(store:save_bash("../evil", { stash = "abc" }))
     assert.is_nil(read_file(dir .. "/evil.json"))
