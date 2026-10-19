@@ -9,29 +9,36 @@ Upstream connects the Claude Code CLI to Neovim over the same WebSocket MCP prot
 
 Claude runs as the unmodified `claude` binary, so you sign in with your own Claude subscription.
 
-## Status
+The design and the reasons behind it live in [docs/DESIGN.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/DESIGN.md) (in Russian).
 
-Work in progress. The plan lives in [docs/DESIGN.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/DESIGN.md) (in Russian).
+## Requirements
 
-| Step | What                                                            | State   |
-| ---- | --------------------------------------------------------------- | ------- |
-| 0    | Repository, upstream sync script, CI                            | done    |
-| 1    | Diff provider: plug your own UI into `openDiff`                 | done    |
-| 2    | Extmark renderer: hunks, word diff, `ko` / `kx`                 | next    |
-| 3    | Review after write: hooks, snapshots, file list, revert summary | planned |
-| 4    | Review before write: the renderer as a diff provider            | planned |
-| 5    | Zen mode and the `cz` command                                   | planned |
-
-Until step 4 lands, diffs look and behave exactly as upstream.
+- Neovim 0.11 or newer. On older versions the plugin behaves exactly as upstream.
+- Claude started from Neovim (`:ClaudeCode`, zen or `cz`). The review hooks ride on that launch.
+- `git` for reviewing edits Claude makes through Bash.
 
 ## Install
 
-With lazy.nvim, from a local clone:
+With LazyVim, link the ready spec instead of the `ai.claudecode` extra. It keeps the extra's keys and adds `<leader>ak` and `<M-z>`:
+
+```sh
+ln -s ~/src/claudecode.nvim/fork/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
+```
+
+The spec loads the plugin on `VeryLazy`, not on a key: a file Claude edited before a restart comes back under review only if the plugin is running when you open it.
+
+With plain lazy.nvim, from a local clone:
 
 ```lua
 {
   dir = "~/src/claudecode.nvim",
   dependencies = { "folke/snacks.nvim" },
+  cmd = { "ClaudeCode", "ClaudeCodeZen", "ClaudeCodeReview" },
+  keys = {
+    { "<leader>ac", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude" },
+    { "<leader>ak", "<cmd>ClaudeCodeReview<cr>", desc = "Files waiting for review" },
+    { "<M-z>", "<cmd>ClaudeCodeZen<cr>", desc = "Claude zen" },
+  },
   opts = {},
 }
 ```
@@ -47,11 +54,107 @@ Or from GitHub over SSH, since the repository is private:
 }
 ```
 
-Commands, keymaps and options match upstream. The [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them.
+Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode.fork` to see whether the review hooks and zen are ready.
+
+## Hunk review
+
+Claude edits your files right away, the way it does in the terminal. The plugin then shows what changed on top of the code:
+
+- deleted lines appear in red above the change, as virtual lines that are not part of the file;
+- added lines get a green background;
+- inside a changed line, only the changed words are highlighted;
+- the hunk under the cursor shows a hint: `ko keep · kx revert`.
+
+| Key          | What it does                                         |
+| ------------ | ---------------------------------------------------- |
+| `ko`         | Keep the hunk under the cursor                       |
+| `kx`         | Revert it; the file is written at once               |
+| `KO` / `KX`  | Keep or revert every hunk in the file                |
+| `]k` / `[k`  | Next or previous hunk (takes a count)                |
+| `]K` / `[K`  | Last or first hunk                                   |
+| `<leader>ak` | Files waiting for review: open, keep all, revert all |
+
+The keys exist only in buffers under review. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
+
+**Claude learns what you reverted.** Claude Code itself never tells the model that you rejected part of an edit. The plugin adds a short note to Claude's context instead: right after Claude's next file edit or Bash call, or with your next message. The note names the file and line, shows Claude's text and the text that came back, and asks Claude not to reapply the change unless you ask.
+
+**Your own edits stay yours.** Edit the buffer outside a hunk and the change simply becomes part of the file. Edit inside a hunk and you change Claude's proposal; the hunk still waits for `ko` or `kx`. After `kx`, `u` brings Claude's text back as your own edit.
+
+**Review survives restarts.** The text of each file before Claude's first edit lives in `stdpath("state")/claudecode/review/`, in a directory only you can read. Hunks pile up across Claude's turns until you decide on them.
+
+### What gets reviewed
+
+- `Edit`, `Write` and `NotebookEdit`: always.
+- `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list.
+- An untracked file Bash rewrote: only when the file is open in Neovim, because its old text exists nowhere else.
+- Not reviewed: binary files, files over 2 MB, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
+
+### How it works
+
+Every Claude session started from Neovim gets `claude --settings <file>` with three hooks: `PreToolUse`, `PostToolUse` and `UserPromptSubmit`. Claude Code adds these to the hooks you already have; it does not replace them. Each hook is a short `nvim --clean -l` script. It copies the file before the edit and sends Neovim a notification without waiting for an answer. A hook never blocks Claude: on any error it logs to `hooks.log` and exits with 0, so at worst one edit escapes review.
+
+If you start Claude yourself (`terminal.provider = "none"`), the hooks are not attached and review after write stays off. Review before write still works: it needs only the IDE connection.
+
+## Review before write
+
+In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal accepts what is left as it is. `:ClaudeCodeDiffAccept` and `:ClaudeCodeDiffDeny` work too.
+
+If your Claude settings allow `Edit` without asking (`permissions.allow`), Claude never asks about edits and this mode only shows up for `Write`. Review after write covers the rest.
+
+Set `review.before_write = false` to keep upstream's diff views, or set your own `diff_opts.provider` (see below).
+
+## Zen mode
+
+`<M-z>` puts Claude full screen in a tab of its own and brings you back to the code, with Claude in its split. It works in normal mode and inside the Claude terminal; other terminals still get the key. Above Claude, zen shows how many files wait for review. When Claude asks to approve an edit in Manual mode, zen steps aside for the proposal and comes back once you have decided.
+
+`:ClaudeCodeZen` does the same; arguments start a new session, as in `:ClaudeCodeZen --resume`.
+
+`bin/cz` opens Neovim straight into zen:
+
+```sh
+ln -s ~/src/claudecode.nvim/bin/cz ~/.local/bin/cz
+cz            # new session
+cz --resume   # pick a session to resume
+```
+
+Zen needs Claude inside Neovim (`terminal.provider` set to `snacks`, `native` or `auto`).
+
+## Options
+
+These go into the same `opts` table as upstream's. Shown with their defaults:
+
+```lua
+opts = {
+  review = {
+    enabled = true,
+    before_write = true,        -- review Manual-mode proposals with the same engine
+    keymaps = {                 -- buffer-local while a file is under review; false disables a key
+      keep = "ko", revert = "kx", keep_all = "KO", revert_all = "KX",
+      next = "]k", prev = "[k", last = "]K", first = "[K",
+    },
+    files_keymap = "<leader>ak",
+    hint = true,                -- true builds the hint from your keys; a string replaces it; false hides it
+    word_diff = true,
+    picker = "auto",            -- "snacks", "fzf" or "select"
+  },
+  zen = {
+    enabled = true,
+    keymap = "<M-z>",
+  },
+}
+```
+
+Highlight groups, all linked by default so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeZenPending`.
+
+`User` events for your config:
+
+- `ClaudeCodeReviewChanged`, `data = { bufnr, path, hunks }`: a buffer's hunks changed.
+- `ClaudeCodeReviewPending`, `data = { count, files }`: the list of files waiting for review changed.
+- `ClaudeCodeDiffOpened` now also fires for proposals, with `layout = "provider"`.
 
 ## Custom diff provider
 
-Set `diff_opts.provider` to take over `openDiff` from the built-in views. Without it, the plugin uses the upstream `vertical`, `horizontal` and `unified` layouts.
+Set `diff_opts.provider` to take over `openDiff` from the built-in views. Review before write is one such provider; yours replaces it.
 
 ```lua
 require("claudecode").setup({
@@ -65,6 +168,9 @@ require("claudecode").setup({
       close = function(ctx, reason)
         -- Remove your UI.
       end,
+      accept_command = function(ctx) -- optional: what :ClaudeCodeDiffAccept does
+        ctx.accept(ctx.new_file_contents)
+      end,
     },
   },
 })
@@ -77,17 +183,22 @@ How it behaves:
 - Claude waits until you call `accept` or `reject`. Only the first call counts.
 - `accept` may pass text that differs from Claude's proposal. Claude writes your text, but it only learns that "the user modified your proposed content", not what you changed.
 - The plugin calls `close` once per diff: after Claude closes the tab, when the Claude session disconnects, when a new diff reuses the tab name, and when `open` throws (`reason` is `"setup failed"`). Make `close` safe to run on a half-built UI.
-- In one test with Claude Code 2.1.303, the written file lost its final newline. We haven't found out why yet.
+- A provider gets the diff even when the file's buffer has unsaved edits; the built-in views refuse it.
+- Claude Code 2.1.303 drops one trailing newline from the text it gets back. `accept` adds one before answering, so the file ends up with exactly your text. Upstream's own diff views lose the final newline this way.
 
 ## Development
 
 ```sh
-mise install     # Neovim, LuaJIT, formatters and linters
-mise run setup   # busted, luacheck and luacov into ./.luarocks
-mise run all     # format, lint and test
+mise install          # Neovim, LuaJIT, formatters and linters
+mise run setup        # busted, luacheck and luacov into ./.luarocks
+mise run all          # format, lint and upstream's tests (mocked vim)
+fork/test-nvim.sh     # the fork's tests, inside a real headless Neovim
 
-mise exec -- busted tests/unit/diff_provider_spec.lua   # a single spec
+mise exec -- busted tests/unit/diff_provider_spec.lua   # one upstream-style spec
+fork/test-nvim.sh spec/review/hunks_spec.lua            # one real-Neovim spec
 ```
+
+The fork's code lives in its own modules: `lua/claudecode/review/`, `lua/claudecode/hooks/`, `lua/claudecode/zen/` and `lua/claudecode/fork/`. Upstream's files get only small marked seams, so rebasing stays cheap.
 
 ## Syncing with upstream
 
