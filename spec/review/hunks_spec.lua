@@ -569,3 +569,150 @@ describe("review.hunks.pairs", function()
     assert.same({}, hunks.pairs(deletion))
   end)
 end)
+
+describe("review.hunks.map_edit", function()
+  -- Base: p1 p2 B q1 q2 q3 D1 D2 r1 r2 r3          (11 lines)
+  -- Text: p1 p2 X1 X2 q1 q2 q3 r1 r2 r3            (10 lines)
+  -- The first hunk grows B into X1 X2 (shift +1), the second one deletes D1 D2 after q3 (shift -2).
+  local changed = hunk({
+    base_start = 3,
+    base_count = 1,
+    cur_start = 3,
+    cur_count = 2,
+    base_lines = { "B" },
+    cur_lines = { "X1", "X2" },
+  })
+  local deleted = hunk({
+    base_start = 7,
+    base_count = 2,
+    cur_start = 7,
+    base_lines = { "D1", "D2" },
+  })
+  local layout = { changed, deleted }
+
+  ---@param first integer
+  ---@param last_old integer
+  ---@param last_new integer
+  local function assert_blocked(first, last_old, last_new)
+    local base_first, base_last = hunks.map_edit(layout, first, last_old, last_new)
+    assert.is_nil(base_first)
+    assert.is_nil(base_last)
+  end
+
+  it("passes the edit through when there are no hunks", function()
+    local base_first, base_last = hunks.map_edit({}, 4, 6, 7)
+    assert.equal(4, base_first)
+    assert.equal(6, base_last)
+  end)
+
+  it("leaves the lines above all hunks as they are", function()
+    local base_first, base_last = hunks.map_edit(layout, 0, 1, 1)
+    assert.equal(0, base_first)
+    assert.equal(1, base_last)
+  end)
+
+  it("shifts an edit between hunks by the hunks above it", function()
+    -- q2 is line 6 of the text, line 5 of the base
+    local base_first, base_last = hunks.map_edit(layout, 5, 6, 6)
+    assert.equal(4, base_first)
+    assert.equal(5, base_last)
+  end)
+
+  it("shifts an edit below all hunks by both of them", function()
+    -- r2 is line 9 of the text, line 10 of the base
+    local base_first, base_last = hunks.map_edit(layout, 8, 9, 9)
+    assert.equal(9, base_first)
+    assert.equal(10, base_last)
+  end)
+
+  it("maps a multi-line edit below all hunks", function()
+    local base_first, base_last = hunks.map_edit(layout, 8, 10, 8)
+    assert.equal(9, base_first)
+    assert.equal(11, base_last)
+  end)
+
+  it("maps an insertion at the end of the text to the end of the base", function()
+    local base_first, base_last = hunks.map_edit(layout, 10, 10, 11)
+    assert.equal(11, base_first)
+    assert.equal(11, base_last)
+  end)
+
+  it("maps a change of the line count the same way as a change in place", function()
+    -- q2 replaced by three lines: the old segment is still one line
+    local base_first, base_last = hunks.map_edit(layout, 5, 6, 8)
+    assert.equal(4, base_first)
+    assert.equal(5, base_last)
+  end)
+
+  it("blocks an edit inside a hunk", function()
+    assert_blocked(2, 3, 3)
+    assert_blocked(3, 3, 4) -- insertion between X1 and X2
+  end)
+
+  it("blocks an edit that crosses a hunk", function()
+    assert_blocked(1, 5, 5)
+  end)
+
+  it("blocks the line right above a hunk and an insertion on its upper border", function()
+    assert_blocked(1, 2, 2)
+    assert_blocked(2, 2, 3)
+  end)
+
+  it("blocks the line right below a hunk and an insertion on its lower border", function()
+    assert_blocked(4, 5, 5)
+    assert_blocked(4, 4, 5)
+  end)
+
+  it("treats a pure deletion as the point between its two neighbours", function()
+    assert_blocked(6, 7, 7) -- q3, the line above the point
+    assert_blocked(7, 8, 8) -- r1, the line below the point
+    assert_blocked(7, 7, 8) -- insertion on the point
+  end)
+
+  it("blocks edits next to a deletion at the top of the text", function()
+    local top = { hunk({ base_start = 1, base_count = 1, base_lines = { "gone" }, cur_start = 0 }) }
+    local first_blocked = hunks.map_edit(top, 0, 1, 1)
+    assert.is_nil(first_blocked)
+    local second_base_first, second_base_last = hunks.map_edit(top, 1, 2, 2)
+    assert.equal(2, second_base_first)
+    assert.equal(3, second_base_last)
+  end)
+
+  it("blocks edits next to a deletion at the end of the text", function()
+    local tail = { hunk({ base_start = 3, base_count = 1, base_lines = { "gone" }, cur_start = 2 }) }
+    assert.is_nil((hunks.map_edit(tail, 1, 2, 2)))
+    assert.is_nil((hunks.map_edit(tail, 2, 2, 3)))
+    local base_first, base_last = hunks.map_edit(tail, 0, 1, 1)
+    assert.equal(0, base_first)
+    assert.equal(1, base_last)
+  end)
+
+  it("blocks every edit against a new file", function()
+    local new_file = { hunk({ cur_start = 1, cur_count = 3, cur_lines = { "a", "b", "c" } }) }
+    assert.is_nil((hunks.map_edit(new_file, 1, 2, 2)))
+    assert.is_nil((hunks.map_edit(new_file, 3, 3, 4)))
+  end)
+
+  it("shifts by the net growth of a hunk that adds lines", function()
+    local grown = {
+      hunk({
+        base_start = 2,
+        base_count = 1,
+        cur_start = 2,
+        cur_count = 3,
+        base_lines = { "b" },
+        cur_lines = { "x", "y", "z" },
+      }),
+    }
+    -- lines 7-8 of the text are lines 5-6 of the base
+    local base_first, base_last = hunks.map_edit(grown, 6, 8, 6)
+    assert.equal(4, base_first)
+    assert.equal(6, base_last)
+  end)
+
+  it("does not mutate the hunks", function()
+    local before = vim.deepcopy(layout)
+    hunks.map_edit(layout, 8, 9, 9)
+    assert.same(before, layout)
+  end)
+end)

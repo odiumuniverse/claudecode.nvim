@@ -235,6 +235,43 @@ function M.pairs(hunk)
   return result
 end
 
+---Where a hunk sits in the buffer as the 0-based half-open range `[start, stop)`.
+---A pure deletion "after line k" has no lines of its own: it is the point between line k and line k + 1.
+---@param hunk ClaudeCodeHunk
+---@return integer start
+---@return integer stop
+local function buffer_range(hunk)
+  if hunk.cur_count == 0 then
+    return hunk.cur_start, hunk.cur_start
+  end
+  return hunk.cur_start - 1, hunk.cur_start - 1 + hunk.cur_count
+end
+
+---Carry a user edit made outside any hunk over to the base.
+---Arguments follow `on_lines` of `nvim_buf_attach`: lines from 0, `[first, last_old)` of the old text
+---became `[first, last_new)` of the new one; `hunks` are the hunks from before the edit.
+---Returns the 0-based half-open range `[base_first, base_last)` of the base that the old segment
+---corresponds to, or `nil` when the edit overlaps a hunk or touches its border (it belongs to the hunk then).
+---@param hunks ClaudeCodeHunk[]
+---@param first integer
+---@param last_old integer
+---@param last_new integer
+---@return integer|nil base_first
+---@return integer|nil base_last
+function M.map_edit(hunks, first, last_old, last_new)
+  local shift = 0
+  for _, hunk in ipairs(hunks) do
+    local start, stop = buffer_range(hunk)
+    if first <= stop and last_old >= start then
+      return nil, nil
+    end
+    if first > stop then
+      shift = shift + hunk.cur_count - hunk.base_count
+    end
+  end
+  return first - shift, last_old - shift
+end
+
 ---New base after the user keeps `hunk`: its base range is replaced by Claude's lines.
 ---@param base_lines string[]
 ---@param hunk ClaudeCodeHunk
