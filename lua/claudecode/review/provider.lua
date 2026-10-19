@@ -23,6 +23,7 @@ local M = {}
 ---@field base_lines string[]
 ---@field eol boolean
 ---@field dos boolean
+---@field proposed_lines string[]
 ---@field reverts ClaudeCodeRevertRecord[]
 ---@field from_zen boolean
 ---@field done boolean
@@ -99,6 +100,12 @@ local function mark_reviewed(session, content)
   end
 end
 
+---@param lines string[]
+---@return boolean
+local function is_blank_line(lines)
+  return #lines == 1 and lines[1] == ""
+end
+
 local function finish(session)
   if session.done then
     return
@@ -107,7 +114,14 @@ local function finish(session)
   sessions[session.ctx.tab_name] = nil
 
   local lines = vim.api.nvim_buf_get_lines(session.buf, 0, -1, false)
-  if #session.base_lines == 0 and #lines == 1 and lines[1] == "" then
+  -- A buffer cannot tell an empty file from one empty line. Take it for an empty file unless that
+  -- single empty line is what the file or Claude's proposal really holds.
+  if
+    #lines == 1
+    and lines[1] == ""
+    and not is_blank_line(session.base_lines)
+    and not is_blank_line(session.proposed_lines)
+  then
     lines = {}
   end
   if vim.deep_equal(lines, session.base_lines) then
@@ -169,6 +183,7 @@ function M.open(ctx)
     base_lines = base_lines,
     eol = eol,
     dos = dos,
+    proposed_lines = lines,
     reverts = {},
     from_zen = from_zen,
     done = false,

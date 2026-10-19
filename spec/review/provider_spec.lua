@@ -266,4 +266,41 @@ describe("review provider", function()
 
     assert.equal("A\r\nb\r\nc\r\nd\r\ne\r\n", written(handle))
   end)
+
+  it("hands Claude an empty file when it proposed one", function()
+    local file = work .. "/emptied.txt"
+    write_file(file, "a\nb\n")
+    local handle = propose(file, "")
+
+    engine.keep_all(proposal_buf())
+    vim.wait(100)
+
+    assert.equal("", written(handle))
+  end)
+
+  it("hands Claude an empty file when you delete the whole proposal", function()
+    local file = work .. "/emptied.txt"
+    write_file(file, "a\nb\n")
+    local handle = propose(file, "A\nB\n")
+    local buf = proposal_buf()
+
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {})
+    vim.api.nvim_buf_call(buf, function()
+      vim.cmd("write")
+    end)
+    vim.wait(100)
+
+    assert.equal("", written(handle))
+  end)
+
+  it("keeps a proposal of one empty line as one empty line", function()
+    local file = work .. "/blank.txt"
+    write_file(file, "a\nb\n")
+    local handle = propose(file, "\n")
+
+    engine.keep_all(proposal_buf())
+    vim.wait(100)
+
+    assert.equal("\n", written(handle))
+  end)
 end)
