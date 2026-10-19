@@ -288,4 +288,29 @@ function M.revert(cur_lines, hunk)
   return splice(cur_lines, hunk.cur_start, hunk.cur_count, hunk.base_lines)
 end
 
+---New base after an edit that needs no review (Claude in accept-edits mode) turned `before` into
+---`after`. Parts of the edit away from the pending hunks (base → before) go into the base, the way
+---your own edits outside a hunk do; a part that overlaps or touches a pending hunk stays in it.
+---@param base_lines string[]
+---@param before_lines string[] The file before the edit
+---@param after_lines string[] The file after the edit
+---@return string[]
+function M.carry(base_lines, before_lines, after_lines)
+  local pending = M.compute(base_lines, before_lines)
+  local edits = M.compute(before_lines, after_lines)
+  local result = vim.list_slice(base_lines, 1, #base_lines)
+  -- Bottom up, so the base ranges of the edits above stay where map_edit put them.
+  for i = #edits, 1, -1 do
+    local edit = edits[i]
+    local first = edit.base_count == 0 and edit.base_start or edit.base_start - 1
+    local base_first, base_last = M.map_edit(pending, first, first + edit.base_count, first + edit.cur_count)
+    if base_first then
+      local head = vim.list_slice(result, 1, base_first)
+      vim.list_extend(head, edit.cur_lines)
+      result = vim.list_extend(head, vim.list_slice(result, base_last + 1, #result))
+    end
+  end
+  return result
+end
+
 return M
