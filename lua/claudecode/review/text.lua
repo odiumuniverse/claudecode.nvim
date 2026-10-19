@@ -38,6 +38,49 @@ function M.to_text(lines, eol, dos)
   return table.concat(lines, nl) .. (eol and nl or "")
 end
 
+local BOM = "\239\187\191"
+
+---The bytes of the file as the buffer holds them: in UTF-8, without the byte order mark. A base is
+---kept in the bytes of the file, and a buffer made of those bytes would never match.
+---@param bytes string
+---@param bufnr integer
+---@return string
+function M.decode(bytes, bufnr)
+  local fenc = vim.bo[bufnr].fileencoding
+  if fenc ~= "" and fenc ~= "utf-8" and bytes ~= "" then
+    local converted = vim.iconv(bytes, fenc, "utf-8")
+    -- iconv answers with "" when it cannot convert: keep the bytes then, as before.
+    if converted ~= "" then
+      bytes = converted
+    end
+  end
+  if vim.bo[bufnr].bomb and bytes:sub(1, #BOM) == BOM then
+    bytes = bytes:sub(#BOM + 1)
+  end
+  return bytes
+end
+
+---The other way round: text of the buffer to the bytes `:write` puts in the file.
+---@param str string
+---@param bufnr integer
+---@return string
+function M.encode(str, bufnr)
+  if str == "" then
+    return str
+  end
+  local fenc = vim.bo[bufnr].fileencoding
+  if vim.bo[bufnr].bomb then
+    str = BOM .. str
+  end
+  if fenc ~= "" and fenc ~= "utf-8" then
+    local converted = vim.iconv(str, "utf-8", fenc)
+    if converted ~= "" then
+      str = converted
+    end
+  end
+  return str
+end
+
 ---The bytes `:write` would put on disk for this buffer.
 ---@param bufnr integer
 ---@return string

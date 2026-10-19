@@ -189,6 +189,63 @@ describe("review controller", function()
     assert.equal(1, pending_events[#pending_events].count)
   end)
 
+  it("does not show a byte order mark as a change, and keeps it when you revert", function()
+    local file = work .. "/bom.txt"
+    write_file(file, "\239\187\191a\nb\n")
+    store:snapshot(file)
+    write_file(file, "\239\187\191a\nB\n")
+
+    local buf = open(file)
+
+    local hunks = engine.hunks(buf)
+    assert.equal(1, #hunks)
+    assert.same({ "b" }, hunks[1].base_lines)
+    engine.revert(buf, 1)
+    assert.equal("\239\187\191a\nb\n", read_file(file))
+  end)
+
+  it("compares a file in another encoding with its base in the file's bytes", function()
+    local file = work .. "/latin1.txt"
+    write_file(file, "caf\233\nb\n")
+    store:snapshot(file)
+    write_file(file, "caf\233\nB\n")
+
+    local buf = open(file)
+
+    assert.equal("latin1", vim.bo[buf].fileencoding)
+    local hunks = engine.hunks(buf)
+    assert.equal(1, #hunks)
+    assert.same({ "b" }, hunks[1].base_lines)
+    engine.revert(buf, 1)
+    assert.equal("caf\233\nb\n", read_file(file))
+  end)
+
+  it("saves the base in the bytes of the file when your edit is carried into it", function()
+    local file = work .. "/latin1.txt"
+    write_file(file, "caf\233\n2\n3\n4\n5\n6\nseven\n")
+    store:snapshot(file)
+    write_file(file, "caf\233\n2\n3\n4\n5\n6\nSEVEN\n")
+    local buf = open(file)
+
+    vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "café!" })
+    require("helpers").flush()
+
+    assert.equal("caf\233!\n2\n3\n4\n5\n6\nseven\n", store:get(file).text)
+  end)
+
+  it("saves the base with its byte order mark when your edit is carried into it", function()
+    local file = work .. "/bom.txt"
+    write_file(file, "\239\187\1911\n2\n3\n4\n5\n6\nseven\n")
+    store:snapshot(file)
+    write_file(file, "\239\187\1911\n2\n3\n4\n5\n6\nSEVEN\n")
+    local buf = open(file)
+
+    vim.api.nvim_buf_set_lines(buf, 0, 1, false, { "one" })
+    require("helpers").flush()
+
+    assert.equal("\239\187\191one\n2\n3\n4\n5\n6\nseven\n", store:get(file).text)
+  end)
+
   it("follows the state directory a new Claude session reports", function()
     local other = vim.fn.tempname()
     local other_store = store_mod.new(other)

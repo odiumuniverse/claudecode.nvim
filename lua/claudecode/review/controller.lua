@@ -94,9 +94,9 @@ function M.attach_if_pending(buf)
   end
 
   local reverted = false
-  engine.attach(buf, (text.to_lines(base.text, is_dos(buf))), {
+  engine.attach(buf, (text.to_lines(text.decode(base.text, buf), is_dos(buf))), {
     on_base = function(lines)
-      store:set(path, text.to_text(lines, vim.bo[buf].eol, is_dos(buf)))
+      store:set(path, text.encode(text.to_text(lines, vim.bo[buf].eol, is_dos(buf)), buf))
     end,
     on_revert = function(rec)
       reverted = true
@@ -142,7 +142,7 @@ function M.on_hook(payload)
   for _, path in ipairs(payload.untracked_changed or {}) do
     local buf = loaded_buf(path)
     if buf and not vim.bo[buf].modified then
-      local old = text.buffer_text(buf)
+      local old = text.encode(text.buffer_text(buf), buf)
       local now = read_file(path)
       if now and old ~= now then
         state.store:snapshot_text(path, old, false)
