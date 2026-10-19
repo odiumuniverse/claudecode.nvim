@@ -15,20 +15,33 @@ M.MAX_BYTES = 2 * 1024 * 1024
 M.STALE_BASH_S = 24 * 3600
 local SNIFF_BYTES = 8000
 
+---A file past MAX_BYTES is not read at all: it stays out of review, and reading it would cost
+---the memory and time for nothing.
+---@param path string
+---@return string|nil data nil when the file is missing or too big
+---@return boolean too_big
 local function read_all(path)
+  local info = uv.fs_stat(path)
+  if info and info.size > M.MAX_BYTES then
+    return nil, true
+  end
   local fd = uv.fs_open(path, "r", 384)
   if not fd then
-    return nil
+    return nil, false
   end
   local stat = uv.fs_fstat(fd)
   local data = stat and uv.fs_read(fd, stat.size, 0) or nil
   uv.fs_close(fd)
-  return data
+  return data, false
 end
 
 ---@param text string|nil
+---@param too_big boolean|nil The file was too big to read
 ---@return boolean
-local function reviewable(text)
+local function reviewable(text, too_big)
+  if too_big then
+    return false
+  end
   if not text then
     return true -- a new file
   end
@@ -78,7 +91,8 @@ local function post_tool_use(store, input, env)
     store:end_edit(input.tool_use_id, path)
     if path then
       local base = store:get(path)
-      if base and base.text == (read_all(path) or "") and not base.new_file then
+      local current, too_big = read_all(path)
+      if base and not too_big and base.text == (current or "") and not base.new_file then
         store:remove(path)
       end
       payload.files[1] = require("claudecode.review.store").normalize(path)
