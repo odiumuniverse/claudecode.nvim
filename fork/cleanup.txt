@@ -1,0 +1,29 @@
+# Upstream files that fork/sync.sh removes after every rebase.
+# One path or git pathspec per line. Lines starting with # are ignored.
+
+# Coder's agent and editor setup
+.claude
+.devcontainer
+
+# Issue templates and workflows (fork CI lives in .github/workflows/ci.yml)
+.github/ISSUE_TEMPLATE
+.github/workflows/issue-triage.yaml
+.github/workflows/pr-title.yaml
+.github/workflows/release-notes.yaml
+.github/workflows/release-please.yaml
+.github/workflows/test.yml
+
+# Release tooling
+.release-please-manifest.json
+CHANGELOG.md
+VERSION
+communique.toml
+release-please-config.json
+reviewfixer.yaml
+scripts/package-lock.json
+scripts/package.json
+scripts/release-please-runner.js
+scripts/run-release-please.sh
+scripts/test-release-please-runner.js
+
+STORY.md
