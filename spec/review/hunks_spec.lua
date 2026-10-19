@@ -755,8 +755,18 @@ describe("review.hunks round trips", function()
   it("carries an edit outside the hunks into the base without creating a hunk", function()
     local base = { "a", "b", "c", "d", "e" }
     local cur = { "a", "b", "X", "Y", "e" }
+    local expected = {
+      hunk({
+        base_start = 3,
+        base_count = 2,
+        cur_start = 3,
+        cur_count = 2,
+        base_lines = { "c", "d" },
+        cur_lines = { "X", "Y" },
+      }),
+    }
     local list = hunks.compute(base, cur)
-    assert.equal(1, #list)
+    assert.same(expected, list)
 
     -- the user turns "a" into "A", away from the hunk
     local base_first, base_last = hunks.map_edit(list, 0, 1, 1)
@@ -767,6 +777,6 @@ describe("review.hunks round trips", function()
     assert.same({ "A", "b", "c", "d", "e" }, new_base)
 
     local new_list = hunks.compute(new_base, { "A", "b", "X", "Y", "e" })
-    assert.same(list, new_list)
+    assert.same(expected, new_list)
   end)
 end)
