@@ -442,8 +442,8 @@ function M.setup(opts)
   local diff = require("claudecode.diff")
   diff.setup(M.state.config)
 
-  -- Fork: hunk review and zen
-  require("claudecode.fork").setup(opts, M.state.config)
+  -- Hunk review and zen
+  require("claudecode.features").setup(opts, M.state.config)
 
   if M.state.config.auto_start then
     M.start(false) -- Suppress notification on auto-start

@@ -2,7 +2,7 @@
 --- Entry point of the fork's features: hunk review (after and before Claude writes) and zen.
 --- `require("claudecode").setup(opts)` calls `setup(opts)` with the same options table.
 ---@brief ]]
----@module 'claudecode.fork'
+---@module 'claudecode.features'
 
 local M = {}
 
@@ -25,11 +25,11 @@ local M = {}
 ---@field before_write boolean Review Claude's proposals before they are written (Manual mode)
 ---@field picker "auto"|"snacks"|"fzf"|"select"
 
----@class ClaudeCodeForkConfig
+---@class ClaudeCodeFeaturesConfig
 ---@field review ClaudeCodeReviewConfig
 ---@field zen { enabled: boolean, keymap: string|false }
 
----@type ClaudeCodeForkConfig
+---@type ClaudeCodeFeaturesConfig
 M.defaults = {
   review = {
     enabled = true,
@@ -65,7 +65,7 @@ local function is_key(v)
   return v == false or (type(v) == "string" and v ~= "")
 end
 
----@param config ClaudeCodeForkConfig
+---@param config ClaudeCodeFeaturesConfig
 function M.validate(config)
   local review, zen = config.review, config.zen
   check(type(review) == "table", "review must be a table")
@@ -89,7 +89,7 @@ function M.validate(config)
 end
 
 ---@param user table|nil The options passed to require("claudecode").setup
----@return ClaudeCodeForkConfig
+---@return ClaudeCodeFeaturesConfig
 function M.config(user)
   user = user or {}
   local config = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), {
@@ -117,7 +117,7 @@ function M.hint_text(review)
   return #parts > 0 and table.concat(parts, " · ") or false
 end
 
-M.state = { config = nil } ---@type { config: ClaudeCodeForkConfig|nil }
+M.state = { config = nil } ---@type { config: ClaudeCodeFeaturesConfig|nil }
 
 ---@param user table|nil The options passed to require("claudecode").setup
 ---@param plugin_config table|nil The plugin's applied config; its diff_opts gets the review provider

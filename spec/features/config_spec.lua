@@ -1,15 +1,15 @@
---- Tests for the fork's options: defaults, validation and the hint built from your keys.
-local fork = require("claudecode.fork")
+--- Tests for the feature options: defaults, validation and the hint built from your keys.
+local features = require("claudecode.features")
 
-describe("fork options", function()
+describe("feature options", function()
   local function config_error(user)
-    local ok, err = pcall(fork.config, user)
+    local ok, err = pcall(features.config, user)
     assert.is_false(ok)
     return err
   end
 
   it("turns review and zen on by default", function()
-    local config = fork.config(nil)
+    local config = features.config(nil)
 
     assert.is_true(config.review.enabled)
     assert.equal("ko", config.review.keymaps.keep)
@@ -19,7 +19,7 @@ describe("fork options", function()
   end)
 
   it("merges your keys over the defaults", function()
-    local config = fork.config({ review = { keymaps = { keep = "<leader>y", revert_all = false } } })
+    local config = features.config({ review = { keymaps = { keep = "<leader>y", revert_all = false } } })
 
     assert.equal("<leader>y", config.review.keymaps.keep)
     assert.is_false(config.review.keymaps.revert_all)
@@ -35,12 +35,12 @@ describe("fork options", function()
   end)
 
   it("builds the hint from your keys", function()
-    assert.equal("ko keep · kx revert", fork.hint_text(fork.config(nil).review))
+    assert.equal("ko keep · kx revert", features.hint_text(features.config(nil).review))
     assert.equal(
       "gy keep",
-      fork.hint_text(fork.config({ review = { keymaps = { keep = "gy", revert = false } } }).review)
+      features.hint_text(features.config({ review = { keymaps = { keep = "gy", revert = false } } }).review)
     )
-    assert.is_false(fork.hint_text(fork.config({ review = { hint = false } }).review))
-    assert.equal("custom", fork.hint_text(fork.config({ review = { hint = "custom" } }).review))
+    assert.is_false(features.hint_text(features.config({ review = { hint = false } }).review))
+    assert.equal("custom", features.hint_text(features.config({ review = { hint = "custom" } }).review))
   end)
 end)

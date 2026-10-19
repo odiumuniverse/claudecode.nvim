@@ -528,7 +528,7 @@ for provider diffs too (|claudecode-events|).
 HEALTH CHECK                                               *claudecode-health*
 
 >vim
-    :checkhealth claudecode.fork
+    :checkhealth claudecode.features
 <
 The check reports:
 

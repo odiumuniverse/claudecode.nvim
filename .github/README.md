@@ -58,7 +58,7 @@ Or from GitHub over SSH, since the repository is private:
 }
 ```
 
-Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode.fork` to see whether the review hooks and zen are ready.
+Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode.features` to see whether the review hooks and zen are ready.
 
 `:help claudecode` documents the fork's options, keys and events.
 
@@ -210,7 +210,7 @@ mise exec -- busted tests/unit/diff_provider_spec.lua   # one upstream-style spe
 fork/test-nvim.sh spec/review/hunks_spec.lua            # one real-Neovim spec
 ```
 
-The fork's code lives in its own modules: `lua/claudecode/review/`, `lua/claudecode/hooks/`, `lua/claudecode/zen/` and `lua/claudecode/fork/`. Upstream's files get only small marked seams, so rebasing stays cheap.
+The fork's code lives in its own modules: `lua/claudecode/review/`, `lua/claudecode/hooks/`, `lua/claudecode/zen/` and `lua/claudecode/features/`. Upstream's files get only small marked seams, so rebasing stays cheap.
 
 ## Syncing with upstream
 

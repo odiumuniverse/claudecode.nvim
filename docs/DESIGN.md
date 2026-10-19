@@ -10,7 +10,7 @@ The native `claude` TUI inside Neovim over the IDE protocol, with Cursor-style h
 4. **Sync by rebase.** Our commits sit on top of `upstream/main`. The cleanup commit always comes last: `fork/sync.sh` drops it, rebases, and deletes the listed files again.
 5. **What we delete** (the full list is `fork/cleanup.txt`): `communique.toml`, `reviewfixer.yaml`, `release-please*`, `CHANGELOG.md`, `VERSION`, `STORY.md`, `scripts/release-please-*`, `scripts/package*.json`, `.github/ISSUE_TEMPLATE`, every upstream workflow, `.devcontainer/` and `.claude/`. Upstream's `test.yml` runs release-please tests from the deleted `scripts/package.json`, so instead of editing it the fork has its own `.github/workflows/ci.yml` with the same Lua tests. **What we keep:** `mise.*` as is (its `communique` tool and `reviewfix` task do no harm), `treefmt.toml`, the repro scripts and fixtures, `AGENTS.md` and `CLAUDE.md`. Upstream's architecture and protocol docs moved to `docs/`, and its development guide became `CONTRIBUTING.md`; git carries upstream's later changes over to the new paths on rebase. The root `README.md` stays upstream's, with a dead link to `STORY.md`; GitHub shows `.github/README.md` first.
 6. **LICENSE:** `Copyright (c) 2026 odiumuniverse` goes under Coder's line.
-7. **Our code lives in modules of its own:** `lua/claudecode/review/`, `lua/claudecode/hooks/`, `lua/claudecode/zen/` and `lua/claudecode/fork/`. Upstream files get only small marked seams: the diff provider branches in `diff.lua`, `hooks.decorate` in `terminal.lua`, and `fork.setup` in `init.lua`.
+7. **Our code lives in modules of its own:** `lua/claudecode/review/`, `lua/claudecode/hooks/`, `lua/claudecode/zen/` and `lua/claudecode/features/`. Upstream files get only small marked seams: the diff provider branches in `diff.lua`, `hooks.decorate` in `terminal.lua`, and `features.setup` in `init.lua`.
 
 ## Review: two modes
 
@@ -77,7 +77,7 @@ lua/claudecode/review/picker.lua     list of files (<leader>ak)
 lua/claudecode/review/provider.lua   review before write
 lua/claudecode/hooks/                settings.json for --settings, the hook entry script, git snapshots
 lua/claudecode/zen/init.lua          zen
-lua/claudecode/fork/                 options, setup, :checkhealth claudecode.fork
+lua/claudecode/features/             options, setup, :checkhealth claudecode.features
 spec/                                tests in a real headless Neovim (fork/test-nvim.sh)
 ```
 

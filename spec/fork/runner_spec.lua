@@ -1,5 +1,5 @@
 --- Tests for fork/test-nvim.sh: its exit status and message tell a failing run from a cut-off one.
-local root = vim.fn.fnamemodify(package.searchpath("claudecode.fork", package.path), ":p:h:h:h:h")
+local root = vim.fn.fnamemodify(package.searchpath("claudecode.features", package.path), ":p:h:h:h:h")
 
 describe("fork/test-nvim.sh", function()
   local dir

@@ -1,5 +1,5 @@
 --- Review survives a restart: Claude's edit happens in one Neovim, you review it in the next.
-local root = vim.fn.fnamemodify(package.searchpath("claudecode.fork", package.path), ":p:h:h:h:h")
+local root = vim.fn.fnamemodify(package.searchpath("claudecode.features", package.path), ":p:h:h:h:h")
 
 describe("review across restarts", function()
   local work, state

@@ -1,13 +1,13 @@
 ---@brief [[
---- :checkhealth claudecode.fork — hunk review hooks and zen.
+--- :checkhealth claudecode.features — hunk review hooks and zen.
 ---@brief ]]
----@module 'claudecode.fork.health'
+---@module 'claudecode.features.health'
 
 local M = {}
 
 function M.check()
   local health = vim.health
-  local fork = require("claudecode.fork")
+  local features = require("claudecode.features")
 
   health.start("Neovim")
   if vim.fn.has("nvim-0.11") == 1 then
@@ -16,7 +16,7 @@ function M.check()
     health.error("Hunk review and zen need Neovim 0.11 or newer; the plugin falls back to upstream behavior")
   end
 
-  local config = fork.state.config
+  local config = features.state.config
   if not config then
     health.warn("require('claudecode').setup() has not run yet")
     return

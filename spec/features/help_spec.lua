@@ -1,6 +1,6 @@
 --- Tests for doc/claudecode.txt: it builds into help tags, the tags the fork documents resolve,
---- and every option of `fork.defaults` has its entry.
-local fork = require("claudecode.fork")
+--- and every option of `features.defaults` has its entry.
+local features = require("claudecode.features")
 local helpers = require("helpers")
 
 local root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p:h:h:h")
@@ -89,7 +89,7 @@ describe("fork help", function()
   end
 
   local function sorted_paths()
-    local paths = vim.tbl_keys(option_paths(fork.defaults, "", {}))
+    local paths = vim.tbl_keys(option_paths(features.defaults, "", {}))
     table.sort(paths)
     return paths
   end
@@ -109,7 +109,7 @@ describe("fork help", function()
 
   it("states the default of every option as the code has it", function()
     local lines = vim.fn.readfile(doc_file)
-    local options = option_paths(fork.defaults, "", {})
+    local options = option_paths(features.defaults, "", {})
 
     local wrong = {}
     for _, path in ipairs(sorted_paths()) do
