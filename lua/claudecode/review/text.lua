@@ -43,10 +43,17 @@ end
 ---@return string
 function M.buffer_text(bufnr)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-  local eol = vim.bo[bufnr].eol or vim.bo[bufnr].fixeol
-  if #lines == 1 and lines[1] == "" and not vim.bo[bufnr].eol then
-    return ""
+  if #lines == 1 and lines[1] == "" then
+    -- An emptied buffer and a file holding one empty line look alike; only the first
+    -- writes zero bytes. wordcount() counts what :write would put on disk.
+    local empty = vim.api.nvim_buf_call(bufnr, function()
+      return vim.fn.wordcount().bytes == 0
+    end)
+    if empty or not (vim.bo[bufnr].eol or vim.bo[bufnr].fixeol) then
+      return ""
+    end
   end
+  local eol = vim.bo[bufnr].eol or vim.bo[bufnr].fixeol
   return M.to_text(lines, eol, vim.bo[bufnr].fileformat == "dos")
 end
 
