@@ -1,4 +1,5 @@
 -- LazyVim spec for this fork: LazyVim's ai.claudecode keys plus review and zen.
+-- Toggle Claude sits on <leader>at, not the extra's <leader>ac.
 -- Link it into your config instead of the extra:
 --   ln -s ~/src/claudecode.nvim/fork/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
 return {
@@ -11,7 +12,7 @@ return {
   opts = {},
   keys = {
     { "<leader>a", "", desc = "+ai", mode = { "n", "v" } },
-    { "<leader>ac", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude" },
+    { "<leader>at", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude" },
     { "<leader>af", "<cmd>ClaudeCodeFocus<cr>", desc = "Focus Claude" },
     { "<leader>ar", "<cmd>ClaudeCode --resume<cr>", desc = "Resume Claude" },
     { "<leader>aC", "<cmd>ClaudeCode --continue<cr>", desc = "Continue Claude" },

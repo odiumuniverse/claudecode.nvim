@@ -23,7 +23,7 @@ More documentation:
 
 ## Install
 
-With LazyVim, link the ready spec instead of the `ai.claudecode` extra. It keeps the extra's keys and adds `<leader>ak` and `<M-z>`:
+With LazyVim, link the ready spec instead of the `ai.claudecode` extra. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>ak` and `<M-z>`:
 
 ```sh
 ln -s ~/src/claudecode.nvim/fork/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
@@ -39,7 +39,7 @@ With plain lazy.nvim, from a local clone:
   dependencies = { "folke/snacks.nvim" },
   cmd = { "ClaudeCode", "ClaudeCodeZen", "ClaudeCodeReview" },
   keys = {
-    { "<leader>ac", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude" },
+    { "<leader>at", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude" },
     { "<leader>ak", "<cmd>ClaudeCodeReview<cr>", desc = "Files waiting for review" },
     { "<M-z>", "<cmd>ClaudeCodeZen<cr>", desc = "Claude zen" },
   },
