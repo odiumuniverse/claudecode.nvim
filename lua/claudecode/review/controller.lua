@@ -76,6 +76,28 @@ local function remove_new_file(buf, path)
   end)
 end
 
+---An edit that Claude Code was not allowed to make never reports back, and what changed in the file
+---since is yours, not Claude's: forget the bases such edits made.
+---@param store ClaudeCodeReviewStore
+---@return table<string, true> editing Paths of the edits still under way
+local function forget_refused(store)
+  local editing, stale = store:editing(M.EDITING_MAX_AGE_S)
+  for _, note in ipairs(stale) do
+    if note.created then
+      store:remove(note.path)
+    end
+  end
+  return editing
+end
+
+---Is the file one that an unfinished edit may still be writing, or that you made after Claude Code
+---refused that edit? Then it is not listed, reviewed or deleted as Claude's.
+---@param path string
+---@return boolean
+function M.in_doubt(path)
+  return state.store ~= nil and state.store:in_doubt(path, M.EDITING_MAX_AGE_S)
+end
+
 ---No hunk holds the final newline. When the text that came back reaches the end of the file, the
 ---file gets the final newline, or the lack of it, that the base had.
 ---@param buf integer
@@ -103,11 +125,15 @@ function M.attach_if_pending(buf)
   end
   local path = store_mod.normalize(name)
   local store = state.store
+  forget_refused(store)
   local base = store:get(path)
   if not base then
     if engine.is_attached(buf) then
       engine.detach(buf)
     end
+    return
+  end
+  if store:in_doubt(path, M.EDITING_MAX_AGE_S) then
     return
   end
 
@@ -197,21 +223,18 @@ function M.refresh_pending()
   if state.store then
     -- PreToolUse takes the base before Claude writes: it equals the file until then (or the file
     -- is not there yet), and the user may well be refreshing the list while Claude waits for permission.
-    local editing, stale = state.store:editing(M.EDITING_MAX_AGE_S)
-    -- A refused edit never reports back, and what you changed since is yours, not Claude's.
-    for _, note in ipairs(stale) do
-      if note.created then
-        state.store:remove(note.path)
-      end
-    end
+    local editing = forget_refused(state.store)
     for _, base in ipairs(state.store:list()) do
       local current = read_file(base.path)
       local unchanged = (current == nil and base.new_file) or (current ~= nil and same_lines(base.text, current, false))
-      if not unchanged then
-        pending[#pending + 1] = base.path
-      elseif not editing[base.path] then
-        -- a leftover: Claude's new file is gone again, or the file already equals its base
-        state.store:remove(base.path)
+      -- A file in doubt is not Claude's yet, and perhaps never: neither listed nor forgotten.
+      if not state.store:in_doubt(base.path, M.EDITING_MAX_AGE_S) then
+        if not unchanged then
+          pending[#pending + 1] = base.path
+        elseif not editing[base.path] then
+          -- a leftover: Claude's new file is gone again, or the file already equals its base
+          state.store:remove(base.path)
+        end
       end
     end
   end

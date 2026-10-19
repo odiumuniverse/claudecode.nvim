@@ -41,6 +41,30 @@ function M.normalize(path)
   return path
 end
 
+---@class ClaudeCodeFileStamp
+---@field exists boolean
+---@field size integer|nil
+---@field sec integer|nil
+---@field nsec integer|nil
+
+---What the file at `path` looks like on disk: whether it is there, its size and modification time.
+---@param path string
+---@return ClaudeCodeFileStamp
+function M.stamp(path)
+  local stat = uv.fs_stat(path)
+  if not stat then
+    return { exists = false }
+  end
+  return { exists = true, size = stat.size, sec = stat.mtime.sec, nsec = stat.mtime.nsec }
+end
+
+---@param a ClaudeCodeFileStamp
+---@param b ClaudeCodeFileStamp
+---@return boolean
+function M.same_stamp(a, b)
+  return a.exists == b.exists and a.size == b.size and a.sec == b.sec and a.nsec == b.nsec
+end
+
 local function read_all(path)
   local fd = uv.fs_open(path, "r", FILE_MODE)
   if not fd then
@@ -290,8 +314,10 @@ end
 ---@param id string tool_use_id of the edit
 ---@param path string
 ---@param created boolean|nil This PreToolUse created the base (it did not exist before)
+---@param stamp ClaudeCodeFileStamp|nil The file as PreToolUse found it. Once it differs, the file is
+---  either Claude's write on its way to PostToolUse, or yours.
 ---@return boolean saved
-function Store:begin_edit(id, path, created)
+function Store:begin_edit(id, path, created, stamp)
   local file = id_file(self, "editing", id)
   if not file then
     return false
@@ -299,7 +325,8 @@ function Store:begin_edit(id, path, created)
   ensure_dir(self.dir)
   ensure_dir(self.dir .. "/editing")
   local tmp = tmp_name(file)
-  if not write_all(tmp, vim.json.encode({ path = M.normalize(path), created = created == true })) then
+  local note = { path = M.normalize(path), created = created == true, stamp = stamp }
+  if not write_all(tmp, vim.json.encode(note)) then
     uv.fs_unlink(tmp)
     return false
   end
@@ -333,9 +360,43 @@ function Store:end_edit(id, path)
   end
 end
 
+---@class ClaudeCodeReviewEditNote
+---@field file string Where the note lives
+---@field valid boolean
+---@field mtime integer|nil Modification time of the note file, in seconds
+---@field path string|nil
+---@field created boolean The base was made by that edit's PreToolUse
+---@field stamp ClaudeCodeFileStamp|nil
+
+---@return ClaudeCodeReviewEditNote[]
+local function read_notes(self)
+  local notes = {}
+  local handle = uv.fs_scandir(self.dir .. "/editing")
+  while handle do
+    local name = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+    local file = self.dir .. "/editing/" .. name
+    local stat = uv.fs_stat(file)
+    local ok, rec = pcall(vim.json.decode, read_all(file) or "")
+    local valid = name:match("%.json$") and ok and type(rec) == "table" and type(rec.path) == "string"
+    notes[#notes + 1] = {
+      file = file,
+      valid = valid and true or false,
+      mtime = stat and stat.mtime.sec or nil,
+      path = valid and rec.path or nil,
+      created = valid and rec.created == true or false,
+      stamp = valid and type(rec.stamp) == "table" and rec.stamp or nil,
+    }
+  end
+  return notes
+end
+
 ---@class ClaudeCodeReviewStaleEdit
 ---@field path string
 ---@field created boolean The base was made by that edit's PreToolUse
+---@field stamp ClaudeCodeFileStamp|nil
 
 ---Paths of the edits that have started and not finished. An edit that Claude Code was not allowed
 ---to make never finishes: a note older than `max_age` seconds is dropped and handed back, so the
@@ -345,30 +406,65 @@ end
 ---@return ClaudeCodeReviewStaleEdit[] stale
 function Store:editing(max_age)
   local paths, stale = {}, {}
-  local handle = uv.fs_scandir(self.dir .. "/editing")
-  if not handle then
-    return paths, stale
-  end
   local cutoff = os.time() - max_age
-  while true do
-    local name = uv.fs_scandir_next(handle)
-    if not name then
-      break
-    end
-    local file = self.dir .. "/editing/" .. name
-    local stat = uv.fs_stat(file)
-    local ok, rec = pcall(vim.json.decode, read_all(file) or "")
-    local valid = name:match("%.json$") and ok and type(rec) == "table" and type(rec.path) == "string"
-    if stat and stat.mtime.sec < cutoff then
-      uv.fs_unlink(file)
-      if valid then
-        stale[#stale + 1] = { path = rec.path, created = rec.created == true }
+  for _, note in ipairs(read_notes(self)) do
+    if note.mtime and note.mtime < cutoff then
+      uv.fs_unlink(note.file)
+      if note.valid then
+        stale[#stale + 1] = { path = note.path, created = note.created, stamp = note.stamp }
       end
-    elseif valid then
-      paths[rec.path] = true
+    elseif note.valid then
+      paths[note.path] = true
     end
   end
   return paths, stale
+end
+
+---Is `path` a file whose base an unfinished edit made, and which is no longer as that edit found it?
+---Then it is either Claude's write, not yet reported by PostToolUse, or a file you made after Claude
+---Code refused the edit. Nothing tells the two apart until PostToolUse comes or the note runs out, so
+---until then the file is not Claude's to review, and certainly not Claude's to delete.
+---@param path string
+---@param max_age integer Seconds after which a note no longer counts
+---@return boolean
+function Store:in_doubt(path, max_age)
+  path = M.normalize(path)
+  local cutoff = os.time() - max_age
+  local current
+  for _, note in ipairs(read_notes(self)) do
+    local live = note.mtime == nil or note.mtime >= cutoff
+    if note.valid and live and note.path == path and note.created and note.stamp then
+      current = current or M.stamp(path)
+      if not M.same_stamp(note.stamp, current) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+---Claude Code refused an earlier edit of `path`: it never reported back, and the base that edit made
+---holds the file as it was then. Forget that base and the note when the file has changed since, so
+---the next base is taken from the file as it is. Whatever changed it in between was not Claude.
+---@param path string
+---@param stamp ClaudeCodeFileStamp|nil The file now. Without it every such note counts, as after a Bash
+---  call, which changes the file itself.
+---@return boolean forgot
+function Store:forget_refused(path, stamp)
+  path = M.normalize(path)
+  local forgot = false
+  for _, note in ipairs(read_notes(self)) do
+    if note.valid and note.path == path and note.created then
+      if stamp == nil or (note.stamp and not M.same_stamp(note.stamp, stamp)) then
+        uv.fs_unlink(note.file)
+        forgot = true
+      end
+    end
+  end
+  if forgot then
+    self:remove(path)
+  end
+  return forgot
 end
 
 ---@param id string

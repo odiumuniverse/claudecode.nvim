@@ -71,7 +71,10 @@ local function pre_tool_use(store, input)
   if EDIT_TOOLS[input.tool_name] then
     local path = edit_path(input)
     if path and reviewable(read_all(path)) then
-      store:begin_edit(input.tool_use_id, path, store:snapshot(path))
+      local stamp = require("claudecode.review.store").stamp(path)
+      -- An earlier edit of this file was refused and you changed the file since: its base is out of date.
+      store:forget_refused(path, stamp)
+      store:begin_edit(input.tool_use_id, path, store:snapshot(path), stamp)
     end
   elseif input.tool_name == "Bash" then
     store:drop_stale_bash(M.STALE_BASH_S)
@@ -103,12 +106,14 @@ local function post_tool_use(store, input, env)
       local changes = require("claudecode.hooks.git").changes(snap)
       for _, change in ipairs(changes.tracked) do
         if reviewable(change.text) and reviewable(read_all(change.path)) then
+          store:forget_refused(change.path)
           store:snapshot_text(change.path, change.text or "", change.text == nil)
           payload.files[#payload.files + 1] = change.path
         end
       end
       for _, path in ipairs(changes.created) do
         if reviewable(read_all(path)) then
+          store:forget_refused(path)
           store:snapshot_text(path, "", true)
           payload.files[#payload.files + 1] = path
         end

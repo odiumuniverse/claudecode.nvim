@@ -87,6 +87,9 @@ end
 ---Accept everything Claude changed in the file.
 ---@param path string
 function M.keep_all(path)
+  if controller().in_doubt(path) then
+    return
+  end
   local buf = loaded_buf(path)
   if buf and engine().is_attached(buf) then
     engine().keep_all(buf)
@@ -99,6 +102,9 @@ end
 ---Undo everything Claude changed in the file and tell Claude about it.
 ---@param path string
 function M.revert_all(path)
+  if controller().in_doubt(path) then
+    return
+  end
   local buf = loaded_buf(path)
   if buf and engine().is_attached(buf) then
     engine().revert_all(buf)

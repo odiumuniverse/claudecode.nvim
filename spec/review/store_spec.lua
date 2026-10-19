@@ -240,6 +240,98 @@ describe("review store", function()
     assert.same({ [vim.uv.fs_realpath(file)] = true }, (store:editing(3600)))
   end)
 
+  describe("a file in doubt", function()
+    local file, stamp
+
+    before_each(function()
+      file = work .. "/a.txt"
+      write_file(file, "x\n")
+      stamp = store_mod.stamp(file)
+    end)
+
+    it("is one that changed after PreToolUse made its base, while the edit is under way", function()
+      store:begin_edit("toolu_1", file, true, stamp)
+      assert.is_false(store:in_doubt(file, 3600))
+
+      write_file(file, "changed\n")
+
+      assert.is_true(store:in_doubt(file, 3600))
+    end)
+
+    it("is not one once the edit has finished", function()
+      store:begin_edit("toolu_1", file, true, stamp)
+      write_file(file, "changed\n")
+
+      store:end_edit("toolu_1", file)
+
+      assert.is_false(store:in_doubt(file, 3600))
+    end)
+
+    it("is not one when the note ran out", function()
+      store:begin_edit("toolu_1", file, true, stamp)
+      write_file(file, "changed\n")
+      local hour_ago = os.time() - 3700
+      vim.uv.fs_utime(dir .. "/editing/toolu_1.json", hour_ago, hour_ago)
+
+      assert.is_false(store:in_doubt(file, 3600))
+    end)
+
+    it("is not one when the base was there before the edit", function()
+      store:begin_edit("toolu_1", file, false, stamp)
+
+      write_file(file, "changed\n")
+
+      assert.is_false(store:in_doubt(file, 3600))
+    end)
+
+    it("is not one when the note has no stamp", function()
+      store:begin_edit("toolu_1", file, true)
+
+      write_file(file, "changed\n")
+
+      assert.is_false(store:in_doubt(file, 3600))
+    end)
+
+    it("is a file that was not there when PreToolUse looked", function()
+      local new = work .. "/new.txt"
+      store:begin_edit("toolu_1", new, true, store_mod.stamp(new))
+
+      write_file(new, "mine\n")
+
+      assert.is_true(store:in_doubt(new, 3600))
+    end)
+
+    it("makes the base and note of an earlier edit go when the file changed since", function()
+      store:snapshot(file)
+      store:begin_edit("toolu_1", file, true, stamp)
+      write_file(file, "changed\n")
+
+      assert.is_true(store:forget_refused(file, store_mod.stamp(file)))
+
+      assert.is_nil(store:get(file))
+      assert.same({}, (store:editing(3600)))
+    end)
+
+    it("keeps the base of an earlier edit when the file is as that edit found it", function()
+      store:snapshot(file)
+      store:begin_edit("toolu_1", file, true, stamp)
+
+      assert.is_false(store:forget_refused(file, store_mod.stamp(file)))
+
+      assert.equal("x\n", store:get(file).text)
+    end)
+
+    it("keeps a base that an earlier edit did not make", function()
+      store:snapshot(file)
+      store:begin_edit("toolu_1", file, false, stamp)
+      write_file(file, "changed\n")
+
+      assert.is_false(store:forget_refused(file, store_mod.stamp(file)))
+
+      assert.equal("x\n", store:get(file).text)
+    end)
+  end)
+
   it("rejects an edit id that would escape the state directory", function()
     assert.is_false(store:begin_edit("../evil", work .. "/a.txt"))
     assert.is_nil(read_file(dir .. "/evil.json"))

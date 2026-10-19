@@ -414,6 +414,91 @@ describe("review controller", function()
       assert.same({}, controller.refresh_pending())
       assert.is_nil(store:get(file))
     end)
+
+    describe("and you create the file Claude was about to create", function()
+      local picker = require("claudecode.review.picker")
+
+      ---Claude Code refused the Write: PostToolUse never comes, and the file is yours.
+      local function refused_then_created()
+        local file = work .. "/new.txt"
+        handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+        write_file(file, "mine\n")
+        return file
+      end
+
+      it("does not list your file as Claude's new file", function()
+        refused_then_created()
+
+        assert.same({}, controller.refresh_pending())
+        assert.equal(0, pending_events[#pending_events].count)
+      end)
+
+      it("does not review your file when you open it", function()
+        local file = refused_then_created()
+
+        local buf = open(file)
+
+        assert.is_false(engine.is_attached(buf))
+      end)
+
+      it("does not delete your file on revert all or keep all in the list", function()
+        local file = refused_then_created()
+
+        picker.revert_all(file)
+        picker.keep_all(file)
+
+        assert.equal("mine\n", read_file(file))
+      end)
+
+      it("does not delete your file once the note is old, even before the list was refreshed", function()
+        local file = refused_then_created()
+        age_notes(controller.EDITING_MAX_AGE_S + 60)
+
+        local buf = open(file)
+
+        assert.is_false(engine.is_attached(buf))
+        assert.equal("mine\n", read_file(file))
+        assert.is_nil(store:get(file))
+        assert.same({}, controller.refresh_pending())
+      end)
+
+      it("reviews the file as you made it when Claude then really edits it", function()
+        local file = refused_then_created()
+        local again = { tool_name = "Edit", tool_use_id = "toolu_again", cwd = work, tool_input = { file_path = file } }
+        handlers.handle("PreToolUse", again, { dir = dir })
+        write_file(file, "mine\nclaude\n")
+        handlers.handle("PostToolUse", again, { dir = dir })
+
+        assert.same({ file }, controller.refresh_pending())
+        local base = store:get(file)
+        assert.equal("mine\n", base.text)
+        assert.is_false(base.new_file)
+        picker.revert_all(file)
+        assert.equal("mine\n", read_file(file))
+      end)
+    end)
+
+    it("reviews the file with your edits when Bash changes it after an edit of it was refused", function()
+      local function sh(...)
+        local res = vim.system({ "git", "-C", work, ... }, { text = true }):wait()
+        assert(res.code == 0, res.stderr)
+      end
+      local file = work .. "/f.txt"
+      write_file(file, "one\n")
+      sh("init", "-q")
+      sh("-c", "user.email=t@example.com", "-c", "user.name=t", "add", "-A")
+      sh("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "init")
+      handlers.handle("PreToolUse", edit_input(file), { dir = dir })
+      -- refused; you edit the file yourself, then Claude runs a command that changes it
+      write_file(file, "one\nmine\n")
+      local bash = { tool_name = "Bash", tool_use_id = "toolu_bash", cwd = work, tool_input = {} }
+      handlers.handle("PreToolUse", bash, { dir = dir })
+      write_file(file, "one\nmine\nbash\n")
+      handlers.handle("PostToolUse", bash, { dir = dir })
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("one\nmine\n", store:get(file).text)
+    end)
   end)
 
   it("follows the state directory a new Claude session reports", function()
