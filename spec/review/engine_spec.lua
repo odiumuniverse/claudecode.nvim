@@ -1115,3 +1115,128 @@ describe("review engine reload", function()
     assert.same({}, calls.done)
   end)
 end)
+
+describe("review engine and the file on disk", function()
+  local base = { "a", "b", "c", "d", "e", "f", "g", "h" }
+  local text = "a\nb\nX\nd\ne\nf\ng\nh\n"
+
+  ---Collect what the engine tells the user while `fn` runs.
+  ---@param fn fun()
+  ---@return {msg: string, level: integer}[]
+  local function notifications(fn)
+    local seen = {}
+    local notify = vim.notify
+    vim.notify = function(msg, level)
+      seen[#seen + 1] = { msg = msg, level = level }
+    end
+    local ok, err = pcall(fn)
+    vim.notify = notify
+    assert(ok, err)
+    return seen
+  end
+
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("does not overwrite a file Claude wrote after the buffer was loaded", function()
+    local bufnr, path, calls = review_file(text, base)
+    helpers.write_file(path, "a\nb\nX\nd\ne\nf\nGGG\nh\nand more\n")
+
+    local seen = notifications(function()
+      review.revert(bufnr, 1)
+    end)
+
+    assert.equal("a\nb\nX\nd\ne\nf\nGGG\nh\nand more\n", helpers.read_file(path))
+    assert.same({}, calls.revert)
+    assert.equal(1, #seen)
+    assert.equal(vim.log.levels.WARN, seen[1].level)
+    assert.is_truthy(seen[1].msg:find("changed on disk", 1, true))
+  end)
+
+  it("reloads the buffer and works out the hunks again after such a warning", function()
+    local bufnr, path = review_file(text, base)
+    helpers.write_file(path, "a\nb\nX\nd\ne\nf\nGGG\nh\nand more\n")
+
+    notifications(function()
+      review.revert(bufnr, 1)
+    end)
+    helpers.flush()
+
+    assert.same({ "a", "b", "X", "d", "e", "f", "GGG", "h", "and more" }, lines(bufnr))
+    assert.equal(3, #review.hunks(bufnr))
+    -- the next revert goes through
+    review.revert(bufnr, 1)
+    assert.equal("a\nb\nc\nd\ne\nf\nGGG\nh\nand more\n", helpers.read_file(path))
+  end)
+
+  it("does not touch a buffer with unsaved edits when the file changed", function()
+    local bufnr, path, calls = review_file(text, base)
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "typed" })
+    helpers.flush()
+    helpers.write_file(path, "a\nb\nX\nd\ne\nf\nGGG\nh\nand more\n")
+
+    local seen = notifications(function()
+      review.revert(bufnr, 1)
+    end)
+
+    assert.equal("a\nb\nX\nd\ne\nf\nGGG\nh\nand more\n", helpers.read_file(path))
+    assert.same({ "typed", "b", "X", "d", "e", "f", "g", "h" }, lines(bufnr))
+    assert.same({}, calls.revert)
+    assert.equal(1, #seen)
+    assert.is_truthy(seen[1].msg:find("changed on disk", 1, true))
+  end)
+
+  it("notices a change that happened before the review began", function()
+    local bufnr, path = helpers.file_buffer(text)
+    helpers.write_file(path, "a\nb\nX\nd\ne\nf\nGGG\nh\nand more\n")
+    local opts, calls = recorder()
+    review.attach(bufnr, base, opts)
+
+    local seen = notifications(function()
+      review.revert(bufnr, 1)
+    end)
+
+    assert.equal("a\nb\nX\nd\ne\nf\nGGG\nh\nand more\n", helpers.read_file(path))
+    assert.same({}, calls.revert)
+    assert.equal(1, #seen)
+  end)
+
+  it("takes your own :write as the new state of the file", function()
+    local bufnr, path, calls = review_file(text, base)
+    vim.api.nvim_buf_set_lines(bufnr, 7, 8, false, { "H" })
+    vim.cmd("silent write")
+
+    local seen = notifications(function()
+      review.revert(bufnr, 1)
+    end)
+
+    assert.same({}, seen)
+    assert.equal("a\nb\nc\nd\ne\nf\ng\nH\n", helpers.read_file(path))
+    assert.equal(1, #calls.revert)
+  end)
+
+  it("reverts one hunk after another, each time writing the file", function()
+    local bufnr, path = review_file("a\nb\nX\nd\ne\nf\nY\nh\n", base)
+
+    review.revert(bufnr, 1)
+    assert.equal("a\nb\nc\nd\ne\nf\nY\nh\n", helpers.read_file(path))
+    review.revert(bufnr, 1)
+    assert.equal("a\nb\nc\nd\ne\nf\ng\nh\n", helpers.read_file(path))
+  end)
+
+  it("does not look at the file when it is not going to write it", function()
+    local bufnr, path, calls = review_file(text, base, { write_on_revert = false })
+    helpers.write_file(path, "a\nb\nX\nd\ne\nf\nGGG\nh\nand more\n")
+
+    local seen = notifications(function()
+      review.revert(bufnr, 1)
+    end)
+
+    assert.same({}, seen)
+    assert.same({ "a", "b", "c", "d", "e", "f", "g", "h" }, lines(bufnr))
+    assert.equal(1, #calls.revert)
+  end)
+end)

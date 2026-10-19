@@ -595,6 +595,42 @@ function M.base(bufnr)
   return st and vim.deepcopy(st.base) or {}
 end
 
+---Let Neovim re-read the file if it changed, whatever 'autoread' says: a prompt would block.
+---@param bufnr integer
+local function reload_if_changed(bufnr)
+  local autoread = vim.go.autoread
+  vim.go.autoread = true
+  pcall(vim.cmd, "silent! checktime " .. bufnr)
+  vim.go.autoread = autoread
+end
+
+---Before the revert is written: is the file still what the buffer last read or wrote? If Claude wrote
+---it again, saving would throw that away, so the revert is not made and the user is told.
+---Done before the buffer changes: a modified buffer is not reloaded and `:write` would ask a question.
+---@param st ClaudeCodeReviewState
+---@return boolean current
+local function disk_is_current(st)
+  local bufnr = st.bufnr
+  local modified = vim.bo[bufnr].modified
+  st.reloaded = false
+  local changed = not disk.same(st.stamp, disk.stamp(bufnr))
+  if not modified then
+    reload_if_changed(bufnr)
+    changed = changed or st.reloaded
+  end
+  if not changed then
+    return true
+  end
+
+  recompute(st)
+  flush(st)
+  local advice = modified
+      and "The buffer has unsaved edits, so it was not reloaded: reload it with :edit! or save it with :write!."
+    or "The buffer was reloaded and the hunks are up to date: revert again if you still want to."
+  vim.notify("claudecode review: the file changed on disk, nothing was reverted. " .. advice, vim.log.levels.WARN)
+  return false
+end
+
 ---Revert hunks (indices ascending) in one undo step, tell the caller about each, then save the file.
 ---@param st ClaudeCodeReviewState
 ---@param indices integer[]
@@ -602,6 +638,9 @@ end
 local function revert_hunks(st, indices)
   local bufnr = st.bufnr
   local write = st.opts.write_on_revert ~= false and disk.path(bufnr) ~= nil
+  if write and not disk_is_current(st) then
+    return false
+  end
 
   local reverted = {}
   for i, index in ipairs(indices) do
