@@ -235,10 +235,28 @@ function M.draw(bufnr, hunks, opts)
 
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   hint_marks[bufnr] = nil
+  local above_first = 0
   for _, hunk in ipairs(hunks) do
     draw_hunk(bufnr, hunk, line_count, word_diff)
+    local row, above = hunk_logic.anchor(hunk, line_count)
+    if row == 1 and above then
+      above_first = hunk.base_count
+    end
   end
   M.update_hint(bufnr, hunks, opts)
+
+  -- Neovim hides virtual lines above line 1 until the window scrolls up into them ('topfill').
+  -- Show them in every window that sits at the top; a window scrolled further down keeps its view.
+  if above_first > 0 then
+    for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+      vim.api.nvim_win_call(win, function()
+        local view = vim.fn.winsaveview()
+        if view.topline == 1 and view.topfill < above_first then
+          vim.fn.winrestview({ topline = 1, topfill = above_first })
+        end
+      end)
+    end
+  end
 end
 
 ---@param bufnr integer
