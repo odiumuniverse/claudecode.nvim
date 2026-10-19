@@ -244,6 +244,122 @@ flush = function(st)
   end
 end
 
+---Edits arrive from `on_lines`, where only reading is safe: deliver later, once for a burst.
+---@param st ClaudeCodeReviewState
+local function schedule_flush(st)
+  if st.flush_pending then
+    return
+  end
+  st.flush_pending = true
+  vim.schedule(function()
+    st.flush_pending = false
+    flush(st)
+  end)
+end
+
+---@param list string[]
+---@param first integer 0-based start of the replaced range
+---@param last integer 0-based end of the replaced range, not included
+---@param replacement string[]
+---@return string[]
+local function replace_range(list, first, last, replacement)
+  last = math.min(last, #list)
+  first = math.min(first, last)
+  local result = vim.list_slice(list, 1, first)
+  vim.list_extend(result, replacement)
+  vim.list_extend(result, vim.list_slice(list, last + 1, #list))
+  return result
+end
+
+---The user changed the buffer. Outside the hunks the change belongs to the base too, so that it
+---does not turn into a hunk; inside or next to a hunk it changes Claude's proposal and the hunk.
+---@param st ClaudeCodeReviewState
+---@param first integer
+---@param last_old integer
+---@param last_new integer
+local function on_user_edit(st, first, last_old, last_new)
+  local base_first, base_last = hunk_logic.map_edit(st.hunks, first, last_old, last_new)
+  if base_first and base_last then
+    local lines = vim.api.nvim_buf_get_lines(st.bufnr, first, last_new, false)
+    st.base = replace_range(st.base, base_first, base_last, lines)
+    st.dirty.base = true
+  end
+  recompute(st)
+  schedule_flush(st)
+end
+
+---The buffer was read from disk again (checktime, `:edit`): Claude wrote the file, so nothing is
+---carried into the base; the hunks are simply worked out again.
+---@param st ClaudeCodeReviewState
+local function on_reload(st)
+  st.reloaded = true
+  st.stamp = disk.stamp(st.bufnr)
+  recompute(st)
+  schedule_flush(st)
+end
+
+local watch_buffer
+
+---`:edit!` drops the nvim_buf_attach callbacks but keeps the buffer. Tell that apart from the
+---buffer really going away, which can only be seen once the unload is over.
+---@param st ClaudeCodeReviewState
+---@param gen integer
+local function on_buffer_detached(st, gen)
+  vim.schedule(function()
+    if st.dead or st.gen ~= gen then
+      return
+    end
+    if vim.api.nvim_buf_is_valid(st.bufnr) and vim.api.nvim_buf_is_loaded(st.bufnr) then
+      watch_buffer(st)
+      on_reload(st)
+      flush(st)
+    else
+      finish(st, "detached")
+    end
+  end)
+end
+
+---Follow the changes of the buffer. The callbacks must never throw or return true by accident:
+---either one makes Neovim drop the attachment.
+---@param st ClaudeCodeReviewState
+watch_buffer = function(st)
+  st.gen = st.gen + 1
+  local gen = st.gen
+  local function stale()
+    return st.dead or st.gen ~= gen
+  end
+  vim.api.nvim_buf_attach(st.bufnr, false, {
+    on_lines = function(_, _, _, first, last_old, last_new)
+      if stale() then
+        return true
+      end
+      if st.own_edit then
+        return nil
+      end
+      local ok, err = pcall(on_user_edit, st, first, last_old, last_new)
+      if not ok then
+        report_error("tracking your edit", err)
+      end
+      return nil
+    end,
+    on_reload = function()
+      if stale() then
+        return true
+      end
+      local ok, err = pcall(on_reload, st)
+      if not ok then
+        report_error("reload", err)
+      end
+      return nil
+    end,
+    on_detach = function()
+      if not stale() then
+        on_buffer_detached(st, gen)
+      end
+    end,
+  })
+end
+
 ---@param bufnr integer
 ---@return ClaudeCodeReviewState|nil
 local function state_of(bufnr)
@@ -438,7 +554,16 @@ function M.attach(bufnr, base_lines, opts)
       finish(st, "detached")
     end,
   })
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = st.augroup,
+    buffer = bufnr,
+    desc = "Claude review: the file on disk is what this buffer wrote",
+    callback = function()
+      st.stamp = disk.stamp(bufnr)
+    end,
+  })
   st.maps = keymaps.set(bufnr, mappings_for(bufnr))
+  watch_buffer(st)
   flush(st)
 end
 

@@ -798,3 +798,320 @@ describe("review engine keep_all and revert_all", function()
     assert.equal(text, helpers.read_file(path))
   end)
 end)
+
+describe("review engine user edits", function()
+  -- One hunk on row 3; rows 1 and 5-8 are far enough from it to be edited without touching it.
+  local base = { "a", "b", "c", "d", "e", "f", "g", "h" }
+  local text = "a\nb\nX\nd\ne\nf\ng\nh\n"
+
+  ---@return integer bufnr
+  ---@return table calls
+  local function reviewed()
+    local bufnr, _, calls = review_file(text, base)
+    assert.equal(1, #review.hunks(bufnr))
+    return bufnr, calls
+  end
+
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("carries an edit above the hunk into the base, without making a hunk of it", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "A" })
+    helpers.flush()
+
+    assert.same({ "A", "b", "c", "d", "e", "f", "g", "h" }, review.base(bufnr))
+    assert.same({ { "A", "b", "c", "d", "e", "f", "g", "h" } }, calls.base)
+    local hunks = review.hunks(bufnr)
+    assert.equal(1, #hunks)
+    assert.same({ "c" }, hunks[1].base_lines)
+    assert.same({ "X" }, hunks[1].cur_lines)
+  end)
+
+  it("carries an edit below the hunk into the base", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 5, 6, false, { "F" })
+    helpers.flush()
+
+    assert.same({ "a", "b", "c", "d", "e", "F", "g", "h" }, review.base(bufnr))
+    assert.equal(1, #calls.base)
+    assert.equal(1, #review.hunks(bufnr))
+  end)
+
+  it("carries inserted and deleted lines outside the hunk into the base", function()
+    local bufnr = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 5, 5, false, { "ins1", "ins2" })
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, {})
+    helpers.flush()
+
+    assert.same({ "b", "c", "d", "e", "ins1", "ins2", "f", "g", "h" }, review.base(bufnr))
+    local hunks = review.hunks(bufnr)
+    assert.equal(1, #hunks)
+    assert.equal(2, hunks[1].cur_start)
+    assert.equal(2, hunks[1].base_start)
+  end)
+
+  it("carries a change made inside a line", function()
+    local bufnr = reviewed()
+
+    vim.api.nvim_buf_set_text(bufnr, 7, 0, 7, 1, { "HH" })
+    helpers.flush()
+
+    assert.same({ "a", "b", "c", "d", "e", "f", "g", "HH" }, review.base(bufnr))
+  end)
+
+  it("leaves the base alone for an edit inside the hunk and changes the hunk", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 2, 3, false, { "X2" })
+    helpers.flush()
+
+    assert.same(base, review.base(bufnr))
+    assert.same({}, calls.base)
+    assert.same({ "X2" }, review.hunks(bufnr)[1].cur_lines)
+  end)
+
+  it("leaves the base alone for an edit right next to the hunk", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 1, 2, false, { "B" })
+    helpers.flush()
+
+    assert.same(base, review.base(bufnr))
+    assert.same({}, calls.base)
+    local hunks = review.hunks(bufnr)
+    assert.equal(1, #hunks)
+    assert.same({ "b", "c" }, hunks[1].base_lines)
+    assert.same({ "B", "X" }, hunks[1].cur_lines)
+  end)
+
+  it("leaves the base alone when a line is added at the border of the hunk", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 3, 3, false, { "below" })
+    helpers.flush()
+
+    assert.same(base, review.base(bufnr))
+    assert.same({}, calls.base)
+    assert.same({ "X", "below" }, review.hunks(bufnr)[1].cur_lines)
+  end)
+
+  it("resolves the review when you edit the hunk back to the base", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 2, 3, false, { "c" })
+    helpers.flush()
+
+    assert.same({ "resolved" }, calls.done)
+    assert.is_false(review.is_attached(bufnr))
+  end)
+
+  it("tells about a burst of edits once, with the final base", function()
+    local bufnr, calls = reviewed()
+    local changed = 0
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "ClaudeCodeReviewChanged",
+      callback = function()
+        changed = changed + 1
+      end,
+    })
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "A" })
+    vim.api.nvim_buf_set_lines(bufnr, 7, 8, false, { "H" })
+    vim.api.nvim_buf_set_lines(bufnr, 5, 6, false, { "F" })
+    helpers.flush()
+    vim.api.nvim_del_autocmd(id)
+
+    assert.same({ { "A", "b", "c", "d", "e", "F", "g", "H" } }, calls.base)
+    assert.equal(1, changed)
+  end)
+
+  it("redraws the marks where the hunk moved", function()
+    local bufnr = reviewed()
+    local function added_rows()
+      return vim.tbl_map(
+        function(mark)
+          return mark.row
+        end,
+        vim.tbl_filter(function(mark)
+          return mark.details.line_hl_group ~= nil
+        end, helpers.marks(bufnr))
+      )
+    end
+    assert.same({ 2 }, added_rows())
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, 0, false, { "top" })
+    helpers.flush()
+
+    assert.same({ 3 }, added_rows())
+  end)
+
+  it("tells the User autocmd after each recompute", function()
+    local bufnr = reviewed()
+    local seen = {}
+    local id = vim.api.nvim_create_autocmd("User", {
+      pattern = "ClaudeCodeReviewChanged",
+      callback = function(args)
+        seen[#seen + 1] = args.data.hunks
+      end,
+    })
+
+    vim.api.nvim_buf_set_lines(bufnr, 5, 5, false, { "ins" })
+    helpers.flush()
+    vim.api.nvim_buf_set_lines(bufnr, 2, 3, false, { "c" })
+    helpers.flush()
+    vim.api.nvim_del_autocmd(id)
+
+    assert.same({ 1, 0 }, seen)
+  end)
+
+  it("lets undo bring Claude's text back as your own edit, after a revert", function()
+    -- known behaviour: the revert is not remembered, so `u` makes Claude's text part of the base
+    local bufnr, _, calls = review_file("a\nX\nc\nd\ne\nf\nY\nh\n", base)
+    assert.equal(2, #review.hunks(bufnr))
+
+    review.revert(bufnr, 1)
+    vim.cmd("normal! u")
+    helpers.flush()
+
+    assert.same({ "a", "X", "c", "d", "e", "f", "Y", "h" }, lines(bufnr))
+    assert.same({ "a", "X", "c", "d", "e", "f", "g", "h" }, review.base(bufnr))
+    assert.equal(1, #review.hunks(bufnr))
+    assert.same({ "Y" }, review.hunks(bufnr)[1].cur_lines)
+    assert.equal(1, #calls.revert)
+  end)
+
+  it("stops looking at the buffer after detach", function()
+    local bufnr, calls = reviewed()
+    review.detach(bufnr)
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "A" })
+    helpers.flush()
+
+    assert.same({}, calls.base)
+    assert.same({ "detached" }, calls.done)
+  end)
+
+  it("delivers the base moves that are still waiting when detach comes", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "A" })
+    review.detach(bufnr)
+
+    assert.same({ { "A", "b", "c", "d", "e", "f", "g", "h" } }, calls.base)
+    assert.same({ "detached" }, calls.done)
+  end)
+
+  it("keeps working after a detach and attach again", function()
+    local bufnr = reviewed()
+    review.detach(bufnr)
+
+    review.attach(bufnr, base, {})
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "A" })
+    helpers.flush()
+
+    assert.same({ "A", "b", "c", "d", "e", "f", "g", "h" }, review.base(bufnr))
+  end)
+end)
+
+describe("review engine reload", function()
+  local base = { "a", "b", "c", "d", "e", "f", "g", "h" }
+  local text = "a\nb\nX\nd\ne\nf\ng\nh\n"
+
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("recomputes the hunks after checktime and carries nothing into the base", function()
+    local bufnr, path, calls = review_file(text, base)
+
+    -- Claude writes the file again
+    helpers.write_file(path, "a\nb\nX\nd\ne\nf\nGGG\nh\nnew\n")
+    vim.cmd("silent checktime")
+    helpers.flush()
+
+    assert.same({ "a", "b", "X", "d", "e", "f", "GGG", "h", "new" }, lines(bufnr))
+    assert.same(base, review.base(bufnr))
+    assert.same({}, calls.base)
+    assert.equal(3, #review.hunks(bufnr))
+    assert.is_true(review.is_attached(bufnr))
+  end)
+
+  it("redraws the marks after a reload", function()
+    local bufnr, path = review_file(text, base)
+
+    helpers.write_file(path, "a\nb\nc\nd\ne\nf\nGGG\nh\n")
+    vim.cmd("silent checktime")
+    helpers.flush()
+
+    local rows = vim.tbl_map(
+      function(mark)
+        return mark.row
+      end,
+      vim.tbl_filter(function(mark)
+        return mark.details.line_hl_group ~= nil
+      end, helpers.marks(bufnr))
+    )
+    assert.same({ 6 }, rows)
+  end)
+
+  it("resolves the review when the reloaded file equals the base", function()
+    local bufnr, path, calls = review_file(text, base)
+
+    helpers.write_file(path, "a\nb\nc\nd\ne\nf\ng\nh\n")
+    vim.cmd("silent checktime")
+    helpers.flush()
+
+    assert.same({ "resolved" }, calls.done)
+    assert.is_false(review.is_attached(bufnr))
+  end)
+
+  it("survives :edit!, keeps tracking your edits and keeps its keys", function()
+    local bufnr, path, calls = review_file(text, base)
+
+    helpers.write_file(path, "a\nb\nX\nd\ne\nf\nGGG\nh\n")
+    vim.cmd("silent edit!")
+    helpers.flush()
+
+    assert.is_true(review.is_attached(bufnr))
+    assert.same({}, calls.done)
+    assert.same({}, calls.base)
+    assert.equal(2, #review.hunks(bufnr))
+    assert.equal(1, buffer_map(bufnr, "ko").buffer)
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "A" })
+    helpers.flush()
+    assert.same({ "A", "b", "c", "d", "e", "f", "g", "h" }, review.base(bufnr))
+  end)
+
+  it("detaches when a file buffer is unloaded", function()
+    local bufnr, _, calls = review_file(text, base)
+    helpers.buffer({ "other" })
+
+    vim.cmd("silent bunload! " .. bufnr)
+    helpers.flush()
+
+    assert.is_false(review.is_attached(bufnr))
+    assert.same({ "detached" }, calls.done)
+    assert.same({}, helpers.marks(bufnr))
+  end)
+
+  it("does nothing on checktime when the file did not change", function()
+    local bufnr, _, calls = review_file(text, base)
+
+    vim.cmd("silent checktime")
+    helpers.flush()
+
+    assert.equal(1, #review.hunks(bufnr))
+    assert.same({}, calls.base)
+    assert.same({}, calls.done)
+  end)
+end)
