@@ -1,0 +1,147 @@
+--- Tests for the on-disk review state: bases, revert records and Bash snapshots.
+local store_mod = require("claudecode.review.store")
+
+local function write_file(path, text)
+  local f = assert(io.open(path, "wb"))
+  f:write(text)
+  f:close()
+end
+
+local function read_file(path)
+  local f = io.open(path, "rb")
+  if not f then
+    return nil
+  end
+  local text = f:read("*a")
+  f:close()
+  return text
+end
+
+describe("review store", function()
+  local dir, work, store
+
+  before_each(function()
+    dir = vim.fn.tempname()
+    work = vim.fn.tempname()
+    vim.fn.mkdir(work, "p")
+    store = store_mod.new(dir)
+  end)
+
+  after_each(function()
+    vim.fn.delete(dir, "rf")
+    vim.fn.delete(work, "rf")
+  end)
+
+  it("keeps the file's bytes as its base", function()
+    local file = work .. "/a.txt"
+    write_file(file, "one\r\ntwo\n")
+
+    assert.is_true(store:snapshot(file))
+
+    local base = store:get(file)
+    assert.equal("one\r\ntwo\n", base.text)
+    assert.is_false(base.new_file)
+    assert.equal(vim.uv.fs_realpath(file), base.path)
+  end)
+
+  it("marks a file that does not exist yet as new with an empty base", function()
+    local file = work .. "/new.txt"
+
+    assert.is_true(store:snapshot(file))
+
+    local base = store:get(file)
+    assert.equal("", base.text)
+    assert.is_true(base.new_file)
+  end)
+
+  it("keeps the earliest snapshot when Claude edits the file again", function()
+    local file = work .. "/a.txt"
+    write_file(file, "first\n")
+    store:snapshot(file)
+    write_file(file, "second\n")
+
+    assert.is_false(store:snapshot(file))
+    assert.equal("first\n", store:get(file).text)
+  end)
+
+  it("finds the base through a symlinked path", function()
+    local file = work .. "/a.txt"
+    write_file(file, "x\n")
+    local link = work .. "/link.txt"
+    assert(vim.uv.fs_symlink(file, link))
+
+    store:snapshot(link)
+
+    assert.equal("x\n", store:get(file).text)
+  end)
+
+  it("moves the base forward and removes it", function()
+    local file = work .. "/a.txt"
+    write_file(file, "old\n")
+    store:snapshot(file)
+
+    store:set(file, "kept\n")
+    assert.equal("kept\n", store:get(file).text)
+    assert.is_false(store:get(file).new_file)
+
+    store:remove(file)
+    assert.is_nil(store:get(file))
+  end)
+
+  it("lists every base", function()
+    write_file(work .. "/a.txt", "a\n")
+    store:snapshot(work .. "/a.txt")
+    store:snapshot(work .. "/b.txt")
+
+    local paths = vim.tbl_map(function(b)
+      return b.path
+    end, store:list())
+    table.sort(paths)
+
+    assert.same({ store_mod.normalize(work .. "/a.txt"), store_mod.normalize(work .. "/b.txt") }, paths)
+  end)
+
+  it("lists nothing before the first snapshot", function()
+    assert.same({}, store:list())
+  end)
+
+  it("keeps the state directory private", function()
+    store:snapshot(work .. "/a.txt")
+
+    local mode = vim.uv.fs_stat(dir).mode
+    assert.equal(tonumber("700", 8), bit.band(mode, tonumber("777", 8)))
+  end)
+
+  it("hands revert records out once, in the order they were added", function()
+    store:append_revert({ path = "/p/a.lua", line = 3, base_lines = { "a" }, claude_lines = { "b" }, time = 1 })
+    store:append_revert({ path = "/p/b.lua", line = 1, base_lines = {}, claude_lines = { "c" }, time = 2 })
+
+    local taken = store:take_reverts()
+
+    assert.equal(2, #taken)
+    assert.equal("/p/a.lua", taken[1].path)
+    assert.same({ "c" }, taken[2].claude_lines)
+    assert.same({}, store:take_reverts())
+  end)
+
+  it("skips a damaged revert record instead of losing the rest", function()
+    store:append_revert({ path = "/p/a.lua", line = 1, base_lines = {}, claude_lines = {}, time = 1 })
+    local f = assert(io.open(dir .. "/reverts.jsonl", "ab"))
+    f:write("{not json\n")
+    f:close()
+
+    assert.equal(1, #store:take_reverts())
+  end)
+
+  it("hands a Bash snapshot out once", function()
+    store:save_bash("toolu_1", { stash = "abc", untracked = { "x.txt" } })
+
+    assert.same({ stash = "abc", untracked = { "x.txt" } }, store:take_bash("toolu_1"))
+    assert.is_nil(store:take_bash("toolu_1"))
+  end)
+
+  it("rejects a tool_use_id that would escape the state directory", function()
+    assert.is_false(store:save_bash("../evil", { stash = "abc" }))
+    assert.is_nil(read_file(dir .. "/evil.json"))
+  end)
+end)
