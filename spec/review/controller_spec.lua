@@ -171,6 +171,13 @@ describe("review controller", function()
     it("when it has one, as before", function()
       assert.equal("a\nb\n", revert("a\nb\n", "A\nb\n", 1))
     end)
+
+    it("when the file is UTF-16 and the revert reaches its last line", function()
+      local function utf16(str)
+        return "\255\254" .. vim.iconv(str, "utf-8", "utf-16le")
+      end
+      assert.equal(utf16("a\nb\n"), revert(utf16("a\nb\n"), utf16("a\nB\n"), 1))
+    end)
   end)
 
   it("takes the base of an untracked file Bash rewrote from its buffer", function()
@@ -486,8 +493,11 @@ describe("review controller", function()
       local file = work .. "/f.txt"
       write_file(file, "one\n")
       sh("init", "-q")
-      sh("-c", "user.email=t@example.com", "-c", "user.name=t", "add", "-A")
-      sh("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "init")
+      -- the hook's `git stash create` commits too, and a CI runner has no global identity
+      sh("config", "user.email", "t@example.com")
+      sh("config", "user.name", "t")
+      sh("add", "-A")
+      sh("commit", "-qm", "init")
       handlers.handle("PreToolUse", edit_input(file), { dir = dir })
       -- refused; you edit the file yourself, then Claude runs a command that changes it
       write_file(file, "one\nmine\n")
@@ -509,7 +519,7 @@ describe("review controller", function()
     local function git(...)
       local res = vim
         .system(
-          { "git", "-C", work, "-c", "user.email=t@example.com", "-c", "user.name=t", ... },
+          { "git", "-C", work, ... },
           { text = true, env = { GIT_CONFIG_GLOBAL = "/dev/null", GIT_CONFIG_SYSTEM = "/dev/null" } }
         )
         :wait()
@@ -520,6 +530,8 @@ describe("review controller", function()
     ---(and `core.autocrlf`) ask for.
     local function repo(attributes, autocrlf)
       git("init", "-q")
+      git("config", "user.email", "t@example.com")
+      git("config", "user.name", "t")
       git("config", "core.autocrlf", autocrlf or "false")
       write_file(work .. "/.gitattributes", attributes)
       file = work .. "/a.txt"

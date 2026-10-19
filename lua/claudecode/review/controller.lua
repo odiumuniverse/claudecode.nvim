@@ -109,7 +109,8 @@ local function restore_final_newline(buf, rec, base)
   end
   local last = rec.line + #rec.base_lines - 1
   if last >= vim.api.nvim_buf_line_count(buf) then
-    vim.bo[buf].eol = base.text:sub(-1) == "\n"
+    -- the bytes of a UTF-16 file end in "\n\0": look at the text the buffer holds
+    vim.bo[buf].eol = text.decode(base.text, buf):sub(-1) == "\n"
   end
 end
 
