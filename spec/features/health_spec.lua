@@ -36,6 +36,8 @@ describe(":checkhealth claudecode", function()
     assert.matches("claudecode.nvim", text)
     assert.matches("Hunk review", text)
     assert.matches("Zen", text)
+    -- pcall in lua/claudecode/health.lua hides an error inside our checks; the last line shows the report ran through.
+    assert.matches("Toggle with <M%-z>", text)
     assert.is_nil(text:find("Failed to run healthcheck", 1, true))
   end)
 
