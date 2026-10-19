@@ -162,6 +162,26 @@ describe("review provider", function()
     assert.equal("A\nb\nc\nd\ne\n", written(handle))
   end)
 
+  it("rejects the proposal on :ClaudeCodeDiffDeny, closes it and puts your file back", function()
+    local file = work .. "/a.txt"
+    write_file(file, "one\ntwo\n")
+    vim.cmd.edit(file)
+    local file_buf = vim.api.nvim_get_current_buf()
+    local handle = propose(file, "one\nTWO\n", "tab-deny")
+    local buf = proposal_buf()
+    assert.equal(buf, vim.api.nvim_get_current_buf())
+
+    diff.deny_current_diff()
+
+    assert.equal("DIFF_REJECTED", handle.result.content[1].text)
+    assert.is_nil(proposal_buf())
+    assert.is_false(vim.api.nvim_buf_is_valid(buf))
+    assert.equal(file_buf, vim.api.nvim_get_current_buf())
+    -- Claude closes the tab afterwards: nothing is left to tear down
+    assert.is_true(diff.close_diff_by_tab_name("tab-deny"))
+    assert.equal(file_buf, vim.api.nvim_get_current_buf())
+  end)
+
   it("reviews a file that has unsaved edits in its buffer", function()
     local file = work .. "/a.txt"
     write_file(file, "one\n")

@@ -945,6 +945,12 @@ function M._resolve_diff_as_rejected(tab_name)
     return
   end
 
+  -- Dispatch to a custom provider
+  if diff_data.layout == "provider" then
+    require("claudecode.diff_provider").reject_command(diff_data)
+    return
+  end
+
   -- Create MCP-compliant response
   local result = {
     content = {

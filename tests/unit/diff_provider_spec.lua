@@ -227,6 +227,63 @@ describe("diff_opts.provider", function()
     assert.equal("line 1\nline 2\nnew line\n\n", handle.result.content[2].text)
   end)
 
+  it("lets :ClaudeCodeDiffDeny reject through the provider", function()
+    local provider = recording_provider()
+    local denied
+    provider.reject_command = function(ctx)
+      denied = ctx
+      ctx.reject()
+    end
+    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
+    local handle = open_pending(file, "tab-deny")
+
+    diff._resolve_diff_as_rejected("tab-deny")
+
+    assert.equal(provider.opened[1], denied)
+    assert.equal("DIFF_REJECTED", handle.result.content[1].text)
+    assert.equal("tab-deny", handle.result.content[2].text)
+    assert.equal("rejected", diff._get_active_diffs()["tab-deny"].status)
+  end)
+
+  it("rejects the proposal on :ClaudeCodeDiffDeny when the provider has no command handler", function()
+    local provider = recording_provider()
+    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
+    local handle = open_pending(file, "tab-deny-default")
+
+    diff._resolve_diff_as_rejected("tab-deny-default")
+
+    assert.equal("DIFF_REJECTED", handle.result.content[1].text)
+    assert.equal("rejected", diff._get_active_diffs()["tab-deny-default"].status)
+  end)
+
+  it("still answers Claude when the provider's deny handler leaves the diff pending", function()
+    local provider = recording_provider()
+    provider.reject_command = function() end
+    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
+    local handle = open_pending(file, "tab-deny-silent")
+
+    -- close_tab and a reused tab name reject through the same path and remove the diff right after
+    diff._resolve_diff_as_rejected("tab-deny-silent")
+
+    assert.equal("DIFF_REJECTED", handle.result.content[1].text)
+  end)
+
+  it("does not call the deny handler again for a diff that was answered", function()
+    local provider = recording_provider()
+    local calls = 0
+    provider.reject_command = function(ctx)
+      calls = calls + 1
+      ctx.reject()
+    end
+    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
+    open_pending(file, "tab-deny-twice")
+
+    diff._resolve_diff_as_rejected("tab-deny-twice")
+    diff._resolve_diff_as_rejected("tab-deny-twice")
+
+    assert.equal(1, calls)
+  end)
+
   it("removes the diff even when provider.close throws", function()
     local provider = recording_provider()
     provider.close = function()

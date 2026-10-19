@@ -171,6 +171,9 @@ require("claudecode").setup({
       accept_command = function(ctx) -- optional: what :ClaudeCodeDiffAccept does
         ctx.accept(ctx.new_file_contents)
       end,
+      reject_command = function(ctx) -- optional: what :ClaudeCodeDiffDeny does
+        ctx.reject()
+      end,
     },
   },
 })
@@ -180,7 +183,7 @@ require("claudecode").setup({
 
 How it behaves:
 
-- Claude waits until you call `accept` or `reject`. Only the first call counts.
+- Claude waits until you call `accept` or `reject`. Only the first call counts. `:ClaudeCodeDiffDeny` goes to `reject_command`; whatever it does, Claude gets a rejection once it returns.
 - `accept` may pass text that differs from Claude's proposal. Claude writes your text, but it only learns that "the user modified your proposed content", not what you changed.
 - The plugin calls `close` once per diff: after Claude closes the tab, when the Claude session disconnects, when a new diff reuses the tab name, and when `open` throws (`reason` is `"setup failed"`). Make `close` safe to run on a half-built UI.
 - A provider gets the diff even when the file's buffer has unsaved edits; the built-in views refuse it.

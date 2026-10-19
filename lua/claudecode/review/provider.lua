@@ -234,6 +234,20 @@ function M.accept_command(ctx)
   end
 end
 
+---:ClaudeCodeDiffDeny in the proposal: refuse all of it, whatever hunks you kept, and give the
+---window back to your file at once instead of waiting for Claude to close the tab.
+---@param ctx ClaudeCodeDiffContext
+function M.reject_command(ctx)
+  local session = sessions[ctx.tab_name]
+  if not session then
+    return
+  end
+  sessions[ctx.tab_name] = nil
+  session.done = true
+  ctx.reject()
+  restore(session)
+end
+
 ---Called once per diff by the plugin: after Claude closes the tab, on disconnect, on failure.
 ---@param ctx ClaudeCodeDiffContext
 ---@param _reason string
