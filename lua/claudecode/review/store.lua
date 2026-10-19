@@ -185,6 +185,11 @@ function Store:list()
     if not name then
       break
     end
+    -- Some file systems leave the type out of the scan: ask for it.
+    if kind == nil then
+      local stat = uv.fs_stat(self.dir .. "/bases/" .. name)
+      kind = stat and stat.type
+    end
     -- Skip in-flight temp files: their names carry a ".tmp." suffix, base names are bare hashes.
     if kind == "file" and not name:find(".", 1, true) then
       local data = read_all(self.dir .. "/bases/" .. name)

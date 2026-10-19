@@ -105,6 +105,24 @@ describe("review store", function()
     assert.same({}, store:list())
   end)
 
+  it("lists the bases on a file system whose directory scan does not say what an entry is", function()
+    write_file(work .. "/a.txt", "a\n")
+    store:snapshot(work .. "/a.txt")
+    -- some file systems (and network mounts) answer with the name only
+    local scandir_next = vim.uv.fs_scandir_next
+    vim.uv.fs_scandir_next = function(handle)
+      local name = scandir_next(handle)
+      return name
+    end
+
+    local ok, bases = pcall(store.list, store)
+    vim.uv.fs_scandir_next = scandir_next
+
+    assert.is_true(ok, bases)
+    assert.equal(1, #bases)
+    assert.equal(store_mod.normalize(work .. "/a.txt"), bases[1].path)
+  end)
+
   it("keeps the state directory private", function()
     store:snapshot(work .. "/a.txt")
 
