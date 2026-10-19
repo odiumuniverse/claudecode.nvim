@@ -16,7 +16,7 @@ When Anthropic released Claude Code, they only supported VS Code and JetBrains. 
 
 - 🚀 **Pure Lua, Zero Dependencies** — Built entirely with `vim.loop` and Neovim built-ins
 - 🔌 **100% Protocol Compatible** — Same WebSocket MCP implementation as official extensions
-- 🎓 **Fully Documented Protocol** — Learn how to build your own integrations ([see PROTOCOL.md](./PROTOCOL.md))
+- 🎓 **Fully Documented Protocol** — Learn how to build your own integrations ([see docs/PROTOCOL.md](./docs/PROTOCOL.md))
 - ⚡ **First to Market** — Beat Anthropic to releasing Neovim support
 - 🛠️ **Built with AI** — Used Claude to reverse-engineer Claude's own protocol
 
@@ -304,7 +304,7 @@ The protocol uses a WebSocket-based variant of MCP (Model Context Protocol) that
 4. Implements MCP tools that Claude can call
 
 📖 **[Read the full reverse-engineering story →](./STORY.md)**
-🔧 **[Complete protocol documentation →](./PROTOCOL.md)**
+🔧 **[Complete protocol documentation →](./docs/PROTOCOL.md)**
 
 ## Architecture
 
@@ -316,7 +316,7 @@ Built with pure Lua and zero external dependencies:
 - **Selection Tracking** - Real-time context updates
 - **Native Diff Support** - Seamless file comparison
 
-For deep technical details, see [ARCHITECTURE.md](./ARCHITECTURE.md).
+For deep technical details, see [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md).
 
 ## Advanced Configuration
 
@@ -929,7 +929,7 @@ opts = {
 
 ## Contributing
 
-See [DEVELOPMENT.md](./DEVELOPMENT.md) for build instructions and development guidelines. Tests can be run with `mise run test`.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for build instructions and development guidelines. Tests can be run with `mise run test`.
 
 ## License
 

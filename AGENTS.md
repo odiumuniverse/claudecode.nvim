@@ -38,7 +38,7 @@
 ## Commit & Pull Request Guidelines
 
 - Commits: Use Conventional Commits (e.g., `feat:`, `fix:`, `docs:`, `test:`, `chore:`). Keep messages imperative and scoped.
-- PRs: include a clear description, linked issues, repro steps, and tests. Update docs (`README.md`, `ARCHITECTURE.md`, or `DEVELOPMENT.md`) when behavior changes.
+- PRs: include a clear description, linked issues, repro steps, and tests. Update docs (`README.md`, `docs/ARCHITECTURE.md`, or `CONTRIBUTING.md`) when behavior changes.
 - Pre-flight: run `mise run all` (format, lint, test). Attach screenshots or terminal recordings for UX-visible changes (diff flows, terminal behavior).
 
 ## Security & Configuration Tips

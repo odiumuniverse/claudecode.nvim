@@ -41,8 +41,8 @@ claudecode.nvim/
 │   ├── integration/         # Integration tests
 │   └── mocks/               # Test mocks
 ├── README.md                # User documentation
-├── ARCHITECTURE.md          # Architecture documentation
-└── DEVELOPMENT.md           # Development guide
+├── docs/ARCHITECTURE.md     # Architecture documentation
+└── CONTRIBUTING.md          # Development guide
 ```
 
 ## Core Components Implementation Status

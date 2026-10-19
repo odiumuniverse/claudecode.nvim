@@ -426,7 +426,7 @@ rg "0\.1\.0" .  # Should only show CHANGELOG.md historical entries
 1. **Start Development**: Use existing tests and documentation to understand the system
 2. **Make Changes**: Follow existing patterns and conventions in the codebase
 3. **Validate Work**: Run `mise run all` to ensure formatting, linting, and tests pass
-4. **Document Changes**: Update relevant documentation (this file, PROTOCOL.md, etc.)
+4. **Document Changes**: Update relevant documentation (this file, docs/PROTOCOL.md, etc.)
 5. **Commit**: Only commit after successful `mise run all` execution
 
 ### Integration Development Guidelines
@@ -486,7 +486,7 @@ error({
 - **MCP Compliance**: All tools must return proper MCP format with JSON-stringified content
 - **VS Code Compatibility**: New tools must match VS Code extension behavior exactly
 - **Consistent Formatting**: Use `mise run format` (treefmt) for consistent code style
-- **Documentation**: Update CLAUDE.md for architectural changes, PROTOCOL.md for protocol changes
+- **Documentation**: Update CLAUDE.md for architectural changes, docs/PROTOCOL.md for protocol changes
 
 ### Development Quality Gates
 
