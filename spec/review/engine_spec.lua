@@ -1601,3 +1601,116 @@ describe("review engine on screen", function()
     assert.is_true(before > 30)
   end)
 end)
+
+describe("review engine on_done", function()
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  ---What the caller can still see from inside on_done.
+  ---@param bufnr integer
+  ---@param seen table
+  ---@return fun(reason: string)
+  local function snapshot_in(bufnr, seen)
+    return function(reason)
+      seen.reason = reason
+      seen.attached = review.is_attached(bufnr)
+      seen.base = review.base(bufnr)
+      seen.hunks = review.hunks(bufnr)
+      seen.keymap = vim.api.nvim_buf_call(bufnr, function()
+        return vim.fn.maparg("ko", "n", false, true).buffer
+      end)
+    end
+  end
+
+  it("still reports the review as attached, with its last base, when it is resolved", function()
+    local seen = {}
+    local bufnr = helpers.buffer({ "a", "X", "c" })
+    review.attach(bufnr, { "a", "b", "c" }, { on_done = snapshot_in(bufnr, seen) })
+
+    review.keep(bufnr, 1)
+
+    assert.equal("resolved", seen.reason)
+    assert.is_true(seen.attached)
+    assert.same({ "a", "X", "c" }, seen.base)
+    assert.same({}, seen.hunks)
+    assert.equal(1, seen.keymap)
+    assert.is_false(review.is_attached(bufnr))
+    assert.same({}, helpers.marks(bufnr))
+    assert.same({}, buffer_map(bufnr, "ko"))
+  end)
+
+  it("still reports the review as attached, with its last hunks, on detach", function()
+    local seen = {}
+    local bufnr = helpers.buffer({ "a", "X", "c" })
+    review.attach(bufnr, { "a", "b", "c" }, { on_done = snapshot_in(bufnr, seen) })
+
+    review.detach(bufnr)
+
+    assert.equal("detached", seen.reason)
+    assert.is_true(seen.attached)
+    assert.same({ "a", "b", "c" }, seen.base)
+    assert.equal(1, #seen.hunks)
+    assert.is_false(review.is_attached(bufnr))
+    assert.same({}, helpers.marks(bufnr))
+  end)
+
+  it("sees the review attached even when there was nothing to review", function()
+    local seen = {}
+    local bufnr = helpers.buffer({ "a", "b" })
+
+    review.attach(bufnr, { "a", "b" }, { on_done = snapshot_in(bufnr, seen) })
+
+    assert.equal("resolved", seen.reason)
+    assert.is_true(seen.attached)
+    assert.is_false(review.is_attached(bufnr))
+  end)
+
+  it("ignores engine commands from inside on_done", function()
+    local bufnr = helpers.buffer({ "a", "X", "c", "d", "Y" })
+    local bases = 0
+    review.attach(bufnr, { "a", "b", "c", "d", "e" }, {
+      on_base = function()
+        bases = bases + 1
+      end,
+      on_done = function()
+        review.keep_all(bufnr)
+        review.revert(bufnr, 1)
+        review.detach(bufnr)
+      end,
+    })
+
+    review.detach(bufnr)
+
+    assert.equal(0, bases)
+    assert.same({ "a", "X", "c", "d", "Y" }, lines(bufnr))
+    assert.is_false(review.is_attached(bufnr))
+  end)
+
+  it("attaches again after on_done returns, with the new base and its own keys", function()
+    local bufnr = helpers.buffer({ "a", "X", "c" })
+    local second_done = {}
+    review.attach(bufnr, { "a", "b", "c" }, {
+      on_done = function()
+        review.attach(bufnr, { "a", "Z", "c" }, {
+          on_done = function(reason)
+            second_done[#second_done + 1] = reason
+          end,
+        })
+      end,
+    })
+
+    review.keep(bufnr, 1)
+
+    assert.is_true(review.is_attached(bufnr))
+    assert.same({ "a", "Z", "c" }, review.base(bufnr))
+    assert.equal(1, buffer_map(bufnr, "ko").buffer)
+    assert.is_true(#helpers.marks(bufnr) > 0)
+
+    review.detach(bufnr)
+    assert.same({ "detached" }, second_done)
+    assert.same({}, buffer_map(bufnr, "ko"))
+  end)
+end)

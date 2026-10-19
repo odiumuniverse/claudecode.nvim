@@ -190,8 +190,26 @@ local function fire_changed(st)
   })
 end
 
----Leave review: switch the engine off for this buffer, then tell the caller.
----The caller hears about it last, so it may attach the buffer again from inside `on_done`.
+---Take the keys, autocmds and marks away and forget the buffer.
+---@param st ClaudeCodeReviewState
+local function cleanup(st)
+  if states[st.bufnr] == st then
+    states[st.bufnr] = nil
+  end
+  if st.augroup then
+    pcall(vim.api.nvim_del_augroup_by_id, st.augroup)
+  end
+  if st.maps then
+    pcall(keymaps.restore, st.bufnr, st.maps)
+  end
+  if vim.api.nvim_buf_is_valid(st.bufnr) then
+    render.clear(st.bufnr)
+  end
+end
+
+---Leave review. `on_done` runs while the buffer still counts as attached, so the caller can read
+---the last base and hunks; the engine does nothing in the meantime (`dead`). An `attach` from inside
+---`on_done` waits until the old review is cleaned up and then starts the new one.
 ---@param st ClaudeCodeReviewState
 ---@param reason "resolved"|"detached"
 local function finish(st, reason)
@@ -206,13 +224,16 @@ local function finish(st, reason)
     end
   end
   st.dead = true
-  states[st.bufnr] = nil
-  pcall(vim.api.nvim_del_augroup_by_id, st.augroup)
-  pcall(keymaps.restore, st.bufnr, st.maps)
-  if vim.api.nvim_buf_is_valid(st.bufnr) then
-    render.clear(st.bufnr)
-  end
   call(st, "on_done", reason)
+  cleanup(st)
+
+  local again = st.reattach
+  if again and vim.api.nvim_buf_is_valid(st.bufnr) and vim.api.nvim_buf_is_loaded(st.bufnr) then
+    local ok, err = pcall(M.attach, st.bufnr, again.base, again.opts)
+    if not ok then
+      report_error("attach", err)
+    end
+  end
 end
 
 ---Deliver what is owed to the caller and the screen, in a fixed order.
@@ -518,6 +539,11 @@ function M.attach(bufnr, base_lines, opts)
   end
 
   local st = states[bufnr]
+  if st and st.dead then
+    -- called from the on_done of the review that is just ending
+    st.reattach = { base = vim.deepcopy(base_lines), opts = opts }
+    return
+  end
   if st then
     flush(st)
     if st.dead then
