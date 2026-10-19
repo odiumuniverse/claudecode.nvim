@@ -246,6 +246,36 @@ describe("review controller", function()
     assert.equal("\239\187\191one\n2\n3\n4\n5\n6\nseven\n", store:get(file).text)
   end)
 
+  it("keeps a file Bash deleted in the list when it was open in a buffer", function()
+    local file = work .. "/a.txt"
+    write_file(file, "one\ntwo\n")
+    open(file)
+    -- PostToolUse(Bash) saw the file go: its base is the text from before the call
+    store:snapshot_text(file, "one\ntwo\n", false)
+    vim.fn.delete(file)
+
+    controller.on_hook({ event = "PostToolUse", dir = dir, tool_name = "Bash", files = { file } })
+
+    assert.same({ file }, controller.pending())
+    assert.equal("one\ntwo\n", store:get(file).text)
+  end)
+
+  it("brings back a file Bash deleted from the list, also when it was open", function()
+    local file = work .. "/a.txt"
+    write_file(file, "one\ntwo\n")
+    local buf = open(file)
+    store:snapshot_text(file, "one\ntwo\n", false)
+    vim.fn.delete(file)
+    controller.on_hook({ event = "PostToolUse", dir = dir, tool_name = "Bash", files = { file } })
+
+    require("claudecode.review.picker").revert_all(file)
+
+    assert.equal("one\ntwo\n", read_file(file))
+    assert.same({ "one", "two" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    assert.same({}, controller.pending())
+    assert.equal(1, #store:take_reverts())
+  end)
+
   describe("while Claude is in the middle of an edit", function()
     local handlers = require("claudecode.hooks.handlers")
 
