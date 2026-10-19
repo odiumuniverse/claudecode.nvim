@@ -1714,3 +1714,140 @@ describe("review engine on_done", function()
     assert.same({}, buffer_map(bufnr, "ko"))
   end)
 end)
+
+describe("review engine bulk edits", function()
+  -- One hunk on row 3 (X for c). An Ex command or a formatter reports its whole range as one edit,
+  -- so the lines it changes outside the hunk must be told apart from the hunk.
+  local base = { "a1", "b", "c", "d", "e", "f", "g", "a2", "h" }
+  local cur = { "a1", "b", "X", "d", "e", "f", "g", "a2", "h" }
+
+  ---@return integer bufnr
+  ---@return table calls
+  local function reviewed()
+    local bufnr = helpers.buffer(cur)
+    local opts, calls = recorder()
+    review.attach(bufnr, base, opts)
+    assert.equal(1, #review.hunks(bufnr))
+    return bufnr, calls
+  end
+
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("carries the replacements of :substitute outside the hunk into the base", function()
+    local bufnr, calls = reviewed()
+
+    vim.cmd("silent %s/a/A/g")
+    helpers.flush()
+
+    assert.same({ "A1", "b", "c", "d", "e", "f", "g", "A2", "h" }, review.base(bufnr))
+    assert.same({ { "A1", "b", "c", "d", "e", "f", "g", "A2", "h" } }, calls.base)
+    local hunks = review.hunks(bufnr)
+    assert.equal(1, #hunks)
+    assert.same({ "c" }, hunks[1].base_lines)
+    assert.same({ "X" }, hunks[1].cur_lines)
+  end)
+
+  it("carries every line that was changed in place, even next to the hunk's neighbours", function()
+    local bufnr = reviewed()
+    vim.bo[bufnr].shiftwidth = 2
+    vim.bo[bufnr].expandtab = true
+
+    vim.cmd("silent normal! gg>G")
+    helpers.flush()
+
+    -- rows next to the hunk belong to it; the rest is indented in the base too
+    assert.same({ "  a1", "b", "c", "d", "  e", "  f", "  g", "  a2", "  h" }, review.base(bufnr))
+    local hunks = review.hunks(bufnr)
+    assert.equal(1, #hunks)
+    assert.same({ "b", "c", "d" }, hunks[1].base_lines)
+    assert.same({ "  b", "  X", "  d" }, hunks[1].cur_lines)
+  end)
+
+  it("carries a buffer rewritten in one call, like a formatter does", function()
+    local bufnr = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "a1;", "b", "X", "d", "e", "f", "g", "a2;", "h" })
+    helpers.flush()
+
+    assert.same({ "a1;", "b", "c", "d", "e", "f", "g", "a2;", "h" }, review.base(bufnr))
+    assert.equal(1, #review.hunks(bufnr))
+  end)
+
+  it("carries deletions made by :global, one event per line", function()
+    local bufnr = reviewed()
+
+    vim.cmd("silent g/^a/d")
+    helpers.flush()
+
+    assert.same({ "b", "c", "d", "e", "f", "g", "h" }, review.base(bufnr))
+    local hunks = review.hunks(bufnr)
+    assert.equal(1, #hunks)
+    assert.same({ "X" }, hunks[1].cur_lines)
+  end)
+
+  it("treats a block of changes that covers the hunk as changes of the hunk", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 1, 4, false, { "B", "Y", "D", "extra" })
+    helpers.flush()
+
+    assert.same(base, review.base(bufnr))
+    assert.same({}, calls.base)
+    local hunks = review.hunks(bufnr)
+    assert.equal(1, #hunks)
+    assert.same({ "b", "c", "d" }, hunks[1].base_lines)
+    assert.same({ "B", "Y", "D", "extra" }, hunks[1].cur_lines)
+  end)
+
+  it("keeps the base as it was when the edit changes nothing", function()
+    local bufnr, calls = reviewed()
+
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, cur)
+    helpers.flush()
+
+    assert.same(base, review.base(bufnr))
+    assert.same({}, calls.base)
+    assert.equal(1, #review.hunks(bufnr))
+  end)
+end)
+
+describe("review engine bulk edits that move lines", function()
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("leaves the base alone when lines moved and part of the move touches a hunk", function()
+    local base = { "a1", "b", "c", "d", "e", "f", "g", "a2", "h" }
+    local bufnr = helpers.buffer({ "a1", "b", "X", "d", "e", "f", "g", "a2", "h" })
+    review.attach(bufnr, base, {})
+
+    vim.cmd("silent sort!")
+    helpers.flush()
+
+    -- a moved line must not be copied into the base while its old place stays there
+    assert.same(base, review.base(bufnr))
+    assert.same({ "h", "g", "f", "e", "d", "b", "a2", "a1", "X" }, lines(bufnr))
+    assert.is_true(#review.hunks(bufnr) > 0)
+  end)
+
+  it("carries insertions and deletions when none of them touches a hunk", function()
+    local base = { "a1", "b", "c", "d", "e", "f", "g", "h" }
+    local bufnr = helpers.buffer({ "a1", "b", "X", "d", "e", "f", "g", "h" })
+    review.attach(bufnr, base, {})
+
+    -- rewritten in one call: a line inserted at the top, "h" dropped, the hunk untouched
+    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "top", "a1", "b", "X", "d", "e", "f", "g" })
+    helpers.flush()
+
+    assert.same({ "top", "a1", "b", "c", "d", "e", "f", "g" }, review.base(bufnr))
+    local hunks = review.hunks(bufnr)
+    assert.equal(1, #hunks)
+    assert.same({ "X" }, hunks[1].cur_lines)
+  end)
+end)

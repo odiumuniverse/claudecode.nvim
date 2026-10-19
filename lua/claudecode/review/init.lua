@@ -49,7 +49,8 @@ local M = {}
 ---@field bufnr integer
 ---@field base string[]
 ---@field hunks ClaudeCodeHunk[]
----@field line_count integer  -- lines of the text `hunks` describe
+---@field cur string[]       -- the text `hunks` describe: the buffer as of the last recompute
+---@field line_count integer  -- #cur
 ---@field opts ClaudeCodeReviewAttachOpts
 ---@field gen integer         -- generation of the nvim_buf_attach callbacks; older ones switch themselves off
 ---@field dead boolean
@@ -169,6 +170,7 @@ end
 ---@param st ClaudeCodeReviewState
 local function recompute(st)
   local lines = current_lines(st)
+  st.cur = lines
   st.line_count = #lines
   st.hunks = hunk_logic.compute(st.base, lines)
   st.dirty.draw = true
@@ -311,6 +313,51 @@ local function replace_range(list, first, last, replacement)
   return result
 end
 
+---An edit that overlaps a hunk can still hold changes outside it: `:substitute`, `>G` or a formatter
+---report their whole range as one edit. Work out which lines changed and carry those that do not
+---touch a hunk. A run of lines changed in place is looked at line by line.
+---@param st ClaudeCodeReviewState
+---@param first integer
+---@param last_old integer
+---@param last_new integer
+---@return table[] edits `{ base_first, base_last, lines }` in the coordinates of the base before the edit
+local function split_edit(st, first, last_old, last_new)
+  local old_region = vim.list_slice(st.cur, first + 1, last_old)
+  local new_region = vim.api.nvim_buf_get_lines(st.bufnr, first, last_new, false)
+
+  local edits = {}
+  local dropped = false
+  local only_in_place = true
+  local function try(old_first, old_count, lines)
+    local base_first, base_last = hunk_logic.map_edit(st.hunks, old_first, old_first + old_count, old_first + #lines)
+    if base_first and base_last then
+      edits[#edits + 1] = { base_first, base_last, lines }
+    else
+      dropped = true
+    end
+  end
+
+  for _, sub in ipairs(hunk_logic.compute(old_region, new_region)) do
+    local old_first = first + (sub.base_count > 0 and sub.base_start - 1 or sub.base_start)
+    if sub.base_count == sub.cur_count then
+      for i = 1, sub.base_count do
+        try(old_first + i - 1, 1, { sub.cur_lines[i] })
+      end
+    else
+      only_in_place = false
+      try(old_first, sub.base_count, sub.cur_lines)
+    end
+  end
+
+  -- Lines that moved show up as a deletion in one place and an insertion in another. If only one
+  -- half were carried into the base, the line would be there twice. Lines changed in place cannot
+  -- do that, and neither can a rewrite where every change was carried.
+  if dropped and not only_in_place then
+    return {}
+  end
+  return edits
+end
+
 ---The user changed the buffer. Outside the hunks the change belongs to the base too, so that it
 ---does not turn into a hunk; inside or next to a hunk it changes Claude's proposal and the hunk.
 ---@param st ClaudeCodeReviewState
@@ -318,10 +365,19 @@ end
 ---@param last_old integer
 ---@param last_new integer
 local function on_user_edit(st, first, last_old, last_new)
+  local edits = {}
   local base_first, base_last = hunk_logic.map_edit(st.hunks, first, last_old, last_new)
   if base_first and base_last then
-    local lines = vim.api.nvim_buf_get_lines(st.bufnr, first, last_new, false)
-    st.base = replace_range(st.base, base_first, base_last, lines)
+    edits[1] = { base_first, base_last, vim.api.nvim_buf_get_lines(st.bufnr, first, last_new, false) }
+  else
+    edits = split_edit(st, first, last_old, last_new)
+  end
+
+  -- Bottom-up, so that the base coordinates of the edits above stay valid.
+  for i = #edits, 1, -1 do
+    st.base = replace_range(st.base, edits[i][1], edits[i][2], edits[i][3])
+  end
+  if #edits > 0 then
     st.dirty.base = true
   end
   recompute(st)
@@ -564,6 +620,7 @@ function M.attach(bufnr, base_lines, opts)
     bufnr = bufnr,
     base = vim.deepcopy(base_lines),
     hunks = {},
+    cur = {},
     line_count = 0,
     opts = opts or {},
     gen = 0,
