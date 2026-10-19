@@ -231,7 +231,11 @@ flush = function(st)
     end
   end
   if dirty.draw and vim.api.nvim_buf_is_valid(st.bufnr) then
-    render.draw(st.bufnr, st.hunks, draw_opts(st))
+    -- A drawing bug must not swallow the callbacks and the event that follow.
+    local ok, err = pcall(render.draw, st.bufnr, st.hunks, draw_opts(st))
+    if not ok then
+      report_error("drawing", err)
+    end
   end
   if dirty.event then
     fire_changed(st)
@@ -558,7 +562,10 @@ function M.attach(bufnr, base_lines, opts)
     buffer = bufnr,
     desc = "Claude review: hint for the hunk under the cursor",
     callback = function()
-      render.update_hint(bufnr, st.hunks, draw_opts(st))
+      local ok, err = pcall(render.update_hint, bufnr, st.hunks, draw_opts(st))
+      if not ok then
+        report_error("hint", err)
+      end
     end,
   })
   vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
