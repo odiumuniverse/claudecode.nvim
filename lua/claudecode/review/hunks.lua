@@ -29,6 +29,21 @@ local function copy_range(lines, first, count)
   return vim.list_slice(lines, first, first + count - 1)
 end
 
+---A hunk with zero count sits *after* line `start`, so the text before it is `1..start`;
+---otherwise the replaced range begins at `start` and the text before it is `1..start - 1`.
+---@param lines string[]
+---@param start integer
+---@param count integer
+---@param replacement string[]
+---@return string[]
+local function splice(lines, start, count, replacement)
+  local before = count == 0 and start or start - 1
+  local result = vim.list_slice(lines, 1, before)
+  vim.list_extend(result, replacement)
+  vim.list_extend(result, vim.list_slice(lines, before + count + 1, #lines))
+  return result
+end
+
 ---@param base_lines string[]
 ---@param cur_lines string[]
 ---@return ClaudeCodeHunk[]
@@ -51,6 +66,22 @@ function M.compute(base_lines, cur_lines)
     }
   end
   return result
+end
+
+---New base after the user keeps `hunk`: its base range is replaced by Claude's lines.
+---@param base_lines string[]
+---@param hunk ClaudeCodeHunk
+---@return string[]
+function M.keep(base_lines, hunk)
+  return splice(base_lines, hunk.base_start, hunk.base_count, hunk.cur_lines)
+end
+
+---New buffer text after the user reverts `hunk`: Claude's range is replaced by the base lines.
+---@param cur_lines string[]
+---@param hunk ClaudeCodeHunk
+---@return string[]
+function M.revert(cur_lines, hunk)
+  return splice(cur_lines, hunk.cur_start, hunk.cur_count, hunk.base_lines)
 end
 
 return M

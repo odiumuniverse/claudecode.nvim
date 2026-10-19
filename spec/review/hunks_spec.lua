@@ -155,3 +155,147 @@ describe("review.hunks.compute", function()
     assert.same({ "a", "x", "y", "c" }, cur)
   end)
 end)
+
+---@return ClaudeCodeHunk
+local function hunk(fields)
+  return vim.tbl_extend("force", {
+    base_start = 0,
+    base_count = 0,
+    cur_start = 0,
+    cur_count = 0,
+    base_lines = {},
+    cur_lines = {},
+  }, fields)
+end
+
+describe("review.hunks.keep", function()
+  it("takes the changed lines into the base", function()
+    local h =
+      hunk({ base_start = 2, base_count = 1, cur_start = 2, cur_count = 1, base_lines = { "b" }, cur_lines = { "x" } })
+    assert.same({ "a", "x", "c" }, hunks.keep({ "a", "b", "c" }, h))
+  end)
+
+  it("takes an insertion in the middle (after base line 1)", function()
+    local h = hunk({ base_start = 1, cur_start = 2, cur_count = 1, cur_lines = { "b" } })
+    assert.same({ "a", "b", "c" }, hunks.keep({ "a", "c" }, h))
+  end)
+
+  it("takes an insertion at the top (base_start 0)", function()
+    local h = hunk({ cur_start = 1, cur_count = 1, cur_lines = { "a" } })
+    assert.same({ "a", "b" }, hunks.keep({ "b" }, h))
+  end)
+
+  it("takes an insertion at the end", function()
+    local h = hunk({ base_start = 1, cur_start = 2, cur_count = 1, cur_lines = { "b" } })
+    assert.same({ "a", "b" }, hunks.keep({ "a" }, h))
+  end)
+
+  it("takes a deletion of the first line", function()
+    local h = hunk({ base_start = 1, base_count = 1, base_lines = { "a" } })
+    assert.same({ "b", "c" }, hunks.keep({ "a", "b", "c" }, h))
+  end)
+
+  it("takes a deletion in the middle", function()
+    local h = hunk({ base_start = 2, base_count = 1, cur_start = 1, base_lines = { "b" } })
+    assert.same({ "a", "c" }, hunks.keep({ "a", "b", "c" }, h))
+  end)
+
+  it("takes a deletion of the last line", function()
+    local h = hunk({ base_start = 3, base_count = 1, cur_start = 2, base_lines = { "c" } })
+    assert.same({ "a", "b" }, hunks.keep({ "a", "b", "c" }, h))
+  end)
+
+  it("turns an empty base into the new file", function()
+    local h = hunk({ cur_start = 1, cur_count = 2, cur_lines = { "a", "b" } })
+    assert.same({ "a", "b" }, hunks.keep({}, h))
+  end)
+
+  it("turns the base into an empty file when everything was deleted", function()
+    local h = hunk({ base_start = 1, base_count = 2, base_lines = { "a", "b" } })
+    assert.same({}, hunks.keep({ "a", "b" }, h))
+  end)
+
+  it("does not mutate its inputs", function()
+    local base = { "a", "b", "c" }
+    local h = hunk({
+      base_start = 2,
+      base_count = 1,
+      cur_start = 2,
+      cur_count = 2,
+      base_lines = { "b" },
+      cur_lines = { "x", "y" },
+    })
+    local h_before = vim.deepcopy(h)
+    local result = hunks.keep(base, h)
+    assert.same({ "a", "x", "y", "c" }, result)
+    assert.same({ "a", "b", "c" }, base)
+    assert.same(h_before, h)
+    assert.are_not.equal(base, result)
+  end)
+end)
+
+describe("review.hunks.revert", function()
+  it("puts the base lines back over the changed ones", function()
+    local h =
+      hunk({ base_start = 2, base_count = 1, cur_start = 2, cur_count = 1, base_lines = { "b" }, cur_lines = { "x" } })
+    assert.same({ "a", "b", "c" }, hunks.revert({ "a", "x", "c" }, h))
+  end)
+
+  it("removes an insertion in the middle", function()
+    local h = hunk({ base_start = 1, cur_start = 2, cur_count = 1, cur_lines = { "b" } })
+    assert.same({ "a", "c" }, hunks.revert({ "a", "b", "c" }, h))
+  end)
+
+  it("removes an insertion at the top", function()
+    local h = hunk({ cur_start = 1, cur_count = 1, cur_lines = { "a" } })
+    assert.same({ "b", "c" }, hunks.revert({ "a", "b", "c" }, h))
+  end)
+
+  it("removes an insertion at the end", function()
+    local h = hunk({ base_start = 2, cur_start = 3, cur_count = 1, cur_lines = { "c" } })
+    assert.same({ "a", "b" }, hunks.revert({ "a", "b", "c" }, h))
+  end)
+
+  it("restores a deleted first line (cur_start 0)", function()
+    local h = hunk({ base_start = 1, base_count = 1, base_lines = { "a" } })
+    assert.same({ "a", "b", "c" }, hunks.revert({ "b", "c" }, h))
+  end)
+
+  it("restores a line deleted in the middle", function()
+    local h = hunk({ base_start = 2, base_count = 1, cur_start = 1, base_lines = { "b" } })
+    assert.same({ "a", "b", "c" }, hunks.revert({ "a", "c" }, h))
+  end)
+
+  it("restores a deleted last line", function()
+    local h = hunk({ base_start = 3, base_count = 1, cur_start = 2, base_lines = { "c" } })
+    assert.same({ "a", "b", "c" }, hunks.revert({ "a", "b" }, h))
+  end)
+
+  it("empties the buffer when reverting a new file", function()
+    local h = hunk({ cur_start = 1, cur_count = 2, cur_lines = { "a", "b" } })
+    assert.same({}, hunks.revert({ "a", "b" }, h))
+  end)
+
+  it("restores everything into an emptied buffer", function()
+    local h = hunk({ base_start = 1, base_count = 2, base_lines = { "a", "b" } })
+    assert.same({ "a", "b" }, hunks.revert({}, h))
+  end)
+
+  it("does not mutate its inputs", function()
+    local cur = { "a", "x", "y", "c" }
+    local h = hunk({
+      base_start = 2,
+      base_count = 1,
+      cur_start = 2,
+      cur_count = 2,
+      base_lines = { "b" },
+      cur_lines = { "x", "y" },
+    })
+    local h_before = vim.deepcopy(h)
+    local result = hunks.revert(cur, h)
+    assert.same({ "a", "b", "c" }, result)
+    assert.same({ "a", "x", "y", "c" }, cur)
+    assert.same(h_before, h)
+    assert.are_not.equal(cur, result)
+  end)
+end)
