@@ -83,6 +83,19 @@ function M.enter(cmd_args)
   if M.is_active() then
     return
   end
+  if tab_valid(state.tab) then
+    -- Zen is still there and you looked at another tab: go back to it, do not build a second one.
+    state.work_tab = vim.api.nvim_get_current_tabpage()
+    local shown = term_buf()
+    for _, tab in ipairs(vim.api.nvim_list_tabpages()) do
+      if shown and tab ~= state.tab then
+        hide_terminal_in(tab, shown)
+      end
+    end
+    vim.api.nvim_set_current_tabpage(state.tab)
+    vim.cmd("startinsert")
+    return
+  end
   local buf = term_buf()
   if not buf then
     terminal().ensure_visible(nil, cmd_args)

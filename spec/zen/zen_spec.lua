@@ -131,6 +131,105 @@ describe("zen", function()
     assert.equal(1, #windows_showing(term_buf, vim.api.nvim_get_current_tabpage()))
   end)
 
+  describe("with several tabs", function()
+    ---A first tab with some other work, and the code tab where Claude sits in its split.
+    local function two_code_tabs()
+      local first_tab = vim.api.nvim_get_current_tabpage()
+      vim.cmd("tabnew")
+      local work_tab = vim.api.nvim_get_current_tabpage()
+      fake_terminal.ensure_visible()
+      return first_tab, work_tab
+    end
+
+    it("comes back to the tab zen was started from, not to the first one", function()
+      local first_tab, work_tab = two_code_tabs()
+      local code_win = vim.api.nvim_get_current_win()
+
+      zen.enter()
+      assert.equal(3, #vim.api.nvim_list_tabpages())
+      zen.leave()
+
+      assert.equal(work_tab, vim.api.nvim_get_current_tabpage())
+      assert.equal(code_win, vim.api.nvim_get_current_win())
+      assert.equal(2, #vim.api.nvim_list_tabpages())
+      assert.same({}, windows_showing(term_buf, first_tab))
+      assert.equal(1, #windows_showing(term_buf, work_tab))
+    end)
+
+    it("takes Claude out of every code tab, and puts it back in one only", function()
+      local first_tab, work_tab = two_code_tabs()
+      vim.api.nvim_set_current_tabpage(first_tab)
+      vim.cmd("botright vsplit")
+      vim.api.nvim_win_set_buf(0, term_buf)
+      vim.api.nvim_set_current_tabpage(work_tab)
+
+      zen.enter()
+
+      assert.same({}, windows_showing(term_buf, first_tab))
+      assert.same({}, windows_showing(term_buf, work_tab))
+      zen.leave()
+      assert.equal(1, #windows_showing(term_buf, work_tab))
+      assert.same({}, windows_showing(term_buf, first_tab))
+    end)
+
+    it("builds a new code tab when the one zen came from is closed meanwhile", function()
+      local first_tab, work_tab = two_code_tabs()
+      zen.enter()
+
+      vim.cmd(vim.api.nvim_tabpage_get_number(work_tab) .. "tabclose")
+      assert.is_true(zen.is_active())
+      zen.leave()
+
+      assert.is_false(zen.is_active())
+      assert.equal(2, #vim.api.nvim_list_tabpages())
+      assert.are_not.equal(first_tab, vim.api.nvim_get_current_tabpage())
+      assert.equal(1, #windows_showing(term_buf, vim.api.nvim_get_current_tabpage()))
+      assert.equal(1, vim.o.showtabline)
+    end)
+
+    it("survives :tabonly in zen and builds a code tab on leave", function()
+      two_code_tabs()
+      zen.enter()
+
+      vim.cmd("tabonly")
+      zen.leave()
+
+      assert.is_false(zen.is_active())
+      assert.equal(1, #vim.api.nvim_list_tabpages())
+      assert.equal(1, #windows_showing(term_buf, vim.api.nvim_get_current_tabpage()))
+      assert.equal(1, vim.o.showtabline)
+    end)
+
+    it("gives the screen back when you close the zen tab yourself", function()
+      two_code_tabs()
+      zen.enter()
+
+      vim.cmd("tabclose")
+
+      assert.is_false(zen.is_active())
+      assert.equal(1, vim.o.showtabline)
+      -- and zen works again afterwards
+      zen.enter()
+      assert.is_true(zen.is_active())
+    end)
+
+    it("does not leave a second zen tab behind when zen is entered from another tab", function()
+      local first_tab = two_code_tabs()
+      zen.enter()
+      vim.api.nvim_set_current_tabpage(first_tab) -- gt, while zen is still there
+
+      zen.enter()
+
+      assert.equal(1, #vim.tbl_filter(function(tab)
+        return #windows_showing(term_buf, tab) > 0
+      end, vim.api.nvim_list_tabpages()))
+      assert.equal(3, #vim.api.nvim_list_tabpages())
+      assert.is_true(zen.is_active())
+      zen.leave()
+      assert.equal(first_tab, vim.api.nvim_get_current_tabpage())
+    end)
+  end)
+
   it("shows how many files wait for review above Claude", function()
     zen.enter()
 
