@@ -64,6 +64,74 @@
 - **Модель получает только общую фразу:** _«The file … has been updated successfully. The user modified your proposed content before accepting it.»_ Какие ханки откачены, CLI не сообщает; в метаданных транскрипта есть `userModified: true` и `structuredPatch`, но модели они не показываются. Haiku сам перечитал файл и заметил откат, но на это полагаться нельзя.
 - **CLI срезает перевод строки в конце файла.** Исходный файл и наш ответ заканчивались на `\n`, а записанный файл — нет. Разобраться на шаге 4: срезается один `\n` или все пробельные символы, и чем это компенсировать.
 
+## Модули и контракты
+
+Контракт между модулями фиксируем до кода: движок, хранилище и zen пишутся параллельно.
+
+```
+lua/claudecode/review/hunks.lua   чистая логика: ханки, дифф слов, применение ko/kx, перенос правок
+lua/claudecode/review/render.lua  extmarks, подсветка, подсказка
+lua/claudecode/review/init.lua    движок: attach/detach, клавиши, ko/kx, nvim_buf_attach
+lua/claudecode/review/store.lua   каталог состояния: базы, сводка откатов
+lua/claudecode/review/summary.lua текст сводки откатов для Claude
+lua/claudecode/review/picker.lua  список файлов (<leader>ak)
+lua/claudecode/hooks/             settings.json для --settings, входной скрипт хуков
+lua/claudecode/zen/init.lua       zen
+spec/                             тесты в настоящем headless nvim (fork/test-nvim.sh)
+```
+
+**Ханк** — индексы как у `vim.text.diff(..., { result_type = "indices" })`, строки с единицы:
+
+```lua
+---@class ClaudeCodeHunk
+---@field base_start integer  -- при base_count == 0: вставка после этой строки базы (0 — в начало)
+---@field base_count integer
+---@field cur_start integer   -- при cur_count == 0: удаление после этой строки буфера (0 — в начало)
+---@field cur_count integer
+---@field base_lines string[]
+---@field cur_lines string[]
+```
+
+**Движок** (`require("claudecode.review")`):
+
+```lua
+review.attach(bufnr, base_lines, opts) -- начать ревью буфера против базы; повторный attach меняет базу
+review.detach(bufnr)                   -- снять подсветку, клавиши и nvim_buf_attach
+review.is_attached(bufnr) -> boolean
+review.hunks(bufnr) -> ClaudeCodeHunk[]
+review.base(bufnr) -> string[]
+review.keep(bufnr, index?)             -- index по умолчанию — ханк под курсором
+review.revert(bufnr, index?)
+review.keep_all(bufnr)
+review.revert_all(bufnr)
+
+---@class ClaudeCodeReviewAttachOpts
+---@field on_base? fun(base: string[])               -- база сдвинулась: ko, KO, ваша правка вне ханка
+---@field on_revert? fun(rec: ClaudeCodeRevertRecord) -- kx/KX применён к буферу
+---@field on_done? fun(reason: "resolved"|"detached") -- ханков не осталось или вызван detach
+---@field write_on_revert? boolean                    -- по умолчанию true: kx сразу пишет файл
+
+---@class ClaudeCodeRevertRecord
+---@field path string           -- абсолютный путь буфера
+---@field line integer          -- первая строка вернувшегося текста в файле после отката
+---@field base_lines string[]   -- текст, который вернулся
+---@field claude_lines string[] -- текст Claude, который откатили
+---@field time integer          -- os.time()
+```
+
+**События.** Движок шлёт `User ClaudeCodeReviewChanged` с `data = { bufnr, path, hunks }` после каждого пересчёта, хранилище — `User ClaudeCodeReviewPending` с `data = { count, files }`, когда меняется список файлов с неразобранными ханками. Zen рисует счётчик по второму событию.
+
+**Каталог состояния** (`stdpath("state")/claudecode/review/<sha256 корня проекта>/`, права 0700):
+
+```
+bases/<sha256 пути>.base    -- байты файла до первой правки Claude
+bases/<sha256 пути>.json    -- { path, new_file, created_at }
+bash/<tool_use_id>.json     -- снимок перед Bash: { stash, untracked }
+reverts.jsonl               -- по записи ClaudeCodeRevertRecord на строку
+```
+
+База создаётся атомарно и только если её ещё нет (п. 15): текст во временный файл, потом `fs_link`. База, равная текущему тексту файла, удаляется при первой встрече. Хуки получают каталог через `CLAUDECODE_REVIEW_DIR`, а адрес nvim через `CLAUDECODE_NVIM`, и шлют в nvim только `rpcnotify`: хук не ждёт nvim, потому что nvim может стоять на hit-enter (см. опыт с openDiff). Любая ошибка в хуке завершает его с кодом 0: ревью может пропустить правку, но Claude не застрянет.
+
 ## Тесты
 
 31. **TDD на busted через их `mise`.** Покрываем:
