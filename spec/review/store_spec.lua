@@ -140,6 +140,18 @@ describe("review store", function()
     assert.is_nil(store:take_bash("toolu_1"))
   end)
 
+  it("drops Bash snapshots whose call never finished", function()
+    store:save_bash("toolu_old", { stash = "a" })
+    store:save_bash("toolu_new", { stash = "b" })
+    local day_ago = os.time() - 25 * 3600
+    vim.uv.fs_utime(dir .. "/bash/toolu_old.json", day_ago, day_ago)
+
+    store:drop_stale_bash(24 * 3600)
+
+    assert.is_nil(store:take_bash("toolu_old"))
+    assert.same({ stash = "b" }, store:take_bash("toolu_new"))
+  end)
+
   it("rejects a tool_use_id that would escape the state directory", function()
     assert.is_false(store:save_bash("../evil", { stash = "abc" }))
     assert.is_nil(read_file(dir .. "/evil.json"))

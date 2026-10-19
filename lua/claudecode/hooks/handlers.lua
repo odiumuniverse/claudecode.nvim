@@ -11,6 +11,8 @@ local EDIT_TOOLS = { Edit = true, Write = true, MultiEdit = true, NotebookEdit =
 
 -- Bigger files and binary files stay out of review: extmarks over megabytes of text crawl.
 M.MAX_BYTES = 2 * 1024 * 1024
+-- A Bash snapshot older than this belongs to a call that never finished.
+M.STALE_BASH_S = 24 * 3600
 local SNIFF_BYTES = 8000
 
 local function read_all(path)
@@ -59,6 +61,7 @@ local function pre_tool_use(store, input)
       store:snapshot(path)
     end
   elseif input.tool_name == "Bash" then
+    store:drop_stale_bash(M.STALE_BASH_S)
     local snap = require("claudecode.hooks.git").snapshot(input.cwd or uv.cwd())
     if snap then
       store:save_bash(input.tool_use_id, snap)

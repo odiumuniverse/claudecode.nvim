@@ -254,6 +254,28 @@ function Store:save_bash(id, snap)
   return uv.fs_rename(tmp, file) == true
 end
 
+---A Bash call that Claude Code refused or that failed never reaches PostToolUse: its snapshot
+---would stay forever.
+---@param max_age integer Seconds
+function Store:drop_stale_bash(max_age)
+  local handle = uv.fs_scandir(self.dir .. "/bash")
+  if not handle then
+    return
+  end
+  local cutoff = os.time() - max_age
+  while true do
+    local name = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+    local path = self.dir .. "/bash/" .. name
+    local stat = uv.fs_stat(path)
+    if stat and stat.mtime.sec < cutoff then
+      uv.fs_unlink(path)
+    end
+  end
+end
+
 ---@param id string
 ---@return table|nil
 function Store:take_bash(id)

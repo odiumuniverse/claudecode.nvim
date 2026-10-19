@@ -20,10 +20,14 @@ local function run_script()
   return vim.fn.fnamemodify(source, ":p:h") .. "/run.lua"
 end
 
+local function state_root()
+  return state.state_root or (vim.fn.stdpath("state") .. "/claudecode")
+end
+
 ---@param opts { state_root: string|nil }|nil
 function M.setup(opts)
   opts = opts or {}
-  state.state_root = opts.state_root or (vim.fn.stdpath("state") .. "/claudecode")
+  state.state_root = opts.state_root
   state.active = true
 end
 
@@ -39,13 +43,12 @@ end
 ---@param root string Project root (Neovim's cwd when Claude starts)
 ---@return string
 function M.state_dir(root)
-  local state_root = state.state_root or (vim.fn.stdpath("state") .. "/claudecode")
-  return state_root .. "/review/" .. vim.fn.sha256(root)
+  return state_root() .. "/review/" .. vim.fn.sha256(root)
 end
 
 ---@return string
 function M.settings_file()
-  return state.state_root .. "/hooks-settings.json"
+  return state_root() .. "/hooks-settings.json"
 end
 
 local function hook(event)
@@ -63,7 +66,7 @@ local function write_settings()
       UserPromptSubmit = { { hooks = { hook("UserPromptSubmit") } } },
     },
   }
-  vim.fn.mkdir(state.state_root, "p")
+  vim.fn.mkdir(state_root(), "p")
   local file = M.settings_file()
   local tmp = file .. ".tmp." .. vim.fn.getpid()
   vim.fn.writefile({ vim.json.encode(settings) }, tmp)
