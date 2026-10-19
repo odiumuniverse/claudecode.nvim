@@ -145,7 +145,7 @@ function M.handle(event, input, env)
   return nil
 end
 
----Keep the last hook errors where `:checkhealth claudecode.features` can show them.
+---Keep the last hook errors where `:checkhealth claudecode` can show them.
 ---@param dir string
 ---@param event string|nil
 ---@param err any

@@ -528,9 +528,11 @@ for provider diffs too (|claudecode-events|).
 HEALTH CHECK                                               *claudecode-health*
 
 >vim
-    :checkhealth claudecode.features
+    :checkhealth claudecode
 <
-The check reports:
+The report opens with the IDE connection: the Claude CLI, the terminal
+provider, the WebSocket server and the lock file. Sections for hunk review and
+zen follow and report:
 
 - whether Neovim is 0.11 or newer;
 - whether the review hooks are attached, and where their settings file is;
@@ -539,7 +541,5 @@ The check reports:
   users can read it, and the last errors in `hooks.log`;
 - which list shows the files (|claudecode-review-files|);
 - whether zen can work with your `terminal.provider` (|claudecode-zen|).
-
-Upstream's own check, `:checkhealth claudecode`, covers the IDE connection.
 
  vim:tw=78:ts=8:ft=help:norl:

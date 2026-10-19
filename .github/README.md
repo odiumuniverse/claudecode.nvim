@@ -58,7 +58,7 @@ Or from GitHub over SSH, since the repository is private:
 }
 ```
 
-Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode.features` to see whether the review hooks and zen are ready.
+Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode` to see whether the review hooks and zen are ready.
 
 `:help claudecode` documents the fork's options, keys and events.
 

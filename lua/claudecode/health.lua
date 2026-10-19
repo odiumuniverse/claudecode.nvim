@@ -143,6 +143,11 @@ function M.check()
   check_cli(claudecode.state.config)
   check_terminal_provider(claudecode.state.config)
   check_server(claudecode)
+
+  -- Hunk review and zen: their sections follow upstream's
+  pcall(function()
+    require("claudecode.features.checks").check()
+  end)
 end
 
 return M

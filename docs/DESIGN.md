@@ -77,7 +77,7 @@ lua/claudecode/review/picker.lua     list of files (<leader>ak)
 lua/claudecode/review/provider.lua   review before write
 lua/claudecode/hooks/                settings.json for --settings, the hook entry script, git snapshots
 lua/claudecode/zen/init.lua          zen
-lua/claudecode/features/             options, setup, :checkhealth claudecode.features
+lua/claudecode/features/             options, setup, the review and zen sections of :checkhealth claudecode (checks.lua)
 spec/                                tests in a real headless Neovim (fork/test-nvim.sh)
 ```
 

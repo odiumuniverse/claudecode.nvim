@@ -1,7 +1,9 @@
 ---@brief [[
---- :checkhealth claudecode.features — hunk review hooks and zen.
+--- Health sections for hunk review hooks and zen. `:checkhealth claudecode` appends them to its
+--- report (see lua/claudecode/health.lua); the file is not called health.lua, so `:checkhealth`
+--- does not list it as a plugin of its own.
 ---@brief ]]
----@module 'claudecode.features.health'
+---@module 'claudecode.features.checks'
 
 local M = {}
 
@@ -9,11 +11,13 @@ function M.check()
   local health = vim.health
   local features = require("claudecode.features")
 
-  health.start("Neovim")
+  health.start("Neovim for review and zen")
   if vim.fn.has("nvim-0.11") == 1 then
     health.ok("Neovim 0.11 or newer")
   else
-    health.error("Hunk review and zen need Neovim 0.11 or newer; the plugin falls back to upstream behavior")
+    -- A warning: the IDE connection works without the features, so this is no error of the plugin.
+    health.warn("Hunk review and zen need Neovim 0.11 or newer; the plugin falls back to upstream behavior")
+    return
   end
 
   local config = features.state.config
