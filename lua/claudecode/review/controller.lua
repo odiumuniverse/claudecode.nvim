@@ -76,6 +76,21 @@ local function remove_new_file(buf, path)
   end)
 end
 
+---No hunk holds the final newline. When the text that came back reaches the end of the file, the
+---file gets the final newline, or the lack of it, that the base had.
+---@param buf integer
+---@param rec ClaudeCodeRevertRecord
+---@param base ClaudeCodeReviewBase|nil
+local function restore_final_newline(buf, rec, base)
+  if not base or base.text == "" then
+    return
+  end
+  local last = rec.line + #rec.base_lines - 1
+  if last >= vim.api.nvim_buf_line_count(buf) then
+    vim.bo[buf].eol = base.text:sub(-1) == "\n"
+  end
+end
+
 ---Start or refresh the review of `buf` if its file has a base.
 ---@param buf integer
 function M.attach_if_pending(buf)
@@ -104,6 +119,7 @@ function M.attach_if_pending(buf)
     on_revert = function(rec)
       reverted = true
       store:append_revert(rec)
+      restore_final_newline(buf, rec, store:get(path))
     end,
     on_done = function(reason)
       if reason ~= "resolved" then

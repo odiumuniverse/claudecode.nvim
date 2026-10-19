@@ -141,6 +141,38 @@ describe("review controller", function()
     assert.same({ "changed" }, reverts[1].claude_lines)
   end)
 
+  describe("reverting a hunk writes the file with the final newline it had", function()
+    ---Claude rewrites `before` as `after`, you open the file and revert hunk `index`.
+    local function revert(before, after, index)
+      local file = work .. "/a.txt"
+      write_file(file, before)
+      local buf = open(file)
+      claude_writes(file, after)
+      engine.revert(buf, index)
+      return read_file(file)
+    end
+
+    it("when the file has none", function()
+      assert.equal("one\ntwo", revert("one\ntwo", "one\nTWO", 1))
+    end)
+
+    it("when the file has none and a hunk before the last line is the one reverted", function()
+      assert.equal("a\nb\nc\nd\nE", revert("a\nb\nc\nd\ne", "A\nb\nc\nd\nE", 1))
+    end)
+
+    it("when Claude took the final newline away and you revert its last line", function()
+      assert.equal("a\nb\n", revert("a\nb\n", "a\nb\nc", 1))
+    end)
+
+    it("when Claude added the final newline and you revert its last line", function()
+      assert.equal("a\nb", revert("a\nb", "a\nb\nc\n", 1))
+    end)
+
+    it("when it has one, as before", function()
+      assert.equal("a\nb\n", revert("a\nb\n", "A\nb\n", 1))
+    end)
+  end)
+
   it("takes the base of an untracked file Bash rewrote from its buffer", function()
     local file = work .. "/notes.txt"
     write_file(file, "before\n")

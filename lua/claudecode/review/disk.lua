@@ -46,14 +46,20 @@ function M.same(a, b)
 end
 
 ---Save the buffer without BufWritePre (format-on-save would invent new differences against the
----base), then let the BufWritePost listeners know.
+---base), then let the BufWritePost listeners know. The file keeps its final newline, or the lack
+---of it: with 'fixeol' on, :write would add one to a file that never had it.
 ---@param bufnr integer
 ---@return boolean ok
 ---@return string|nil err
 function M.write(bufnr)
+  local fixeol = vim.bo[bufnr].fixeol
+  vim.bo[bufnr].fixeol = false
   local ok, err = pcall(vim.api.nvim_buf_call, bufnr, function()
     vim.cmd("noautocmd silent write")
   end)
+  if vim.api.nvim_buf_is_valid(bufnr) then
+    vim.bo[bufnr].fixeol = fixeol
+  end
   if not ok then
     return false, tostring(err)
   end
