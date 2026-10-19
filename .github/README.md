@@ -9,7 +9,11 @@ Upstream connects the Claude Code CLI to Neovim over the same WebSocket MCP prot
 
 Claude runs as the unmodified `claude` binary, so you sign in with your own Claude subscription.
 
-The design and the reasons behind it live in [docs/DESIGN.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/DESIGN.md) (in Russian).
+More documentation:
+
+- [docs/DESIGN.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/DESIGN.md): the fork's design and the reasons behind it;
+- [docs/ARCHITECTURE.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/ARCHITECTURE.md) and [docs/PROTOCOL.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/PROTOCOL.md): upstream's architecture and the IDE protocol;
+- [CONTRIBUTING.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/CONTRIBUTING.md): upstream's development guide.
 
 ## Requirements
 
