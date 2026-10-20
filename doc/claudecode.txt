@@ -231,8 +231,12 @@ Every Claude session the plugin starts gets `claude --settings {file}` with
 three hooks: PreToolUse and PostToolUse for Edit, Write, MultiEdit,
 NotebookEdit and Bash, and UserPromptSubmit. Claude Code adds them to the
 hooks you already have. It does not replace them. The plugin rewrites the
-settings file, `stdpath("state")/claudecode/hooks-settings.json`, at every
-launch.
+settings file at every launch:
+`stdpath("state")/claudecode/hooks-settings-{id}.json`. The hooks in it run
+this Neovim's binary on this copy of the plugin, and {id} comes from both
+paths. A second Neovim with another binary or another copy of the plugin
+writes its own file and never changes this one. `:checkhealth claudecode`
+shows the name.
 
 Each hook is a short `nvim --clean --headless -l` script. It copies the file
 before the edit and tells Neovim about it, waiting half a second at most
