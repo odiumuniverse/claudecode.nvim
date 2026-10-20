@@ -15,6 +15,13 @@ local HEADER = table.concat({
   "The files on disk already contain the restored text. Do not reapply these changes unless the user asks.",
 }, "\n")
 
+-- A revert with a reason asks for a rework: "do not reapply" alone would contradict it.
+local HEADER_WITH_REASONS = table.concat({
+  "The user reviewed your edits in Neovim and reverted some of them.",
+  "The files on disk already contain the restored text. Rework each place that carries the user's reason"
+    .. " as the reason asks; do not reapply the other changes unless the user asks.",
+}, "\n")
+
 local function relative(path, root)
   if root and root ~= "" then
     local prefix = root:sub(-1) == "/" and root or root .. "/"
@@ -43,6 +50,12 @@ local function block(rec, root)
   local out = { string.format("%s, line %d", relative(rec.path, root), rec.line or 1) }
   add_lines(out, "your text, reverted", rec.claude_lines or {}, "none, you had deleted these lines")
   add_lines(out, "restored text", rec.base_lines or {}, "none, your lines were removed")
+  if rec.reason and rec.reason ~= "" then
+    out[#out + 1] = "  the user's reason:"
+    for _, line in ipairs(vim.split(rec.reason, "\n", { plain = true })) do
+      out[#out + 1] = "    " .. line
+    end
+  end
   return table.concat(out, "\n")
 end
 
@@ -53,8 +66,14 @@ function M.render(records, root)
   if #records == 0 then
     return nil
   end
-  local parts = { HEADER }
-  local size = #HEADER
+  local header = HEADER
+  for _, rec in ipairs(records) do
+    if rec.reason and rec.reason ~= "" then
+      header = HEADER_WITH_REASONS
+    end
+  end
+  local parts = { header }
+  local size = #header
   for i, rec in ipairs(records) do
     local text = block(rec, root)
     -- Reserve room for the closing line that names the files left out.

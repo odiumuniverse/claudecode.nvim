@@ -141,6 +141,8 @@ If you start Claude yourself (`terminal.provider = "none"`), the hooks are not a
 
 In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal answers with what is there now: Claude writes it, or gets a rejection when it equals the file. `:ClaudeCodeDiffAccept` does the same, and `:ClaudeCodeDiffDeny` refuses the whole proposal.
 
+**Reject with a reason.** `cr` in a proposal reverts the hunk with what you type in the box, and Claude reworks the place at once, in the same turn. If you kept other hunks, the reason goes with the note about your reverts. If you reverted every hunk, the plugin answers in Claude's own permission dialog, "No, and tell Claude what to do differently", since a rejection over the IDE connection carries no text. Each key goes out only once the dialog on screen shows what that key needs; when that cannot be done (Claude outside Neovim, or a Claude Code update changed the dialog), the proposal is rejected plainly and the reason goes to the clipboard.
+
 Claude sends UTF-8. The plugin compares it with the file in the file's own encoding, so a Latin-1 or UTF-16 file shows only what Claude changed. It reads the encoding from the open buffer, or else from the byte order mark and `'fileencodings'`. The protocol carries text only, so Claude writes UTF-8 after you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
 
 Set `review.before_write = false` to keep upstream's diff views, or set your own `diff_opts.provider` (see below).

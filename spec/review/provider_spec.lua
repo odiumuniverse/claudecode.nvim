@@ -78,17 +78,46 @@ describe("review provider", function()
     assert.is_true(vim.api.nvim_buf_is_valid(file_buf))
   end)
 
-  it("maps no note keys in a proposal: Claude waits for an answer there, not for notes", function()
-    engine.setup({ note = function() end })
-    local file = work .. "/a.txt"
-    write_file(file, "one\n")
-    propose(file, "ONE\n")
+  describe("with a reason", function()
+    local function press(keys)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)
+    end
 
-    local map = vim.api.nvim_buf_call(proposal_buf(), function()
-      return vim.fn.maparg("cr", "n", false, true)
+    before_each(function()
+      -- As the plugin sets it up: notes after write are on.
+      engine.setup({ note = function() end })
     end)
 
-    assert.is_true(vim.tbl_isempty(map) or map.buffer ~= 1)
+    it("reverts the hunk on cr and hands Claude the reason with the rest of the proposal", function()
+      local file = work .. "/a.txt"
+      write_file(file, "a\nb\nc\nd\ne\n")
+      store:snapshot(file) -- PreToolUse already ran
+      local handle = propose(file, "A\nb\nc\nd\nE\n")
+      vim.api.nvim_win_set_cursor(0, { 5, 0 })
+
+      press("crkeep e lowercase<CR>")
+      press("cs")
+      vim.wait(100)
+
+      assert.equal("A\nb\nc\nd\ne\n", written(handle))
+      local reverts = store:take_reverts()
+      assert.equal(1, #reverts)
+      assert.same({ "E" }, reverts[1].claude_lines)
+      assert.equal("keep e lowercase", reverts[1].reason)
+    end)
+
+    it("rejects all of it and puts the reason in the clipboard when Claude does not run here", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\n")
+      local handle = propose(file, "two\n")
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+      press("crsay three<CR>")
+      vim.wait(100)
+
+      assert.equal("DIFF_REJECTED", handle.result.content[1].text)
+      assert.matches("say three", vim.fn.getreg('"'))
+    end)
   end)
 
   it("keeps ]k and the moves after a decision inside the proposal, while Claude waits", function()

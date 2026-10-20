@@ -26,6 +26,36 @@ describe("revert summary", function()
     )
   end)
 
+  it("asks to rework a place the user reverted with a reason, and not to reapply the others", function()
+    local text = summary.render({
+      { path = "/p/a.lua", line = 1, base_lines = { "x = 1" }, claude_lines = { "x = 2" }, time = 1, reason = "use 3" },
+      { path = "/p/a.lua", line = 9, base_lines = { "y = 1" }, claude_lines = { "y = 2" }, time = 2 },
+    }, "/p")
+
+    assert.equal(
+      table.concat({
+        "The user reviewed your edits in Neovim and reverted some of them.",
+        "The files on disk already contain the restored text. Rework each place that carries the user's reason"
+          .. " as the reason asks; do not reapply the other changes unless the user asks.",
+        "",
+        "a.lua, line 1",
+        "  your text, reverted:",
+        "    | x = 2",
+        "  restored text:",
+        "    | x = 1",
+        "  the user's reason:",
+        "    use 3",
+        "",
+        "a.lua, line 9",
+        "  your text, reverted:",
+        "    | y = 2",
+        "  restored text:",
+        "    | y = 1",
+      }, "\n"),
+      text
+    )
+  end)
+
   it("names the empty side of a pure insertion or deletion", function()
     local text = summary.render({
       { path = "/p/a.lua", line = 3, base_lines = {}, claude_lines = { "added()" }, time = 1 },

@@ -311,8 +311,9 @@ When Claude does not run in a Neovim terminal (the "external" and "none"
 providers, or Claude not started yet), the notes stay and the message goes to
 the clipboard.
 
-A proposal under review before write takes no notes: Claude waits for your
-answer there (|claudecode-review-before-write|).
+In a proposal under review before write, `cr` does not keep a note for later:
+Claude waits for your answer there, so it reverts the hunk with your reason
+(|claudecode-review-before-write|).
 
 ------------------------------------------------------------------------------
 REVERTS AND CLAUDE                                   *claudecode-review-notes*
@@ -381,6 +382,22 @@ You decide hunk by hunk. `cs` keeps a hunk of the proposal, `cx` reverts it
 without touching the file on disk. When no hunk is left, the plugin answers
 Claude: the text you kept goes to Claude, who writes it; if you reverted every
 hunk, Claude gets a rejection.
+
+`cr` reverts a hunk with a reason: a box opens under the line, and Enter
+reverts the hunk and keeps what you typed. `<leader>an` on a selection does
+the same for every hunk in it. The reason makes Claude rework the place at
+once, in the same turn:
+
+- If you kept other hunks, the reason goes with the note about your reverts
+  (|claudecode-review-notes|), which asks Claude to rework the places that
+  carry a reason.
+- If you reverted every hunk, the plugin answers in Claude's own permission
+  dialog in the Claude terminal: "No, and tell Claude what to do differently",
+  with your reasons. The IDE connection cannot carry text with a rejection.
+  Every key goes out only after the dialog on screen shows what that key
+  needs. When it cannot be done (Claude runs outside Neovim, or the dialog
+  looks different after an update of Claude Code), the proposal is rejected
+  plainly and your reasons go to the clipboard, with a warning.
 
 - `:w` in the proposal answers with what is there now. A buffer equal to the
   file is a rejection. `:ClaudeCodeDiffAccept` does the same.

@@ -26,6 +26,7 @@ local M = {}
 ---@field bomb boolean The text handed to Claude starts with a byte order mark
 ---@field proposed_lines string[]
 ---@field reverts ClaudeCodeRevertRecord[]
+---@field reason string|nil The reason of the revert `cr` is making now
 ---@field from_zen boolean
 ---@field done boolean
 
@@ -125,6 +126,91 @@ local function is_blank_line(lines)
   return #lines == 1 and lines[1] == ""
 end
 
+local reason_ns = vim.api.nvim_create_namespace("claudecode_review_reason")
+
+---`cr` in a proposal: a box for the reason, and Enter reverts the hunks on those lines with it.
+---@param session ClaudeCodeProposal
+---@param bufnr integer
+---@param first integer
+---@param last integer
+local function ask_reason(session, bufnr, first, last)
+  local win = vim.fn.win_findbuf(bufnr)[1]
+  if not win then
+    return
+  end
+  local name = vim.fn.fnamemodify(session.path, ":t")
+  require("claudecode.review.note_box").open(win, last, {
+    ns = reason_ns,
+    title = " reason · " .. name .. ":" .. (first == last and first or (first .. "-" .. last)) .. " ",
+    footer = " ⏎ revert with this reason · esc cancel ",
+    keys = {
+      ["<CR>"] = function(reason)
+        if reason == "" then
+          return
+        end
+        session.reason = reason
+        local reverted = engine.revert_lines(bufnr, first, last)
+        session.reason = nil
+        if not reverted then
+          vim.notify("claudecode: Claude changed nothing on these lines", vim.log.levels.INFO)
+        end
+      end,
+      ["<Esc>"] = function() end,
+    },
+  })
+end
+
+---The reasons of the reverts, as one line for Claude's dialog.
+---@param session ClaudeCodeProposal
+---@return string|nil
+local function reasons_of(session)
+  local parts = {}
+  for _, rec in ipairs(session.reverts) do
+    if rec.reason then
+      parts[#parts + 1] = { line = rec.line, text = (rec.reason:gsub("%s*\n%s*", " ")) }
+    end
+  end
+  if #parts == 0 then
+    return nil
+  end
+  if #parts == 1 then
+    return parts[1].text
+  end
+  return table.concat(
+    vim.tbl_map(function(part)
+      return ("line %d: %s"):format(part.line, part.text)
+    end, parts),
+    "; "
+  )
+end
+
+---You reverted every hunk and gave reasons: answer "No, and tell Claude what to do differently" in
+---Claude's own dialog, so that Claude goes on with your words. Where that cannot be done, reject
+---through openDiff and leave the reasons in the clipboard.
+---@param session ClaudeCodeProposal
+---@param reasons string
+local function reject_with(session, reasons)
+  local function fallback()
+    session.ctx.reject()
+    pcall(vim.fn.setreg, "+", reasons)
+    vim.fn.setreg('"', reasons)
+    vim.notify(
+      "claudecode: could not tell Claude your reason; the edit is rejected and the reason is in the clipboard",
+      vim.log.levels.WARN
+    )
+  end
+  local terminal = require("claudecode.terminal")
+  local term = terminal.get_active_terminal_bufnr()
+  if not (term and vim.api.nvim_buf_is_valid(term)) then
+    return fallback()
+  end
+  require("claudecode.review.dialog").answer_no(term, reasons, function(ok)
+    if not ok then
+      fallback()
+    end
+  end)
+end
+
 local function finish(session)
   if session.done then
     return
@@ -143,7 +229,10 @@ local function finish(session)
   then
     lines = {}
   end
-  if vim.deep_equal(lines, session.base_lines) then
+  local reasons = reasons_of(session)
+  if vim.deep_equal(lines, session.base_lines) and reasons then
+    reject_with(session, reasons)
+  elseif vim.deep_equal(lines, session.base_lines) then
     session.ctx.reject()
   else
     local content = text.to_text(lines, session.eol, session.dos)
@@ -241,10 +330,14 @@ function M.open(ctx)
 
   engine.attach(buf, base_lines, {
     write_on_revert = false,
-    -- Claude waits for an answer here; a note would sit on a path that is not a file yet.
-    notes = false,
+    -- Claude waits for an answer here, so a note is no note for later: cr reverts the hunk and
+    -- the reason goes to Claude with the answer.
+    note = function(bufnr, first, last)
+      ask_reason(session, bufnr, first, last)
+    end,
     on_revert = function(rec)
       rec.path = session.path
+      rec.reason = session.reason
       session.reverts[#session.reverts + 1] = rec
     end,
     on_done = function(reason)

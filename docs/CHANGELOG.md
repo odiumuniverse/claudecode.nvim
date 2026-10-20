@@ -5,6 +5,7 @@
 ### Added
 
 - **A list of your notes.** `<leader>an` in Normal mode, or `:ClaudeCodeReviewNotes`, lists every note by file and line before you send them, with the code and the note under it in the preview. Enter opens a note in its box to edit it, and the cursor stays on it after you save; `<A-d>` deletes it, `<C-s>` sends them all. `review.notes.list_keymap` sets the key.
+- **Reject with a reason in Manual mode.** `cr` in a proposal reverts the hunk with what you type, and Claude reworks the place in the same turn. With other hunks kept, the reason goes with the note about your reverts. With every hunk reverted, the plugin answers "No, and tell Claude what to do differently" in Claude's own permission dialog in the terminal, since a rejection over the IDE connection carries no text; if the dialog is not there as expected, the proposal is rejected plainly and the reason goes to the clipboard.
 - **Hunks and notes in the list of files.** `<leader>ak` shows how many hunks and notes wait in each file, `+12 -3  3 hunks · 1 note`, in columns. A file whose hunks are all decided stays on the list while it has notes and opens at the first one.
 
 ### Fixed

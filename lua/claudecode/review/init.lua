@@ -17,7 +17,8 @@ local M = {}
 ---@field on_revert? fun(rec: ClaudeCodeRevertRecord) -- cx/cX was applied to the buffer
 ---@field on_done? fun(reason: "resolved"|"detached") -- no hunks left, or detach was called
 ---@field write_on_revert? boolean                    -- default true: cx writes the file at once
----@field notes? boolean                              -- false: no note keys (a proposal before write)
+---@field notes? boolean                              -- false: no note keys
+---@field note? fun(bufnr: integer, first: integer, last: integer) -- the note keys do this here instead
 
 ---@class ClaudeCodeRevertRecord
 ---@field path string           -- absolute path of the buffer
@@ -25,6 +26,7 @@ local M = {}
 ---@field base_lines string[]   -- the text that came back
 ---@field claude_lines string[] -- Claude's text that was reverted
 ---@field time integer          -- os.time()
+---@field reason? string        -- why you reverted it, for Claude to rework (a proposal's cr)
 
 ---@class ClaudeCodeReviewKeymaps
 ---@field keep? string|false
@@ -714,15 +716,16 @@ mappings_for = function(bufnr)
     jump(bufnr, "first", 1)
   end)
   local st = states[bufnr]
-  if config.note and not (st and st.opts.notes == false) then
+  local note = st and st.opts.note or config.note
+  if note and not (st and st.opts.notes == false) then
     add("note", "note for Claude", function()
       local row = vim.api.nvim_win_get_cursor(0)[1]
-      config.note(bufnr, row, row)
+      note(bufnr, row, row)
     end)
     add("note_range", "note for Claude on these lines", function()
       local a, b = vim.fn.line("v"), vim.fn.line(".")
       vim.cmd.normal({ args = { vim.keycode("<Esc>") }, bang = true })
-      config.note(bufnr, math.min(a, b), math.max(a, b))
+      note(bufnr, math.min(a, b), math.max(a, b))
     end, "x")
   end
   return mappings
@@ -979,6 +982,39 @@ function M.revert(bufnr, index)
   if index then
     revert_hunks(st, { index })
   end
+end
+
+---Revert every hunk on lines `first`..`last`, as `cx` does from a key, cursor moving on included.
+---@param bufnr integer
+---@param first integer
+---@param last integer
+---@return boolean reverted False when no hunk touches those lines, or the disk refused
+function M.revert_lines(bufnr, first, last)
+  local st = state_of(bufnr)
+  if not st then
+    return false
+  end
+  flush(st)
+  if st.dead then
+    return false
+  end
+  local indices = {}
+  for i, hunk in ipairs(st.hunks) do
+    local top = hunk_logic.anchor(hunk, st.line_count)
+    local bottom = hunk.cur_count > 0 and hunk.cur_start + hunk.cur_count - 1 or top
+    if top <= last and bottom >= first then
+      indices[#indices + 1] = i
+    end
+  end
+  if #indices == 0 then
+    return false
+  end
+  local from = hunk_logic.anchor(st.hunks[indices[1]], st.line_count)
+  if not revert_hunks(st, indices) then
+    return false
+  end
+  move_on(bufnr, from)
+  return true
 end
 
 ---Keep a hunk: Claude's text becomes the base, the buffer stays as it is.
