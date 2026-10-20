@@ -63,6 +63,40 @@ function M.reset()
   end
 end
 
+---A separate headless Neovim standing in for your editor; its bridge stub keeps what it receives.
+---@return { addr: string, received: fun(): table|nil, stop: fun() }
+function M.start_editor()
+  local addr = vim.fn.tempname()
+  local stub = "package.loaded['claudecode.review.bridge'] = { on_hook = function(p) "
+    .. "vim.g.received = vim.json.encode(p) end }"
+  local job = vim.fn.jobstart({ vim.v.progpath, "--clean", "--headless", "--listen", addr, "-c", "lua " .. stub })
+  assert(vim.wait(5000, function()
+    return vim.uv.fs_stat(addr) ~= nil
+  end, 20))
+  local editor = { addr = addr }
+  local chan = vim.fn.sockconnect("pipe", addr, { rpc = true })
+
+  ---Wait for the hook's message and return the payload, or nil after the timeout.
+  function editor.received()
+    local payload
+    vim.wait(3000, function()
+      local ok, got = pcall(vim.rpcrequest, chan, "nvim_get_var", "received")
+      if ok and got then
+        payload = vim.json.decode(got)
+      end
+      return payload ~= nil
+    end, 20)
+    return payload
+  end
+
+  function editor.stop()
+    vim.fn.chanclose(chan)
+    vim.fn.jobstop(job)
+  end
+
+  return editor
+end
+
 ---Extmarks of the review namespace with details, sorted as Neovim returns them.
 ---@param bufnr integer
 ---@return table[] marks `{ id, row, col, details }`
