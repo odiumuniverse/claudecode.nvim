@@ -205,6 +205,32 @@ describe("review by permission mode", function()
       assert.same({ "sA" }, store:get(file).sessions)
     end)
 
+    it("adds its session when the edit lands inside a hunk still waiting, since a revert takes it back", function()
+      local file = work .. "/a.txt"
+      write_file(file, "a\nb\nc\nd\ne\n")
+      store:snapshot(file, "sA")
+      write_file(file, "A\nb\nc\nd\ne\n")
+
+      run_hook("PreToolUse", edit("PreToolUse", "acceptEdits", file))
+      write_file(file, "AA\nb\nc\nd\ne\n")
+      run_hook("PostToolUse", edit("PostToolUse", "acceptEdits", file))
+
+      assert.same({ "sA", "s1" }, store:get(file).sessions)
+    end)
+
+    it("adds its session when the edit touches the edge of a hunk still waiting", function()
+      local file = work .. "/a.txt"
+      write_file(file, "a\nb\nc\nd\ne\n")
+      store:snapshot(file, "sA")
+      write_file(file, "A\nb\nc\nd\ne\n")
+
+      run_hook("PreToolUse", edit("PreToolUse", "acceptEdits", file))
+      write_file(file, "A\nB\nc\nd\ne\n")
+      run_hook("PostToolUse", edit("PostToolUse", "acceptEdits", file))
+
+      assert.same({ "sA", "s1" }, store:get(file).sessions)
+    end)
+
     it("leaves an edit of a new file still under review inside its one big hunk", function()
       local file = work .. "/new.txt"
       store:snapshot(file)
@@ -250,6 +276,35 @@ describe("review by permission mode", function()
       assert.equal("a\nb\nc\nd\nE\n", store:get(work .. "/pending.txt").text)
       assert.is_nil(store:get(work .. "/fresh.txt"))
       assert.is_nil(store:get(work .. "/created.txt"))
+    end)
+
+    it("adds the session of a Bash call that rewrote a hunk still waiting", function()
+      local function git(...)
+        local res = vim.system({ "git", "-C", work, ... }, { text = true }):wait()
+        assert(res.code == 0, res.stderr)
+      end
+      git("init", "-q")
+      git("config", "user.email", "t@example.com")
+      git("config", "user.name", "t")
+      write_file(work .. "/pending.txt", "a\nb\nc\nd\ne\n")
+      git("add", ".")
+      git("commit", "-qm", "init")
+      store:snapshot(work .. "/pending.txt", "sA")
+      write_file(work .. "/pending.txt", "A\nb\nc\nd\ne\n") -- sA's hunk, still waiting
+      local bash = {
+        session_id = "s1",
+        cwd = work,
+        tool_name = "Bash",
+        tool_input = { command = "sed" },
+        tool_use_id = "toolu_5",
+        permission_mode = "acceptEdits",
+      }
+
+      run_hook("PreToolUse", bash)
+      write_file(work .. "/pending.txt", "AA\nb\nc\nd\ne\n")
+      run_hook("PostToolUse", bash)
+
+      assert.same({ "sA", "s1" }, store:get(work .. "/pending.txt").sessions)
     end)
 
     it("tells the editor about every file Bash wrote, whether it has a base or not", function()

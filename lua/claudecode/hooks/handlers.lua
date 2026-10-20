@@ -74,20 +74,40 @@ local function ask()
   }
 end
 
+---Do two lists of hunks hold the same changes, wherever they sit?
+---@param a ClaudeCodeHunk[]
+---@param b ClaudeCodeHunk[]
+---@return boolean
+local function same_changes(a, b)
+  if #a ~= #b then
+    return false
+  end
+  for i = 1, #a do
+    if not (vim.deep_equal(a[i].base_lines, b[i].base_lines) and vim.deep_equal(a[i].cur_lines, b[i].cur_lines)) then
+      return false
+    end
+  end
+  return true
+end
+
 ---Move a base along an edit made without review: only the hunks still waiting for you stay.
-local function carry(store, path, before, current)
+local function carry(store, path, before, current, session_id)
   local base = store:get(path)
   if not base or not before or not current then
     return false
   end
   local text = require("claudecode.review.text")
-  local lines = require("claudecode.review.hunks").carry(
-    (text.to_lines(base.text)),
-    (text.to_lines(before)),
-    (text.to_lines(current))
-  )
+  local hunks = require("claudecode.review.hunks")
+  local base_lines, before_lines, after_lines =
+    (text.to_lines(base.text)), (text.to_lines(before)), (text.to_lines(current))
+  local lines = hunks.carry(base_lines, before_lines, after_lines)
   local eol = base.text == "" and current:sub(-1) == "\n" or base.text:sub(-1) == "\n"
   store:set(path, text.to_text(lines, eol), base.new_file)
+  -- An edit that joined a hunk still waiting is part of it now, and a revert takes it back: that
+  -- session has to hear of it. An edit away from every hunk is nobody's to revert.
+  if not same_changes(hunks.compute(base_lines, before_lines), hunks.compute(lines, after_lines)) then
+    store:add_session(path, session_id)
+  end
   return true
 end
 
@@ -162,7 +182,7 @@ local function post_tool_use(store, input, env)
     if path then
       local current, too_big = read_all(path)
       if not too_big then
-        carry(store, path, before, current)
+        carry(store, path, before, current, input.session_id)
       end
       -- Without a base there is nothing to move, but an open buffer still has to reload.
       payload.files[1] = require("claudecode.review.store").normalize(path)
@@ -189,7 +209,7 @@ local function post_tool_use(store, input, env)
         for _, change in ipairs(changes.tracked) do
           local current, too_big = read_all(change.path)
           if not too_big then
-            carry(store, change.path, change.text, current)
+            carry(store, change.path, change.text, current, input.session_id)
           end
           payload.files[#payload.files + 1] = change.path
         end
