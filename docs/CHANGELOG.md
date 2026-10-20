@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (2026-10-20)
+
+Review without leaving Neovim and with fewer keystrokes: notes that send Claude back to rework a change, a cursor that moves on by itself, and review keys that no longer slow down `k`.
+
+### Upgrading
+
+- The review keys moved from `ko`, `kx`, `KO` and `KX` to `cs`, `cx`, `cS` and `cX`. To keep the old ones, set `review.keymaps = { keep = "ko", revert = "kx", keep_all = "KO", revert_all = "KX" }`; `k` and `K` then wait for `'timeoutlen'` in buffers under review again.
+- After `cs` or `cx` the cursor now moves to the next hunk. `review.advance = false` keeps it where it is.
 
 ### Added
 
