@@ -567,6 +567,14 @@ function Store:begin_edit(id, path, created, stamp, tool)
   return uv.fs_rename(tmp, file) == true
 end
 
+---Has PreToolUse noted this edit and PostToolUse not taken the note back yet?
+---@param id string|nil tool_use_id of the edit
+---@return boolean
+function Store:is_editing(id)
+  local file = id_file(self, "editing", id)
+  return file ~= nil and uv.fs_stat(file) ~= nil
+end
+
 ---The edit is done. Notes of earlier edits of the same path go too: whatever became of them, the
 ---base now serves this edit, and a base is only forgotten for an edit that nothing followed.
 ---@param id string|nil tool_use_id of the edit

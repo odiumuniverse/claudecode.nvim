@@ -121,6 +121,36 @@ describe("review by permission mode", function()
     assert.is_nil(store:get(file))
   end)
 
+  -- Shift+tab, or "allow all edits" at the permission prompt, can change the mode between the two
+  -- hooks of one call. Pre decides, because only Pre has the chance to take the base or to ask.
+  describe("when the mode changes between PreToolUse and PostToolUse", function()
+    it("ends an edit that Pre put under review as reviewed, and leaves no note behind", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\n")
+
+      run_hook("PreToolUse", edit("PreToolUse", "default", file))
+      write_file(file, "two\n")
+      run_hook("PostToolUse", edit("PostToolUse", "acceptEdits", file))
+
+      assert.is_nil(vim.uv.fs_stat(dir .. "/editing/toolu_1.json"))
+      assert.equal("one\n", store:get(file).text)
+    end)
+
+    it("ends an edit that Pre took without review as such, and leaves no copy behind", function()
+      local file = work .. "/a.txt"
+      write_file(file, "a\nb\nc\nd\ne\n")
+      store:snapshot(file)
+      write_file(file, "A\nb\nc\nd\ne\n") -- pending from an earlier turn
+
+      run_hook("PreToolUse", edit("PreToolUse", "acceptEdits", file))
+      write_file(file, "A\nb\nc\nd\nE\n")
+      run_hook("PostToolUse", edit("PostToolUse", "auto", file))
+
+      assert.is_nil(vim.uv.fs_stat(dir .. "/accepting/toolu_1"))
+      assert.equal("a\nb\nc\nd\nE\n", store:get(file).text)
+    end)
+  end)
+
   describe("in accept-edits mode", function()
     it("takes no base, so the edit leaves no hunk", function()
       local file = work .. "/a.txt"

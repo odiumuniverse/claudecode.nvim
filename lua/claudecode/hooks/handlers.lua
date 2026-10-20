@@ -148,11 +148,19 @@ local function post_tool_use(store, input, env)
     untracked_changed = {},
   }
 
-  if EDIT_TOOLS[input.tool_name] and unreviewed(input) then
+  -- The mode can change between the two hooks of one call (shift+tab, "allow all edits" at the
+  -- prompt). PreToolUse decided: it left a copy of the file for an edit without review, or a note for
+  -- one under review. Only an edit that PreToolUse never saw follows the mode of PostToolUse.
+  local before, without_review
+  if EDIT_TOOLS[input.tool_name] then
+    before = store:take_before(input.tool_use_id)
+    without_review = before ~= nil or (unreviewed(input) and not store:is_editing(input.tool_use_id))
+  end
+
+  if without_review then
     local path = edit_path(input)
     if path then
       local current, too_big = read_all(path)
-      local before = store:take_before(input.tool_use_id)
       if not too_big then
         carry(store, path, before, current)
       end
