@@ -23,6 +23,7 @@ local M = {}
 ---@field send "batch"|"enter" "batch": Enter saves, Shift+Enter sends every note; "enter": Enter sends at once
 ---@field advance boolean A note counts as a decision: the cursor moves on as after `cs`
 ---@field send_keymap string|false Global key that sends every note to Claude
+---@field local_send_keymap string|false The same in a file under review or with a note; Enter when no note waits
 
 ---@class ClaudeCodeReviewConfig
 ---@field enabled boolean
@@ -65,6 +66,8 @@ M.defaults = {
       send = "batch",
       advance = true,
       send_keymap = "cR",
+      -- As in the box. Buffer-local, so neo-tree, quickfix and other lists keep their Shift+Enter.
+      local_send_keymap = "<S-CR>",
       -- Normal mode; in visual mode the same key leaves a note on the selection (note_range).
       list_keymap = "<leader>an",
     },
@@ -117,6 +120,7 @@ function M.validate(config)
   check(notes.send == "batch" or notes.send == "enter", "review.notes.send must be 'batch' or 'enter'")
   check(type(notes.advance) == "boolean", "review.notes.advance must be a boolean")
   check(is_key(notes.send_keymap), "review.notes.send_keymap must be a key string or false")
+  check(is_key(notes.local_send_keymap), "review.notes.local_send_keymap must be a key string or false")
   check(is_key(notes.list_keymap), "review.notes.list_keymap must be a key string or false")
   check(type(review.hint) == "boolean" or type(review.hint) == "string", "review.hint must be a boolean or a string")
   check(type(review.word_diff) == "boolean", "review.word_diff must be a boolean")
@@ -182,6 +186,7 @@ function M.setup(user, plugin_config)
       send = notes.send,
       advance = notes.advance,
       send_keymap = notes.send_keymap,
+      local_send_keymap = notes.local_send_keymap,
     } or {})
     require("claudecode.review").setup({
       keymaps = config.review.keymaps,

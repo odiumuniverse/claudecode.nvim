@@ -44,6 +44,9 @@ end
 ---@field new_file boolean
 ---@field diff string Unified diff, base → file; empty for a file that has only notes
 ---@field label string The line of the list, in columns with the other items
+---@field row ClaudeCodeReviewRow The same line in pieces, with their colors
+
+---@alias ClaudeCodeReviewRow { [1]: string, [2]: string|nil }[] Pieces of a line and their highlight groups
 
 local function plural(count, word)
   return ("%d %s"):format(count, count == 1 and word or word .. "s")
@@ -52,6 +55,58 @@ end
 local function pad(s, width, left)
   local room = string.rep(" ", width - vim.fn.strdisplaywidth(s))
   return left and room .. s or s .. room
+end
+
+---@param row ClaudeCodeReviewRow
+---@return string
+local function plain(row)
+  return table.concat(vim.tbl_map(function(piece)
+    return piece[1]
+  end, row))
+end
+
+---A line for fzf-lua: each piece in the color of its highlight group.
+---@param row ClaudeCodeReviewRow
+---@return string
+local function ansi(row)
+  local bit = require("bit")
+  local out = {}
+  for _, piece in ipairs(row) do
+    local hl = piece[2] and vim.api.nvim_get_hl(0, { name = piece[2], link = false }) or {}
+    if hl.fg then
+      local r, g, b = bit.rshift(hl.fg, 16), bit.band(bit.rshift(hl.fg, 8), 255), bit.band(hl.fg, 255)
+      out[#out + 1] = ("\27[38;2;%d;%d;%dm%s\27[0m"):format(r, g, b, piece[1])
+    else
+      out[#out + 1] = piece[1]
+    end
+  end
+  return table.concat(out)
+end
+
+---What fzf-lua hands an action, without the colors.
+---@param entry string
+---@return string
+local function unansi(entry)
+  return (entry:gsub("\27%[[%d;]*m", ""))
+end
+
+---The column of the lines Claude added and removed, right-aligned to `width`: +12 in green, -3 in red.
+---@param added integer
+---@param removed integer
+---@param width integer
+---@param shown boolean false leaves the column empty
+---@return ClaudeCodeReviewRow
+local function changes(added, removed, width, shown)
+  local sum = shown and ("+%d -%d"):format(added, removed) or ""
+  local row = { { string.rep(" ", width - vim.fn.strdisplaywidth(sum)) } }
+  if shown then
+    vim.list_extend(row, {
+      { "+" .. added, "ClaudeCodeReviewAdded" },
+      { " " },
+      { "-" .. removed, "ClaudeCodeReviewRemoved" },
+    })
+  end
+  return row
 end
 
 ---Label the items in three columns: the file, its lines, its hunks and notes.
@@ -73,11 +128,10 @@ local function label_all(items)
     if item.notes > 0 then
       counts[#counts + 1] = plural(item.notes, "note")
     end
-    item.label = pad(names[i], name_width)
-      .. "  "
-      .. pad(lines[i], lines_width, true)
-      .. "  "
-      .. table.concat(counts, " · ")
+    item.row = { { pad(names[i], name_width) .. "  " } }
+    vim.list_extend(item.row, changes(item.added, item.removed, lines_width, item.hunks > 0))
+    item.row[#item.row + 1] = { "  " .. table.concat(counts, " · ") }
+    item.label = plain(item.row)
   end
 end
 
@@ -252,7 +306,9 @@ local function show_snacks(items)
   Snacks.picker.pick({
     title = "Claude review",
     items = picker_items,
-    format = "text",
+    format = function(item)
+      return item.review.row
+    end,
     preview = function(ctx)
       ctx.preview:reset()
       ctx.preview:set_lines(preview_lines(ctx.item.review))
@@ -295,13 +351,12 @@ local function show_fzf(items)
   local by_label = {}
   local entries = {}
   for _, item in ipairs(items) do
-    local entry = label(item)
-    by_label[entry] = item
-    entries[#entries + 1] = entry
+    by_label[label(item)] = item
+    entries[#entries + 1] = ansi(item.row)
   end
   local function act(fn)
     return function(selected)
-      local item = selected and by_label[selected[1]]
+      local item = selected and selected[1] and by_label[unansi(selected[1])]
       if item then
         fn(item.path)
       end
@@ -309,6 +364,7 @@ local function show_fzf(items)
   end
   require("fzf-lua").fzf_exec(entries, {
     prompt = "Claude review> ",
+    fzf_opts = { ["--ansi"] = true },
     actions = {
       ["default"] = act(M.open),
       ["alt-o"] = act(M.keep_all),
@@ -354,6 +410,7 @@ end
 ---Show the files waiting for review.
 ---@param backend "auto"|"snacks"|"fzf"|"select"|nil
 function M.show(backend)
+  require("claudecode.review.render").setup()
   local items = M.items()
   if #items == 0 then
     vim.notify("claudecode: nothing waits for review")
@@ -375,31 +432,51 @@ end
 
 local preview_ns = vim.api.nvim_create_namespace("claudecode_review_notes_preview")
 
----The notes, each labeled in two columns: where it sits, and the first line of its text.
----@return ClaudeCodeReviewNoteItem[] items Each with a `label`
+---The notes, each labeled in columns: where it sits, the lines of Claude's hunk there, and the
+---first line of its text.
+---@return ClaudeCodeReviewNoteItem[] items Each with a `label`, a `row` and its `diff`
 local function note_items()
   local items = notes().items()
-  local places, width = {}, 0
+  local places, width, sums, sums_width = {}, 0, {}, 0
   for i, item in ipairs(items) do
     local range = item.first == item.last and tostring(item.first) or (item.first .. "-" .. item.last)
     places[i] = vim.fn.fnamemodify(item.path, ":~:.") .. ":" .. range
     width = math.max(width, vim.fn.strdisplaywidth(places[i]))
+    item.diff = notes().diff(item)
+    local added, removed = 0, 0
+    for _, hunk in ipairs(item.diff.near) do
+      added, removed = added + hunk.cur_count, removed + hunk.base_count
+    end
+    sums[i] = { added = added, removed = removed, shown = #item.diff.near > 0 }
+    if sums[i].shown then
+      sums_width = math.max(sums_width, vim.fn.strdisplaywidth(("+%d -%d"):format(added, removed)))
+    end
   end
   for i, item in ipairs(items) do
     local more = item.text:find("\n", 1, true) and " …" or ""
-    item.label = pad(places[i], width) .. "  " .. item.text:match("^[^\n]*") .. more
+    item.row = { { pad(places[i], width) .. "  " } }
+    if sums_width > 0 then
+      vim.list_extend(item.row, changes(sums[i].added, sums[i].removed, sums_width, sums[i].shown))
+      item.row[#item.row + 1] = { "  " }
+    end
+    item.row[#item.row + 1] = { item.text:match("^[^\n]*") .. more }
+    item.label = plain(item.row)
   end
   return items
 end
 
----The file of a note in the preview, the note drawn under its lines as in the file itself.
+---The file of a note in the preview as the review shows it: Claude's hunks, and the note drawn under
+---its lines.
 local function preview_note(ctx)
   local note = ctx.item.note
   ctx.preview:reset()
-  local lines = note.bufnr and vim.api.nvim_buf_get_lines(note.bufnr, 0, -1, false)
-    or (vim.fn.filereadable(note.path) == 1 and vim.fn.readfile(note.path) or {})
+  local lines = note.diff.lines
   ctx.preview:set_lines(lines)
   ctx.preview:highlight({ file = note.path })
+  require("claudecode.review.render").draw(ctx.preview.win.buf, note.diff.hunks, {
+    hint = false,
+    line_count = #lines,
+  })
   local last = math.min(note.last, #lines)
   if last > 0 then
     local width = require("claudecode.review.note_box").width(ctx.preview.win.win)
@@ -419,7 +496,9 @@ local function show_notes_snacks()
         return { text = item.label, file = item.path, pos = { item.first, 0 }, note = item }
       end, note_items())
     end,
-    format = "text",
+    format = function(item)
+      return item.note.row
+    end,
     preview = preview_note,
     confirm = function(picker, item)
       picker:close()
@@ -463,11 +542,11 @@ local function show_notes_fzf()
   local by_label, entries = {}, {}
   for _, item in ipairs(note_items()) do
     by_label[item.label] = item
-    entries[#entries + 1] = item.label
+    entries[#entries + 1] = ansi(item.row)
   end
   local function act(fn)
     return function(selected)
-      local item = selected and by_label[selected[1]]
+      local item = selected and selected[1] and by_label[unansi(selected[1])]
       if item then
         fn(item)
       end
@@ -475,6 +554,7 @@ local function show_notes_fzf()
   end
   require("fzf-lua").fzf_exec(entries, {
     prompt = "Claude notes> ",
+    fzf_opts = { ["--ansi"] = true },
     actions = {
       ["default"] = act(function(item)
         notes().edit(item.id)
@@ -515,6 +595,9 @@ end
 ---Show the notes not sent to Claude yet: open one to edit it, delete one, or send them all.
 ---@param backend "auto"|"snacks"|"fzf"|"select"|nil
 function M.show_notes(backend)
+  require("claudecode.review.render").setup()
+  -- Notes on a change you threw away outside review go first.
+  controller().refresh_pending()
   if notes().count() == 0 then
     vim.notify("claudecode: no notes for Claude")
     return

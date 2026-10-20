@@ -8,16 +8,20 @@
 
 ### Added
 
+- **Shift+Enter sends your notes from the file, not only from the box.** In Normal mode, in a file under review or with a note, Shift+Enter sends every note, as `cR` does; where no note waits it is Enter, and in neo-tree, quickfix and other lists it stays theirs. `review.notes.local_send_keymap` sets the key.
 - **A list of your notes.** `<leader>an` in Normal mode, or `:ClaudeCodeReviewNotes`, lists every note by file and line before you send them, with the code and the note under it in the preview. Enter opens a note in its box to edit it, and the cursor stays on it after you save; `<A-d>` deletes it, `<C-s>` sends them all. `review.notes.list_keymap` sets the key.
 - **Reject with a reason in Manual mode.** `cr` in a proposal reverts the hunk with what you type, and Claude reworks the place in the same turn. With other hunks kept, the reason goes with the note about your reverts. With every hunk reverted, the plugin answers "No, and tell Claude what to do differently" in Claude's own permission dialog in the terminal, since a rejection over the IDE connection carries no text; if the dialog is not there as expected, the proposal is rejected plainly and the reason goes to the clipboard.
 - **Hunks and notes in the list of files.** `<leader>ak` shows how many hunks and notes wait in each file, `+12 -3  3 hunks · 1 note`, in columns. A file whose hunks are all decided stays on the list while it has notes and opens at the first one.
 
 ### Changed
 
+- **Claude sees the code of a note as a diff.** The message marks what Claude removed with `-`, above the line it was removed at, and what it added with `+`, in a `diff` block, so Claude's terminal shows the lines as they are and not as a Markdown list. It used to send only the lines there now, so a note under a deleted comment never told Claude which comment it meant.
+- **Green and red in the lists.** `+12` is green and `-3` red in `<leader>ak`, in snacks.picker and fzf-lua alike. `<leader>an` shows the same for the hunk under each note, and its preview shows the hunks as the review does. The highlight groups are `ClaudeCodeReviewAdded` and `ClaudeCodeReviewRemoved`.
 - **A saved note stays where you typed it.** It used to turn into one gray line, `▎ note: …`, cut at the window's edge, and the box you had typed in was gone. Now the box stays, dimmed and without the key hints, up to its ten lines, and fits the window again when a split narrows it. The highlight group `ClaudeCodeReviewNoteSign` gave way to `ClaudeCodeReviewNoteBorder`.
 
 ### Fixed
 
+- **A change thrown away outside review leaves no notes behind.** After `git checkout` or a discard in lazygit the file left the list only at the next hook, and its notes stayed in both lists and the statusline. Now the notes of a file go once Claude's change there is gone, and the lists look at the disk again when a terminal such as lazygit's closes, when Neovim gets the focus back and after a `:!` command. After `cs` the notes stay, as before.
 - **A note keeps its line after you save and close its file.** The line was written once, when you saved the note, so lines added above it and saved sent the list, `cR` and Claude to the old line once the file was closed. Now it follows the file on disk.
 - **`c`, a pause, then `s` no longer starts Flash.** Neovim gave up on `cs` after `'timeoutlen'` (300 ms in LazyVim) and ran the change operator, so `s` started Flash and `r` Remote Flash, under which-key's "+Change" window. In a buffer under review `c` now waits for its next key as long as you like; any key other than ours changes text as always.
 - **No escape-sequence garbage over Claude's prompt.** Under herdr or Kitty, Claude Code sent its "waiting for your input" notification as Kitty's OSC 99, and the outer terminal printed it as text such as `99;i=3352:d=1:a=focus;`. Claude started from Neovim now rings the bell instead (`preferredNotifChannel = "terminal_bell"` in its settings file); Neovim's default `'belloff'` keeps it silent.

@@ -16,6 +16,7 @@ local track_ns = vim.api.nvim_create_namespace("claudecode_review_notes_track")
 ---@field send? "batch"|"enter"
 ---@field advance? boolean
 ---@field send_keymap? string|false Global normal-mode key that sends every note
+---@field local_send_keymap? string|false The same in a file under review or with a note; Enter without notes
 
 ---@class ClaudeCodeReviewNote
 ---@field id integer
@@ -25,7 +26,7 @@ local track_ns = vim.api.nvim_create_namespace("claudecode_review_notes_track")
 ---@field text string
 ---@field created_at integer
 
-local DEFAULTS = { send = "batch", advance = true, send_keymap = false }
+local DEFAULTS = { send = "batch", advance = true, send_keymap = false, local_send_keymap = false }
 
 local config = vim.deepcopy(DEFAULTS)
 
@@ -47,6 +48,14 @@ function M.setup(opts)
     end, { desc = "Claude: send the review notes" })
     state.send_key = config.send_keymap
   end
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    local noted = vim.iter(state.marks):any(function(_, mark)
+      return mark.buf == bufnr
+    end)
+    if vim.api.nvim_buf_is_loaded(bufnr) and (noted or require("claudecode.review").is_attached(bufnr)) then
+      M.map_send(bufnr)
+    end
+  end
   pcall(vim.api.nvim_del_user_command, "ClaudeCodeReviewSend")
   vim.api.nvim_create_user_command("ClaudeCodeReviewSend", function()
     M.send_all()
@@ -59,6 +68,41 @@ function M.setup(opts)
       M.refit()
     end,
   })
+end
+
+---Shift+Enter in Normal mode sends the notes, as it does in the box: the user pressed it after the
+---last note and nothing happened. Only in a file under review or with a note, so neo-tree, quickfix
+---and other lists keep theirs; without a note to send it is Enter.
+---@param bufnr integer
+function M.map_send(bufnr)
+  local lhs = config.local_send_keymap
+  local mapped = vim.b[bufnr].claudecode_notes_send
+  if mapped == lhs then
+    return
+  end
+  if mapped then
+    pcall(vim.keymap.del, "n", mapped, { buffer = bufnr })
+    vim.b[bufnr].claudecode_notes_send = nil
+  end
+  if not lhs then
+    return
+  end
+  -- A buffer-local mapping of another plugin on the key stays.
+  local theirs = vim.api.nvim_buf_call(bufnr, function()
+    return vim.fn.maparg(lhs, "n", false, true)
+  end)
+  if theirs.buffer == 1 then
+    return
+  end
+  vim.keymap.set("n", lhs, function()
+    if #state.notes > 0 then
+      M.send_all()
+    else
+      local count = vim.v.count > 0 and vim.v.count or ""
+      vim.api.nvim_feedkeys(vim.keycode(count .. "<CR>"), "mi", false)
+    end
+  end, { buffer = bufnr, desc = "Claude: send the review notes" })
+  vim.b[bufnr].claudecode_notes_send = lhs
 end
 
 local function file_of(dir)
@@ -178,6 +222,7 @@ local function draw(note, bufnr)
     virt_lines = M.frame(note.text, width or note_box.width(nil)),
   })
   state.marks[note.id] = { buf = bufnr, track = track, shown = shown }
+  M.map_send(bufnr)
 end
 
 ---Take the dimmed box off the screen while the live box edits the note; its lines stay tracked.
@@ -316,6 +361,23 @@ function M.drop(bufnr, first, last)
     end
     local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, track_ns, mark.track, { details = true })
     if pos[1] and pos[1] + 1 <= last and (pos[3].end_row or pos[1]) + 1 >= first then
+      undraw(note)
+      return false
+    end
+    return true
+  end, state.notes)
+  if #state.notes ~= before then
+    persist()
+  end
+end
+
+---Forget every note of a file whose change from Claude went away without review: git checkout,
+---a discard in lazygit, or Claude undid it. They were about that change. After `cs` they stay.
+---@param path string
+function M.drop_file(path)
+  local before = #state.notes
+  state.notes = vim.tbl_filter(function(note)
+    if note.path == path then
       undraw(note)
       return false
     end
@@ -509,29 +571,90 @@ end
 -- At most this many lines of the code a note is about go into the message, so Claude finds the spot.
 local EXCERPT_LINES = 3
 
----@param path string
----@param first integer
----@param last integer
----@param bufnr integer|nil
----@return string[]
-local function excerpt(path, first, last, bufnr)
-  local stop = math.min(last, first + EXCERPT_LINES - 1)
-  if bufnr then
-    return vim.api.nvim_buf_get_lines(bufnr, first - 1, stop, false)
+---@class ClaudeCodeReviewNoteDiff
+---@field lines string[] The lines of the file now: its loaded buffer, else the file on disk
+---@field hunks ClaudeCodeHunk[] Claude's hunks in the file that wait for review
+---@field near ClaudeCodeHunk[] Those drawn on the lines of the note
+
+---Claude's changes around a note: what the review shows on its lines.
+---@param item ClaudeCodeReviewNoteItem
+---@return ClaudeCodeReviewNoteDiff
+function M.diff(item)
+  local lines
+  if item.bufnr then
+    lines = vim.api.nvim_buf_get_lines(item.bufnr, 0, -1, false)
+  else
+    local ok, read = pcall(vim.fn.readfile, item.path)
+    lines = ok and read or {}
   end
-  local lines, n = {}, 0
-  local ok, iter = pcall(io.lines, path)
-  if ok then
-    for line in iter do
-      n = n + 1
-      if n >= first and n <= stop then
-        lines[#lines + 1] = line
-      elseif n > stop then
-        break
-      end
+  local review, hunks = require("claudecode.review"), {}
+  if item.bufnr and review.is_attached(item.bufnr) then
+    hunks = review.hunks(item.bufnr)
+  else
+    local store = require("claudecode.review.controller").store()
+    local base = store and store:get(item.path)
+    if base then
+      local text = require("claudecode.review.text")
+      hunks = require("claudecode.review.hunks").compute((text.to_lines(base.text)), lines)
     end
   end
-  return lines
+  local near = {}
+  for _, hunk in ipairs(hunks) do
+    local row = require("claudecode.review.hunks").anchor(hunk, #lines)
+    if row >= item.first and row <= item.last then
+      near[#near + 1] = hunk
+    end
+  end
+  return { lines = lines, hunks = hunks, near = near }
+end
+
+---A line of code in the message: `mark` is "-", "+" or " ".
+local function code(mark, line)
+  return (mark .. " " .. vim.trim(line)):gsub("%s+$", "")
+end
+
+---The code a note is about, as a diff: what Claude removed with "-", above the line it was
+---removed at, what it added with "+", the rest as it is. A note on the line under a deleted comment
+---used to send only that line, and Claude never learned which comment the note meant.
+---@param item ClaudeCodeReviewNoteItem
+---@return string[]
+local function excerpt(item)
+  local diff = M.diff(item)
+  local out = {}
+  local function removed(hunk)
+    for i, line in ipairs(hunk.base_lines) do
+      if i > EXCERPT_LINES then
+        out[#out + 1] = "- …"
+        return
+      end
+      out[#out + 1] = code("-", line)
+    end
+  end
+  local stop = math.min(item.last, item.first + EXCERPT_LINES - 1)
+  for row = item.first, stop do
+    local added, below = false, {}
+    for _, hunk in ipairs(diff.near) do
+      local at, above = require("claudecode.review.hunks").anchor(hunk, #diff.lines)
+      if at == row then
+        if above then
+          removed(hunk)
+        else
+          below[#below + 1] = hunk
+        end
+      end
+      added = added or (row >= hunk.cur_start and row < hunk.cur_start + hunk.cur_count)
+    end
+    if diff.lines[row] then
+      out[#out + 1] = code(added and "+" or " ", diff.lines[row])
+    end
+    for _, hunk in ipairs(below) do
+      removed(hunk)
+    end
+  end
+  if item.last > stop then
+    out[#out + 1] = "  …"
+  end
+  return out
 end
 
 ---A path as Claude names it: relative to the working directory when the file is inside it.
@@ -545,23 +668,27 @@ local function display_path(path)
   return path
 end
 
----The message that carries every note to Claude.
+---The message that carries every note to Claude. The code of each note goes in a diff block: Claude
+---Code shows the message as Markdown, and without the block `+ line` turned into a list item drawn
+---with "-", and `# comment` into a heading.
 ---@return string
 function M.message()
-  local parts = { "Notes on your edits from my review in Neovim. Please rework these places:" }
+  local parts = {
+    "Notes on your edits from my review in Neovim.",
+    "Lines with - are what you removed, + what you added.",
+    "Please rework these places:",
+  }
   for i, item in ipairs(M.items()) do
     local range = item.first == item.last and tostring(item.first) or (item.first .. "-" .. item.last)
     parts[#parts + 1] = ""
     parts[#parts + 1] = ("%d. %s:%s"):format(i, display_path(item.path), range)
-    for _, line in ipairs(excerpt(item.path, item.first, item.last, item.bufnr)) do
-      parts[#parts + 1] = "   > " .. vim.trim(line)
+    local lines = excerpt(item)
+    if #lines > 0 then
+      parts[#parts + 1] = "```diff"
+      vim.list_extend(parts, lines)
+      parts[#parts + 1] = "```"
     end
-    if item.last - item.first + 1 > EXCERPT_LINES then
-      parts[#parts + 1] = "   > …"
-    end
-    for _, line in ipairs(vim.split(item.text, "\n", { plain = true })) do
-      parts[#parts + 1] = "   " .. line
-    end
+    vim.list_extend(parts, vim.split(item.text, "\n", { plain = true }))
   end
   return table.concat(parts, "\n")
 end

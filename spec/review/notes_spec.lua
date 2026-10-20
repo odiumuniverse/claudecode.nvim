@@ -296,20 +296,48 @@ describe("review notes", function()
       assert.equal(1, #sent)
       assert.equal(
         table.concat({
-          "Notes on your edits from my review in Neovim. Please rework these places:",
+          "Notes on your edits from my review in Neovim.",
+          "Lines with - are what you removed, + what you added.",
+          "Please rework these places:",
           "",
           "1. " .. file .. ":2",
-          "   > X",
-          "   wrap the error",
+          "```diff",
+          "- 2",
+          "+ X",
+          "```",
+          "wrap the error",
           "",
           "2. " .. other .. ":2",
-          "   > Y",
-          "   use a map",
+          "```diff",
+          "- y",
+          "+ Y",
+          "```",
+          "use a map",
         }, "\n"),
         sent[1]
       )
       assert.same({}, notes.list())
       assert.equal("", shown(buf, 1))
+    end)
+
+    it("shows Claude the lines it removed, above the line of the note", function()
+      local other = work .. "/c.txt"
+      write_file(other, "keep\n// setup logger\nlog := new()\nrest\n")
+      store:snapshot(other)
+      write_file(other, "keep\nlog := new()\nrest\n")
+      vim.cmd.edit(vim.fn.fnameescape(other))
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      press("crkeep the comment<S-CR>")
+
+      assert.equal(1, #sent)
+      assert.matches(
+        table.concat(
+          { "1%. [^\n]*c%.txt:2", "```diff", "%- // setup logger", "  log := new%(%)", "```", "keep the comment$" },
+          "\n"
+        ),
+        sent[1]
+      )
     end)
 
     it("sends with <C-s> as well, for a terminal that cannot tell Shift+Enter from Enter", function()
@@ -331,6 +359,42 @@ describe("review notes", function()
       assert.equal(1, #sent)
       assert.same({}, notes.list())
       pcall(vim.keymap.del, "n", "cR")
+    end)
+
+    it("sends every note with Shift+Enter in Normal mode, in a file under review", function()
+      notes.setup({ local_send_keymap = "<S-CR>" })
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      press("crwrap the error<CR>")
+
+      press("<S-CR>")
+
+      assert.equal(1, #sent)
+      assert.same({}, notes.list())
+    end)
+
+    it("sends with Shift+Enter from another file under review, one without a note", function()
+      notes.setup({ local_send_keymap = "<S-CR>" })
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      press("crwrap the error<CR>")
+      local other = work .. "/b.txt"
+      write_file(other, "x\ny\n")
+      store:snapshot(other)
+      write_file(other, "x\nY\n")
+      vim.cmd.edit(vim.fn.fnameescape(other))
+
+      press("<S-CR>")
+
+      assert.equal(1, #sent)
+    end)
+
+    it("is Enter where no note waits", function()
+      notes.setup({ local_send_keymap = "<S-CR>" })
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+      press("2<S-CR>")
+
+      assert.equal(0, #sent)
+      assert.equal(3, vim.api.nvim_win_get_cursor(0)[1])
     end)
 
     it("sends on Enter with send = 'enter'", function()

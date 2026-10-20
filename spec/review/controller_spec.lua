@@ -339,6 +339,76 @@ describe("review controller", function()
     assert.equal(1, pending_events[#pending_events].count)
   end)
 
+  describe("when Claude's change goes away without review, as after git checkout", function()
+    local notes = require("claudecode.review.notes")
+    local file, buf
+
+    local function press(keys)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)
+    end
+
+    before_each(function()
+      notes.setup({})
+      engine.setup({ note = notes.open })
+      file = work .. "/a.txt"
+      write_file(file, "one\ntwo\nthree\n")
+      store:snapshot(file)
+      write_file(file, "one\nTWO\nthree\n")
+      buf = open(file)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      press("crnot like this<CR>")
+    end)
+
+    after_each(function()
+      engine.setup({})
+    end)
+
+    it("forgets the notes of a closed file once it is back to its base", function()
+      vim.cmd("bwipeout " .. buf)
+      write_file(file, "one\ntwo\nthree\n")
+
+      controller.refresh_pending()
+
+      assert.equal(0, notes.count())
+      assert.equal("", controller.status())
+    end)
+
+    it("forgets the notes of an open file once it is read back at its base", function()
+      write_file(file, "one\ntwo\nthree\n")
+
+      vim.cmd("checktime")
+      vim.wait(100, function()
+        return not engine.is_attached(buf)
+      end)
+
+      assert.is_false(engine.is_attached(buf))
+      assert.equal(0, notes.count())
+    end)
+
+    it("keeps the notes once you keep every hunk", function()
+      press("cS")
+
+      assert.is_false(engine.is_attached(buf))
+      assert.equal(1, notes.count())
+    end)
+
+    it("looks again when a terminal closes, as lazygit's does", function()
+      vim.cmd("bwipeout " .. buf)
+      controller.refresh_pending()
+      assert.equal(1, pending_events[#pending_events].count)
+      write_file(file, "one\ntwo\nthree\n")
+
+      vim.cmd.new()
+      vim.fn.jobstart({ "true" }, { term = true })
+      vim.wait(1000, function()
+        return pending_events[#pending_events].notes == 0
+      end)
+
+      assert.equal(0, pending_events[#pending_events].count)
+      assert.equal(0, pending_events[#pending_events].notes)
+    end)
+  end)
+
   it("does not show a byte order mark as a change, and keeps it when you revert", function()
     local file = work .. "/bom.txt"
     write_file(file, "\239\187\191a\nb\n")

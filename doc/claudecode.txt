@@ -296,7 +296,12 @@ that shows the file, also after a resize. `cr` on a noted line opens the
 note again; save it
 empty to delete it. Notes go to the state directory at once and survive a
 restart of Neovim. A note on lines you revert with `cx` goes away: the text it
-was about is gone.
+was about is gone. So do all the notes of a file once Claude's change there is
+gone without review: you reverted every hunk, threw the change away with git
+checkout or in lazygit, or Claude undid it. After `cs` they stay. The list,
+the statusline and |:ClaudeCodeReviewNotes| look at the disk again when a
+terminal closes (lazygit's, say), when Neovim gets the focus back and after a
+`:!` command.
 
 A note counts as a decision on its hunk: after <CR> the cursor moves on to the
 next hunk without a note, `cs` and `cx` move on past noted hunks too, and a
@@ -305,14 +310,19 @@ file whose hunks all have notes is done for `advance = "file"`.
 
 `<leader>an` in Normal mode (|claudecode-review.notes.list_keymap|) or
 |:ClaudeCodeReviewNotes| lists every note, by file and line, before you send
-them. The preview shows the code with the note under it. In snacks.picker
+them, with the lines of Claude's hunk under each one: `+2 -1`, green and red,
+as in the list of files. The preview shows the code as the review does, the
+hunks and the note under its lines. In snacks.picker
 <CR> opens the note in its box to edit it, and the cursor stays on it after
 you save; <A-d> deletes the note and <C-s> sends them all. fzf-lua takes the
 same keys; `vim.ui.select` asks what to do.
 
 `cR` (|claudecode-review.notes.send_keymap|) or |:ClaudeCodeReviewSend| sends
-every note from every file in one message, from any buffer. The message lists
-each place as file:line, the first lines of the code there and your note, and
+every note from every file in one message, from any buffer. <S-CR> in Normal
+mode does the same in a file under review or with a note
+(|claudecode-review.notes.local_send_keymap|); where no note waits it is
+<CR>. The message lists each place as file:line, the code there as a diff
+(what Claude removed with "-", what it added with "+") and your note, and
 asks Claude to rework them. It is typed into the Claude terminal in Neovim and
 submitted; while Claude works, Claude Code queues it. Sent notes go away.
 When Claude does not run in a Neovim terminal (the "external" and "none"
@@ -572,6 +582,7 @@ a message that names the option. Defaults:
           send = "batch",
           advance = true,
           send_keymap = "cR",
+          local_send_keymap = "<S-CR>",
           list_keymap = "<leader>an",
         },
         files_keymap = "<leader>ak",
@@ -673,6 +684,14 @@ review.notes.send_keymap                 *claudecode-review.notes.send_keymap*
     Type: string or false. Default: `"cR"`.
     Global normal-mode key that sends every note. Neovim waits for a motion
     after `c` anyway, and `R` is none, so it delays nothing.
+
+review.notes.local_send_keymap     *claudecode-review.notes.local_send_keymap*
+    Type: string or false. Default: `"<S-CR>"`.
+    Normal-mode key that sends every note, as <S-CR> does in the box.
+    Buffer-local, in a file under review or with a note, so neo-tree,
+    quickfix and other lists keep theirs; where no note waits it is <CR>.
+    A buffer-local mapping of another plugin on the key stays. In a terminal
+    that sends Shift+Enter as Enter it never fires; use `cR` there.
 
 review.notes.list_keymap                 *claudecode-review.notes.list_keymap*
     Type: string or false. Default: `"<leader>an"`.

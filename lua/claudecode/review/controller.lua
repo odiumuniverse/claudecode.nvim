@@ -146,7 +146,8 @@ function M.attach_if_pending(buf)
   end
 
   local reverted = false
-  engine.attach(buf, (text.to_lines(text.decode(base.text, buf), is_dos(buf))), {
+  local before = (text.to_lines(text.decode(base.text, buf), is_dos(buf)))
+  engine.attach(buf, before, {
     on_base = function(lines)
       store:set(path, text.encode(text.to_text(lines, vim.bo[buf].eol, is_dos(buf)), buf))
     end,
@@ -162,12 +163,19 @@ function M.attach_if_pending(buf)
       end
       store:remove(path)
       local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-      if base.new_file and reverted and #lines == 1 and lines[1] == "" then
+      local empty = #lines == 1 and lines[1] == ""
+      -- Nothing of Claude's change is left: you reverted all of it, or it went away on disk and the
+      -- buffer was read again. Its notes go with it; after cs they stay.
+      if vim.deep_equal(lines, before) or (base.new_file and empty) then
+        require("claudecode.review.notes").drop_file(path)
+      end
+      if base.new_file and reverted and empty then
         remove_new_file(buf, path)
       end
       M.refresh_pending()
     end,
   })
+  require("claudecode.review.notes").map_send(buf)
 end
 
 ---Re-read a file Claude rewrote. Reload without a prompt even with 'noautoread'.
@@ -246,6 +254,7 @@ function M.refresh_pending()
         elseif not editing[base.path] then
           -- a leftover: Claude's new file is gone again, or the file already equals its base
           state.store:remove(base.path)
+          require("claudecode.review.notes").drop_file(base.path)
         end
       end
     end
@@ -370,6 +379,14 @@ function M.setup(opts)
     group = state.group,
     callback = function(ev)
       require("claudecode.review.notes").written(ev.buf)
+    end,
+  })
+  -- A change you threw away in lazygit, a shell or another app stayed in the list and the
+  -- statusline until the next hook: look at the disk again when you may have changed it.
+  vim.api.nvim_create_autocmd({ "TermClose", "FocusGained", "ShellCmdPost" }, {
+    group = state.group,
+    callback = function()
+      M.refresh_pending()
     end,
   })
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do

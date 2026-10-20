@@ -34,6 +34,38 @@ describe("review picker", function()
     return path
   end
 
+  ---Show a list in fake snacks.picker and fzf-lua: what snacks draws for the first row, and the
+  ---first entry fzf-lua gets.
+  ---@param show fun(backend: string)
+  local function shown_in_pickers(show)
+    local snacks, fzf = rawget(_G, "Snacks"), package.loaded["fzf-lua"]
+    local opts, entries
+    _G.Snacks = {
+      picker = {
+        pick = function(o)
+          opts = o
+        end,
+      },
+    }
+    package.loaded["fzf-lua"] = {
+      fzf_exec = function(e)
+        entries = e
+      end,
+    }
+    show("snacks")
+    show("fzf")
+    _G.Snacks, package.loaded["fzf-lua"] = snacks, fzf
+    local items = opts.items or opts.finder()
+    return opts.format(items[1], {}), entries[1]
+  end
+
+  ---Does a row of snacks show `text` in the highlight group `group`?
+  local function colored(segments, text, group)
+    return vim.tbl_contains(segments, function(segment)
+      return segment[1] == text and segment[2] == group
+    end, { predicate = true })
+  end
+
   before_each(function()
     work = vim.fn.tempname()
     vim.fn.mkdir(work, "p")
@@ -126,8 +158,9 @@ describe("review picker", function()
     it("lists the notes by file and line and deletes one", function()
       local labels, actions = choose(2, "delete")
 
-      assert.matches("/a%.txt:2%s+wrap it$", labels[1])
-      assert.matches("/c%.txt:2%-3  and this$", labels[2])
+      assert.matches("/a%.txt:2%s+%+1 %-1  wrap it$", labels[1])
+      -- No hunk of Claude's under this note: the column stays empty.
+      assert.matches("/c%.txt:2%-3%s+and this$", labels[2])
       assert.same({ "open", "delete", "send all" }, actions)
       assert.same(
         { "wrap it" },
@@ -135,6 +168,14 @@ describe("review picker", function()
           return note.text
         end, notes.items())
       )
+    end)
+
+    it("shows the hunk of each note: its added lines in green, the removed ones in red", function()
+      local segments, entry = shown_in_pickers(picker.show_notes)
+
+      assert.is_true(colored(segments, "+1", "ClaudeCodeReviewAdded"))
+      assert.is_true(colored(segments, "-1", "ClaudeCodeReviewRemoved"))
+      assert.matches("\27%[[%d;]+m%+1\27%[0m", entry)
     end)
 
     it("opens a note in its box, and leaves the cursor on it once you save", function()
@@ -239,6 +280,17 @@ describe("review picker", function()
 
     assert.equal(2, #prompts)
     assert.equal("one\n", read_file(a))
+  end)
+
+  it("shows the added lines in green and the removed ones in red, in snacks and in fzf-lua", function()
+    changed("a.txt", "one\ntwo\n", "one\nTWO\nthree\n")
+
+    local segments, entry = shown_in_pickers(picker.show)
+
+    assert.is_true(colored(segments, "+2", "ClaudeCodeReviewAdded"))
+    assert.is_true(colored(segments, "-1", "ClaudeCodeReviewRemoved"))
+    assert.matches("\27%[[%d;]+m%+2\27%[0m", entry)
+    assert.matches("\27%[[%d;]+m%-1\27%[0m", entry)
   end)
 
   it("prefers snacks.picker, then fzf-lua, then vim.ui.select", function()
