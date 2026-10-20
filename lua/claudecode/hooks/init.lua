@@ -85,6 +85,10 @@ local function write_settings()
       PostToolUse = { { matcher = M.MATCHER, hooks = { hook("PostToolUse") } } },
       UserPromptSubmit = { { hooks = { hook("UserPromptSubmit") } } },
     },
+    -- Claude Code picks a desktop notification by the terminal it finds in its environment: under
+    -- herdr or Kitty it writes Kitty's OSC 99, which the Neovim terminal passes on and the host
+    -- terminal printed as text over Claude's prompt. A bell is a plain BEL that nothing prints.
+    preferredNotifChannel = "terminal_bell",
   }
   vim.fn.mkdir(state_root(), "p")
   local file = M.settings_file()

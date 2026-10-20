@@ -106,6 +106,13 @@ describe("review hooks wiring", function()
     assert.equal("Edit|Write|MultiEdit|NotebookEdit|Bash", settings.hooks.PreToolUse[1].matcher)
   end)
 
+  it("has Claude ring the bell instead of a desktop notification the Neovim terminal would print", function()
+    hooks.decorate("claude", nil, {})
+    local settings = vim.json.decode(table.concat(vim.fn.readfile(hooks.settings_file()), "\n"))
+
+    assert.equal("terminal_bell", settings.preferredNotifChannel)
+  end)
+
   it("writes a command the shell can run as is", function()
     local env = {}
     hooks.decorate("claude", nil, env)
