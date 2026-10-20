@@ -42,14 +42,46 @@ describe("hook git snapshots", function()
 
   it("takes no snapshot, instead of a wrong one, when git cannot take it", function()
     write_file(work .. "/f.txt", "one, and my work in progress\n")
-    -- another git process (a parallel hook, your commit) holds the index
-    write_file(work .. "/.git/index.lock", "")
+    -- git cannot read the index
+    vim.uv.fs_chmod(work .. "/.git/index", 0)
 
     local snap = git.snapshot(work)
-    vim.uv.fs_unlink(work .. "/.git/index.lock")
+    vim.uv.fs_chmod(work .. "/.git/index", tonumber("644", 8))
 
     -- A snapshot of HEAD would make all of your uncommitted work look like Claude's change.
     assert.is_nil(snap)
+  end)
+
+  it("snapshots your uncommitted work while your own git command holds the index, and leaves it be", function()
+    write_file(work .. "/f.txt", "one, and my work in progress\n")
+    write_file(work .. "/g.txt", "staged\n")
+    sh(work, "git add g.txt")
+    -- lazygit committing, say
+    write_file(work .. "/.git/index.lock", "")
+
+    local snap = git.snapshot(work)
+    local changes = snap and git.changes(snap)
+    local lock = vim.uv.fs_stat(work .. "/.git/index.lock")
+    vim.uv.fs_unlink(work .. "/.git/index.lock")
+
+    assert.is_not_nil(snap)
+    assert.same({}, changes.tracked)
+    assert.is_not_nil(lock)
+    assert.equal("M  g.txt\n M f.txt\n", sh(work, "git status --short --untracked-files=no | sort -r"))
+  end)
+
+  it("sees an edit that kept the size and time of a file, made in the second git wrote the index", function()
+    local past = os.time() - 100
+    vim.uv.fs_utime(work .. "/f.txt", past, past)
+    sh(work, "git add f.txt")
+    vim.uv.fs_utime(work .. "/.git/index", past, past)
+    write_file(work .. "/f.txt", "ONE\n")
+    vim.uv.fs_utime(work .. "/f.txt", past, past)
+
+    local snap = git.snapshot(work)
+
+    -- Git compares the contents of such a file only while it sees the index written in that second.
+    assert.same({}, git.changes(snap).tracked)
   end)
 
   it("still snapshots a repository without commits", function()
@@ -106,10 +138,10 @@ describe("hook git snapshots", function()
     it("leaves out only the repository git could not snapshot", function()
       local a, b = repo("a"), repo("b")
       write_file(a .. "/f.txt", "my work in progress\n")
-      write_file(a .. "/.git/index.lock", "")
+      vim.uv.fs_chmod(a .. "/.git/index", 0)
 
       local snaps = git.snapshots(folder)
-      vim.uv.fs_unlink(a .. "/.git/index.lock")
+      vim.uv.fs_chmod(a .. "/.git/index", tonumber("644", 8))
 
       assert.same({ b }, tops(snaps))
     end)

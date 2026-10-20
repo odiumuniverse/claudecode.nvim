@@ -21,11 +21,11 @@ local HEAD = { "rev-parse", "--verify", "-q", "HEAD" }
 local STASH = { "stash", "create" }
 local UNTRACKED = { "ls-files", "--others", "--exclude-standard", "-z" }
 
-local function start(cwd, args)
+local function start(cwd, args, env)
   local cmd = { "git", "-C", cwd }
   vim.list_extend(cmd, args)
   -- Optional locks off: our read-only calls must not fight your git commands over index.lock.
-  return vim.system(cmd, { text = false, env = { GIT_OPTIONAL_LOCKS = "0" } })
+  return vim.system(cmd, { text = false, env = vim.tbl_extend("force", { GIT_OPTIONAL_LOCKS = "0" }, env or {}) })
 end
 
 ---@return string|nil stdout Nil when git failed
@@ -104,8 +104,8 @@ local function snapshot_of(top, head, stash, untracked_out)
   if head == "" then
     stash = EMPTY_TREE
   elseif stash == nil then
-    -- It takes the index lock, so it fails next to another git process. Falling back to HEAD
-    -- would make all of your uncommitted work look like Claude's change: better no snapshot.
+    -- Falling back to HEAD would make all of your uncommitted work look like Claude's change:
+    -- better no snapshot.
     return nil
   else
     -- `stash create` stores the work tree as a dangling commit without touching the stash list;
@@ -122,32 +122,58 @@ local function snapshot_of(top, head, stash, untracked_out)
   return { top = top, head = head, stash = stash, untracked = untracked }
 end
 
+---The index of the repository at `top`: in `.git`, or in the git dir that the `.git` file of a
+---worktree or a submodule points to.
+---@param top string
+---@return string|nil
+local function index_of(top)
+  local dotgit = top .. "/.git"
+  local stat = uv.fs_stat(dotgit)
+  if stat and stat.type == "directory" then
+    return dotgit .. "/index"
+  end
+  local f = stat and io.open(dotgit, "rb")
+  local dir = f and (f:read("*l") or ""):match("^gitdir: (.+)$")
+  if f then
+    f:close()
+  end
+  if not dir then
+    return nil
+  end
+  return (dir:sub(1, 1) == "/" and dir or top .. "/" .. dir) .. "/index"
+end
+
+---Start `stash create` on a copy of each index. On the index itself it takes `index.lock`: it would
+---fail next to your own git command, lazygit committing say, or make that command fail.
+---@param tops string[]
+---@return table[] jobs
+---@return table<integer, string> copies To remove once the jobs are done
+local function start_stashes(tops)
+  local jobs, copies = {}, {}
+  for i, top in ipairs(tops) do
+    local index = index_of(top)
+    local stat = index and uv.fs_stat(index)
+    local copy = vim.fn.tempname()
+    if stat and uv.fs_copyfile(index, copy, { ficlone = true }) then
+      -- Git trusts the size and time of a file changed before the index was written, and compares
+      -- the contents of one changed in that very second. A copy dated now would hide such an edit.
+      -- The whole second errs on the safe side: git then compares a little more.
+      uv.fs_utime(copy, stat.atime.sec, stat.mtime.sec)
+      copies[i] = copy
+    end
+    jobs[i] = start(top, STASH, copies[i] and { GIT_INDEX_FILE = copies[i] } or nil)
+  end
+  return jobs, copies
+end
+
 ---@param tops string[]
 ---@return table<integer, table> snaps By index in `tops`; nil where git could not take one
 local function snapshot_all(tops)
-  local head_jobs, stash_jobs, untracked_jobs =
-    start_each(tops, HEAD), start_each(tops, STASH), start_each(tops, UNTRACKED)
+  local head_jobs, untracked_jobs = start_each(tops, HEAD), start_each(tops, UNTRACKED)
+  local stash_jobs, copies = start_stashes(tops)
   local heads, stashes, untracked = finish_each(head_jobs), finish_each(stash_jobs), finish_each(untracked_jobs)
-  for _ = 1, 2 do
-    local again = {}
-    for i = 1, #tops do
-      if heads[i] and not stashes[i] then
-        again[#again + 1] = i
-      end
-    end
-    if #again == 0 then
-      break
-    end
-    uv.sleep(100) -- a parallel hook or your own git command usually lets go of the index lock at once
-    local outs = finish_each(start_each(
-      vim.tbl_map(function(i)
-        return tops[i]
-      end, again),
-      STASH
-    ))
-    for k, i in ipairs(again) do
-      stashes[i] = outs[k]
-    end
+  for _, copy in pairs(copies) do
+    os.remove(copy)
   end
   local snaps = {}
   for i, top in ipairs(tops) do

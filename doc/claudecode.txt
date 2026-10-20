@@ -209,9 +209,10 @@ are reviewed:
 - Edit, Write, MultiEdit and NotebookEdit: every call. In Manual mode you see
   the proposal first (|claudecode-review-before-write|).
 - Bash in a git repository: every file it changed, created or deleted. The
-  plugin snapshots the work tree before the call with `git stash create`,
-  which does not touch your stash list. Files that git checks out with CRLF
-  endings (`eol=crlf`, `core.autocrlf`) keep them through review and revert.
+  plugin snapshots the work tree before the call with `git stash create` on
+  a copy of the index, so it neither touches your stash list nor takes your
+  `index.lock`. Files that git checks out with CRLF endings (`eol=crlf`,
+  `core.autocrlf`) keep them through review and revert.
 - Bash in a project whose folder is not a git repository but holds several:
   every repository one level below that folder, up to 32, so `cd api && make
   fmt` from the folder or `cd ../web` from a neighbor is reviewed too. The
