@@ -669,8 +669,8 @@ end
 ---Only works for the in-editor providers ("native"/"snacks"). The "external" and
 ---"none" providers run Claude outside Neovim and expose no buffer, so this warns and
 ---returns false. This function is synchronous and does NOT open the terminal: it
----requires one to already be running, otherwise it warns and returns false. The
----`:ClaudeCodeSendText` command is a thin wrapper around this.
+---requires one to already be running, otherwise it warns and returns false. Notes for Claude
+---(review/notes.lua) send their message through it.
 ---
 ---Multi-line text is wrapped in bracketed-paste markers (ESC[200~ ... ESC[201~) so
 ---embedded newlines arrive as one literal pasted block rather than several premature

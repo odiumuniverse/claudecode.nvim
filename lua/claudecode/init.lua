@@ -605,27 +605,8 @@ end
 ---Set up user commands
 ---@private
 function M._create_commands()
-  vim.api.nvim_create_user_command("ClaudeCodeStart", function()
-    M.start()
-  end, {
-    desc = "Start Claude Code integration",
-  })
-
-  vim.api.nvim_create_user_command("ClaudeCodeStop", function()
-    M.stop()
-  end, {
-    desc = "Stop Claude Code integration",
-  })
-
-  vim.api.nvim_create_user_command("ClaudeCodeStatus", function()
-    if M.state.server and M.state.port then
-      logger.info("command", "Claude Code integration is running on port " .. tostring(M.state.port))
-    else
-      logger.info("command", "Claude Code integration is not running")
-    end
-  end, {
-    desc = "Show Claude Code integration status",
-  })
+  -- claudecode.nvim: no :ClaudeCodeStart, :ClaudeCodeStop, :ClaudeCodeStatus. The server starts with
+  -- the plugin, and :checkhealth claudecode shows its state (docs/DESIGN.md item 7).
 
   ---@param file_paths table List of file paths to add
   ---@param options table|nil Optional settings: { delay?: number, show_summary?: boolean, context?: string }
@@ -1107,109 +1088,15 @@ function M._create_commands()
       desc = "Smart focus/toggle Claude Code terminal (switches to terminal if not focused, hides if focused)",
     })
 
-    vim.api.nvim_create_user_command("ClaudeCodeOpen", function(opts)
-      local cmd_args = opts.args and opts.args ~= "" and opts.args or nil
-      terminal.open({}, cmd_args)
-    end, {
-      nargs = "*",
-      desc = "Open the Claude Code terminal window with optional arguments",
-    })
-
-    vim.api.nvim_create_user_command("ClaudeCodeClose", function()
-      terminal.close()
-    end, {
-      desc = "Close the Claude Code terminal window",
-    })
-
-    vim.api.nvim_create_user_command("ClaudeCodeSendText", function(opts)
-      local text = opts.args
-      if not text or text == "" then
-        logger.warn("command", "ClaudeCodeSendText: no text provided")
-        return
-      end
-      -- Sends to the currently-open Claude pane; the primitive warns if none is
-      -- running or the provider runs Claude outside Neovim (external/none). Bang
-      -- (`:ClaudeCodeSendText!`) inserts the text without submitting it.
-      terminal.send_to_terminal(text, { submit = not opts.bang })
-    end, {
-      nargs = "+",
-      bang = true,
-      desc = "Send text to the open Claude Code terminal and submit it (! to insert without submitting; native/snacks providers only)",
-    })
+    -- claudecode.nvim: no :ClaudeCodeOpen and :ClaudeCodeClose (:ClaudeCode toggles, :ClaudeCodeFocus
+    -- focuses), no :ClaudeCodeSendText (notes send text). docs/DESIGN.md item 7.
   else
-    logger.error(
-      "init",
-      "Terminal module not found. Terminal commands (ClaudeCode, ClaudeCodeOpen, ClaudeCodeClose) not registered."
-    )
+    logger.error("init", "Terminal module not found. Terminal commands (ClaudeCode, ClaudeCodeFocus) not registered.")
   end
 
-  -- Diff management commands
-  vim.api.nvim_create_user_command("ClaudeCodeDiffAccept", function()
-    local diff = require("claudecode.diff")
-    diff.accept_current_diff()
-  end, {
-    desc = "Accept the current diff changes",
-  })
-
-  vim.api.nvim_create_user_command("ClaudeCodeDiffDeny", function()
-    local diff = require("claudecode.diff")
-    diff.deny_current_diff()
-  end, {
-    desc = "Deny/reject the current diff changes",
-  })
-
-  vim.api.nvim_create_user_command("ClaudeCodeCloseAllDiffs", function()
-    -- Pending only: a status="saved" diff holds the user's :w'd edits in its
-    -- proposed buffer until Claude writes the file, and closing it would discard
-    -- them (same data-loss branch the auto-cleanup avoids). So this clears
-    -- orphaned proposals but leaves accepted diffs for the user to handle.
-    local diff = require("claudecode.diff")
-    local count = diff.close_pending_diffs("user command")
-    if count > 0 then
-      vim.notify(("Closed %d pending Claude diff(s)"):format(count), vim.log.levels.INFO)
-    else
-      vim.notify("No pending Claude diffs to close", vim.log.levels.WARN)
-    end
-  end, {
-    desc = "Close pending Claude Code diffs (leaves accepted/saved diffs intact)",
-  })
-
-  vim.api.nvim_create_user_command("ClaudeCodeSelectModel", function(opts)
-    local cmd_args = opts.args and opts.args ~= "" and opts.args or nil
-    M.open_with_model(cmd_args)
-  end, {
-    nargs = "*",
-    desc = "Select and open Claude terminal with chosen model and optional arguments",
-  })
-end
-
-M.open_with_model = function(additional_args)
-  local models = M.state.config.models
-
-  if not models or #models == 0 then
-    logger.error("command", "No models configured for selection")
-    return
-  end
-
-  vim.ui.select(models, {
-    prompt = "Select Claude model:",
-    format_item = function(item)
-      return item.name
-    end,
-  }, function(choice)
-    if not choice then
-      return -- User cancelled
-    end
-
-    if not choice.value or type(choice.value) ~= "string" then
-      logger.error("command", "Invalid model value selected")
-      return
-    end
-
-    local model_arg = "--model " .. choice.value
-    local final_args = additional_args and (model_arg .. " " .. additional_args) or model_arg
-    vim.cmd("ClaudeCode " .. final_args)
-  end)
+  -- claudecode.nvim: no :ClaudeCodeDiffAccept, :ClaudeCodeDiffDeny, :ClaudeCodeCloseAllDiffs and
+  -- :ClaudeCodeSelectModel. A proposal is decided with cs, cx, cS, cX and :w; the model is chosen
+  -- with :ClaudeCode --model or Claude's /model. docs/DESIGN.md item 7.
 end
 
 ---Get version information

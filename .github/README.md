@@ -8,7 +8,7 @@
 **Claude Code in Neovim, with Cursor-style review: keep or revert each change Claude makes, hunk by hunk.**
 
 > [!NOTE]
-> The original [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) has had no new commits since June 2026. This repository is the up-to-date version: it keeps everything upstream does and adds hunk review, Claude's permission modes, zen mode and account switching.
+> The original [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) has had no new commits since June 2026. This repository is the up-to-date version: it keeps upstream's IDE connection and adds hunk review, Claude's permission modes, zen mode and account switching. Upstream commands that the review replaces, or that the plugin does on its own, are gone.
 
 The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP protocol that Anthropic's VS Code extension uses. Claude opens files, reads your selection and diagnostics, and shows its edits as diffs. Two features come on top:
 
@@ -39,7 +39,7 @@ More documentation:
 
 ## Install
 
-With LazyVim, use the ready spec instead of the `ai.claudecode` extra: copy [lazyvim/claudecode.lua](https://github.com/odiumuniverse/claudecode.nvim/blob/main/lazyvim/claudecode.lua) to `~/.config/nvim/lua/plugins/claudecode.lua`. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>am`, `<leader>ak`, `<leader>an` and `<M-z>`.
+With LazyVim, use the ready spec instead of the `ai.claudecode` extra: copy [lazyvim/claudecode.lua](https://github.com/odiumuniverse/claudecode.nvim/blob/main/lazyvim/claudecode.lua) to `~/.config/nvim/lua/plugins/claudecode.lua`. It keeps the extra's keys except Accept diff and Deny diff, which review replaces, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>am`, `<leader>ak`, `<leader>an` and `<M-z>`.
 
 The spec loads the plugin on `VeryLazy`, not on a key: a file Claude edited before a restart comes back under review only if the plugin is running when you open it.
 
@@ -63,7 +63,17 @@ With plain lazy.nvim:
 
 To run the plugin from a clone of your own, add `dir = "<path to the clone>"` to either spec.
 
-Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode` to check the IDE connection, the review hooks and zen.
+Commands kept from upstream:
+
+| Command                 | What it does                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| `:ClaudeCode [args]`    | Toggle the Claude terminal; arguments such as `--resume` or `--model` go to `claude` |
+| `:ClaudeCodeFocus`      | Focus the Claude terminal, or hide it when it has focus                              |
+| `:ClaudeCodeSend`       | Send the selection to Claude as context                                              |
+| `:ClaudeCodeAdd {path}` | Add a file or directory to Claude's context                                          |
+| `:ClaudeCodeTreeAdd`    | Add the file under the cursor in nvim-tree, neo-tree, oil or mini.files              |
+
+Gone, because the review replaces them or the plugin does it on its own: `:ClaudeCodeDiffAccept` and `:ClaudeCodeDiffDeny` (in a proposal `cS` takes it all, `cX` refuses it, `:w` answers with what is there), `:ClaudeCodeCloseAllDiffs`, `:ClaudeCodeOpen` and `:ClaudeCodeClose` (`:ClaudeCode` toggles), `:ClaudeCodeStart`, `:ClaudeCodeStop` and `:ClaudeCodeStatus` (the server starts with the plugin; `:checkhealth claudecode` shows its state), `:ClaudeCodeSelectModel` (`:ClaudeCode --model` or Claude's `/model`) and `:ClaudeCodeSendText` (notes send text to Claude). Upstream's options work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode` to check the IDE connection, the review hooks and zen.
 
 `:help claudecode` documents the options, keys and events of review and zen.
 
@@ -139,13 +149,13 @@ If you start Claude yourself (`terminal.provider = "none"`), the hooks are not a
 
 ## Review before write
 
-In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal answers with what is there now: Claude writes it, or gets a rejection when it equals the file. `:ClaudeCodeDiffAccept` does the same, and `:ClaudeCodeDiffDeny` refuses the whole proposal.
+In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal answers with what is there now: Claude writes it, or gets a rejection when it equals the file. `cS` takes the whole proposal, `cX` refuses all of it.
 
 **Reject with a reason.** `cr` in a proposal reverts the hunk with what you type in the box, and Claude reworks the place at once, in the same turn. If you kept other hunks, the reason goes with the note about your reverts. If you reverted every hunk, the plugin answers in Claude's own permission dialog, "No, and tell Claude what to do differently", since a rejection over the IDE connection carries no text. Each key goes out only once the dialog on screen shows what that key needs; when that cannot be done (Claude outside Neovim, or a Claude Code update changed the dialog), the proposal is rejected plainly and the reason goes to the clipboard.
 
 Claude sends UTF-8. The plugin compares it with the file in the file's own encoding, so a Latin-1 or UTF-16 file shows only what Claude changed. It reads the encoding from the open buffer, or else from the byte order mark and `'fileencodings'`. The protocol carries text only, so Claude writes UTF-8 after you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
 
-Set `review.before_write = false` to keep upstream's diff views, or set your own `diff_opts.provider` (see below).
+Set `review.before_write = false` to keep upstream's diff views instead: `:w` in the proposed buffer accepts it, closing it rejects. Or set your own `diff_opts.provider` (see below).
 
 ## Zen mode
 
@@ -243,10 +253,7 @@ require("claudecode").setup({
       close = function(ctx, reason)
         -- Remove your UI.
       end,
-      accept_command = function(ctx) -- optional: what :ClaudeCodeDiffAccept does
-        ctx.accept(ctx.new_file_contents)
-      end,
-      reject_command = function(ctx) -- optional: what :ClaudeCodeDiffDeny does
+      reject_command = function(ctx) -- optional: Claude closed the tab before you answered
         ctx.reject()
       end,
     },
@@ -258,7 +265,7 @@ require("claudecode").setup({
 
 How it behaves:
 
-- Claude waits until you call `accept` or `reject`. Only the first call counts. `:ClaudeCodeDiffDeny` calls `reject_command`. Claude gets a rejection when the handler returns, even if the handler never called `reject`.
+- Claude waits until you call `accept` or `reject`. Only the first call counts. When Claude closes the tab, or a new diff reuses its name, before you answered, the plugin calls `reject_command`; Claude gets a rejection when the handler returns, even if the handler never called `reject`.
 - `accept` may pass text that differs from Claude's proposal. Claude writes your text, but it only learns that "the user modified your proposed content", not what you changed.
 - The plugin calls `close` once per diff: after Claude closes the tab, when the Claude session disconnects, when a new diff reuses the tab name, and when `open` throws (`reason` is `"setup failed"`). Make `close` safe to run on a half-built UI.
 - A provider gets the diff even when the file's buffer has unsaved edits; the built-in views refuse it.

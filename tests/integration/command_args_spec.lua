@@ -254,9 +254,10 @@ describe("ClaudeCode command arguments integration", function()
         terminal = { provider = "native" },
       })
 
+      -- claudecode.nvim has no :ClaudeCodeOpen; :ClaudeCode passes the arguments the same way.
       local command_handler
       for _, call in ipairs(vim.api.nvim_create_user_command.calls) do
-        if call.vals[1] == "ClaudeCodeOpen" then
+        if call.vals[1] == "ClaudeCode" then
           command_handler = call.vals[2]
           break
         end
@@ -388,22 +389,6 @@ describe("ClaudeCode command arguments integration", function()
 
       local cmd_string = type(last_cmd.cmd) == "table" and table.concat(last_cmd.cmd, " ") or last_cmd.cmd
       assert.is_true(cmd_string == "claude" or cmd_string:find("^claude$") ~= nil, "Should work exactly as before")
-    end)
-
-    it("should maintain existing ClaudeCodeClose command functionality", function()
-      claudecode.setup({ auto_start = false })
-
-      local close_command_found = false
-      for _, call in ipairs(vim.api.nvim_create_user_command.calls) do
-        if call.vals[1] == "ClaudeCodeClose" then
-          close_command_found = true
-          local config = call.vals[3]
-          assert.is_nil(config.nargs, "ClaudeCodeClose should not accept arguments")
-          break
-        end
-      end
-
-      assert.is_true(close_command_found, "ClaudeCodeClose command should still be registered")
     end)
 
     it("should pass cwd in termopen opts when terminal.cwd is set", function()

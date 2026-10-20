@@ -376,7 +376,7 @@ function M.setup(opts)
   M.refresh_pending()
 end
 
----Undo setup: detach every buffer and drop the autocmds. Used by tests and :ClaudeCodeStop paths.
+---Undo setup: detach every buffer and drop the autocmds. Used by tests.
 function M.teardown()
   if state.group then
     pcall(vim.api.nvim_del_augroup_by_id, state.group)

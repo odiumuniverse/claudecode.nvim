@@ -350,19 +350,8 @@ function M.open(ctx)
   })
 end
 
----:ClaudeCodeDiffAccept in the proposal: accept what is there now.
----@param ctx ClaudeCodeDiffContext
-function M.accept_command(ctx)
-  local session = sessions[ctx.tab_name]
-  if session then
-    finish(session)
-  else
-    ctx.accept(ctx.new_file_contents)
-  end
-end
-
----:ClaudeCodeDiffDeny in the proposal: refuse all of it, whatever hunks you kept, and give the
----window back to your file at once instead of waiting for Claude to close the tab.
+---Claude closed the tab, or a new diff took its name: refuse all of the proposal, whatever hunks
+---you kept, and give the window back to your file at once.
 ---@param ctx ClaudeCodeDiffContext
 function M.reject_command(ctx)
   local session = sessions[ctx.tab_name]

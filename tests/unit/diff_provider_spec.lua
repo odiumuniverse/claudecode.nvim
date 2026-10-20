@@ -244,31 +244,7 @@ describe("diff_opts.provider", function()
     assert.equal("provider", opened[1].layout)
   end)
 
-  it("lets :ClaudeCodeDiffAccept accept through the provider", function()
-    local provider = recording_provider()
-    provider.accept_command = function(ctx)
-      ctx.accept("from the provider\n")
-    end
-    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
-    local handle = open_pending(file, "tab-command")
-
-    diff._resolve_diff_as_saved("tab-command", 0)
-
-    assert.equal("FILE_SAVED", handle.result.content[1].text)
-    assert.equal("from the provider\n", handle.result.content[2].text)
-  end)
-
-  it("accepts Claude's proposal on :ClaudeCodeDiffAccept when the provider has no command handler", function()
-    local provider = recording_provider()
-    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
-    local handle = open_pending(file, "tab-command-default")
-
-    diff._resolve_diff_as_saved("tab-command-default", 0)
-
-    assert.equal("line 1\nline 2\nnew line\n", handle.result.content[2].text)
-  end)
-
-  it("lets :ClaudeCodeDiffDeny reject through the provider", function()
+  it("lets the provider tear down its UI when Claude closes the tab", function()
     local provider = recording_provider()
     local denied
     provider.reject_command = function(ctx)
@@ -286,7 +262,7 @@ describe("diff_opts.provider", function()
     assert.equal("rejected", diff._get_active_diffs()["tab-deny"].status)
   end)
 
-  it("rejects the proposal on :ClaudeCodeDiffDeny when the provider has no command handler", function()
+  it("rejects the proposal when Claude closes the tab and the provider has no handler", function()
     local provider = recording_provider()
     diff.setup({ terminal = {}, diff_opts = { provider = provider } })
     local handle = open_pending(file, "tab-deny-default")

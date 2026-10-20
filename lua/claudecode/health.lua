@@ -99,8 +99,7 @@ local function check_server(claudecode)
 
   if not status.running then
     warn("WebSocket server is not running", {
-      "The server starts automatically when auto_start = true (default)",
-      "Or start it manually with :ClaudeCodeStart",
+      "The server starts with the plugin; restart Neovim to start it again",
     })
     return
   end
@@ -114,7 +113,7 @@ local function check_server(claudecode)
   else
     error_("Lock file missing: " .. lock_path, {
       "Claude discovers this Neovim instance through the lock file",
-      "Restart the integration with :ClaudeCodeStop and :ClaudeCodeStart",
+      "Restart Neovim to write it again",
     })
   end
 

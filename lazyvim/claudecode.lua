@@ -26,8 +26,7 @@ return {
         desc = "Add file",
         ft = { "NvimTree", "neo-tree", "oil" },
       },
-      { "<leader>aa", "<cmd>ClaudeCodeDiffAccept<cr>", desc = "Accept diff" },
-      { "<leader>ad", "<cmd>ClaudeCodeDiffDeny<cr>", desc = "Deny diff" },
+      -- No "Accept diff" / "Deny diff": a proposal is decided with cs, cx, cS, cX and :w.
       -- The review list and zen also get their keys from the plugin itself;
       -- listing them here lets which-key show them before the plugin loads.
       { "<leader>ak", "<cmd>ClaudeCodeReview<cr>", desc = "Files waiting for review" },

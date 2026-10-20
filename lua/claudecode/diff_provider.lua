@@ -4,8 +4,7 @@ local M = {}
 ---@class ClaudeCodeDiffProvider
 ---@field open fun(ctx: ClaudeCodeDiffContext) Show the proposal; answer later with ctx.accept or ctx.reject
 ---@field close fun(ctx: ClaudeCodeDiffContext, reason: string) Remove the UI; called once per diff, also when open failed
----@field accept_command? fun(ctx: ClaudeCodeDiffContext) What :ClaudeCodeDiffAccept does; default accepts the proposal
----@field reject_command? fun(ctx: ClaudeCodeDiffContext) What :ClaudeCodeDiffDeny does; default rejects the proposal
+---@field reject_command? fun(ctx: ClaudeCodeDiffContext) Tear the UI down when Claude closes the tab or reuses its name; default rejects the proposal
 
 ---@class ClaudeCodeDiffContext
 ---@field tab_name string
@@ -105,20 +104,9 @@ function M.setup(provider, params, resolution_callback)
   })
 end
 
----:ClaudeCodeDiffAccept on a provider diff. The provider knows what "accept" means for its UI
----(e.g. only the hunks you kept); without a handler Claude's proposal is accepted as is.
----@param diff_data table The diff state registered by M.setup
-function M.accept_command(diff_data)
-  if type(diff_data.provider.accept_command) == "function" then
-    diff_data.provider.accept_command(diff_data.ctx)
-  else
-    diff_data.ctx.accept(diff_data.ctx.new_file_contents)
-  end
-end
-
----:ClaudeCodeDiffDeny on a provider diff, also what rejects it when Claude closes the tab or a new
----diff reuses its name. The provider tears its UI down in its own way; Claude gets an answer
----either way, because the diff is removed right after.
+---What rejects a provider diff when Claude closes the tab or a new diff reuses its name. The
+---provider tears its UI down in its own way; Claude gets an answer either way, because the diff is
+---removed right after.
 ---@param diff_data table The diff state registered by M.setup
 function M.reject_command(diff_data)
   if type(diff_data.provider.reject_command) == "function" then

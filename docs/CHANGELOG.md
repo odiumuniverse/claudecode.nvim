@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Removed
+
+- **Upstream commands the review replaces, or whose work the plugin does on its own.** In a proposal `cS` takes it all, `cX` refuses it and `:w` answers with what is there, instead of `:ClaudeCodeDiffAccept`, `:ClaudeCodeDiffDeny` and `:ClaudeCodeCloseAllDiffs`. `:ClaudeCode` toggles instead of `:ClaudeCodeOpen` and `:ClaudeCodeClose`. The server starts with the plugin and `:checkhealth claudecode` shows its state, instead of `:ClaudeCodeStart`, `:ClaudeCodeStop` and `:ClaudeCodeStatus`. `:ClaudeCode --model` or Claude's `/model` picks the model instead of `:ClaudeCodeSelectModel`, and notes send text instead of `:ClaudeCodeSendText`. The LazyVim spec drops `<leader>aa` and `<leader>ad`, and `diff_opts.provider` loses `accept_command`.
+
 ### Added
 
 - **A list of your notes.** `<leader>an` in Normal mode, or `:ClaudeCodeReviewNotes`, lists every note by file and line before you send them, with the code and the note under it in the preview. Enter opens a note in its box to edit it, and the cursor stays on it after you save; `<A-d>` deletes it, `<C-s>` sends them all. `review.notes.list_keymap` sets the key.

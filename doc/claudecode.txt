@@ -39,9 +39,9 @@ as diffs. Two features come on top:
 Claude runs as the unmodified `claude` binary, so you sign in with your own
 Claude subscription.
 
-This file documents hunk review and zen. The plugin is based on
-coder/claudecode.nvim (upstream), which has no Vim help. The IDE connection,
-its commands, keymaps and options are in the upstream README:
+This file documents hunk review and zen, and the commands kept from
+coder/claudecode.nvim (upstream), which has no Vim help. The IDE connection
+and its options are in the upstream README:
 https://github.com/coder/claudecode.nvim#readme
 
 The reasons behind the design are in docs/DESIGN.md.
@@ -404,9 +404,10 @@ once, in the same turn:
   plainly and your reasons go to the clipboard, with a warning.
 
 - `:w` in the proposal answers with what is there now. A buffer equal to the
-  file is a rejection. `:ClaudeCodeDiffAccept` does the same.
-- `:ClaudeCodeDiffDeny` refuses the whole proposal, whatever hunks you kept,
-  and gives the window back to your file at once.
+  file is a rejection.
+- `cS` takes the whole proposal, `cX` refuses all of it.
+- If Claude closes the tab before you decide, the proposal is refused and the
+  window goes back to your file.
 - The text you accept becomes the base, so review after write does not show
   it again. A base that an earlier edit left, with hunks still waiting, stays
   as it is: you have not reviewed those hunks. Hunks you reverted reach
@@ -424,7 +425,8 @@ the encoding from the open buffer, or else from the byte order mark and
 you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
 The file's CRLF endings stay; the final newline follows Claude's text.
 
-Set `review.before_write = false` to keep upstream's diff views, or set your
+Set `review.before_write = false` to keep upstream's diff views instead: `:w`
+in the proposed buffer accepts it, closing the buffer rejects it. Or set your
 own `diff_opts.provider` (|claudecode-diff-provider|).
 
 ==============================================================================
@@ -493,9 +495,28 @@ several Claude accounts:
 ==============================================================================
 COMMANDS                                                 *claudecode-commands*
 
-Upstream's commands all work as before. Review and zen add four commands,
-and `:ClaudeCode` learns `run`. Two of upstream's also work on proposals
-(|claudecode-review-before-write|).
+Five commands come from upstream:
+
+:ClaudeCode [{args}]    Toggle the Claude terminal. {args} go to `claude`,
+                        as in `:ClaudeCode --resume` or `--model`.
+:ClaudeCodeFocus        Focus the Claude terminal, or hide it when it has
+                        focus.
+:ClaudeCodeSend         Send the selection to Claude as context.
+:ClaudeCodeAdd {path}   Add a file or directory to Claude's context.
+:ClaudeCodeTreeAdd      Add the file under the cursor in nvim-tree,
+                        neo-tree, oil or mini.files.
+
+Upstream's other commands are gone: the review replaces them, or the plugin
+does their work on its own. In a proposal `cS` takes it all, `cX` refuses
+it and `:w` answers with what is there (`:ClaudeCodeDiffAccept`,
+`:ClaudeCodeDiffDeny`, `:ClaudeCodeCloseAllDiffs`). `:ClaudeCode` toggles
+(`:ClaudeCodeOpen`, `:ClaudeCodeClose`). The server starts with the plugin,
+and `:checkhealth claudecode` shows its state (`:ClaudeCodeStart`,
+`:ClaudeCodeStop`, `:ClaudeCodeStatus`). `:ClaudeCode --model` or Claude's
+`/model` picks the model (`:ClaudeCodeSelectModel`), and notes send text to
+Claude (`:ClaudeCodeSendText`).
+
+Review and zen add four commands, and `:ClaudeCode` learns `run`.
 
                                                            *:ClaudeCodeReview*
 :ClaudeCodeReview       Open the list of files with hunks you have not
@@ -523,9 +544,6 @@ and `:ClaudeCode` learns `run`. Two of upstream's also work on proposals
                         `:ClaudeCodeZen --resume`. They do nothing when
                         Claude already runs. Defined when `zen.enabled` is
                         true.
-
-:ClaudeCodeDiffAccept   In a proposal, accept what is there now.
-:ClaudeCodeDiffDeny     In a proposal, refuse all of it.
 
 ==============================================================================
 OPTIONS                                                   *claudecode-options*
@@ -787,9 +805,6 @@ it.
           close = function(ctx, reason)
             -- Remove your UI.
           end,
-          accept_command = function(ctx) -- optional
-            ctx.accept(ctx.new_file_contents)
-          end,
           reject_command = function(ctx) -- optional
             ctx.reject()
           end,
@@ -797,9 +812,8 @@ it.
       },
     })
 <
-`open` and `close` are required. `accept_command` is what
-`:ClaudeCodeDiffAccept` calls; without it the proposal is accepted as is.
-`reject_command` is what `:ClaudeCodeDiffDeny` calls.
+`open` and `close` are required. `reject_command` tears your UI down when
+Claude gives up on the proposal before you answered.
 
 `ctx` has these fields:
     tab_name           string   name of the diff, unique per proposal
@@ -815,10 +829,10 @@ How it behaves:
 
 - Claude waits until you call `accept` or `reject`. Only the first call
   counts.
-- The plugin calls `reject_command` when you run `:ClaudeCodeDiffDeny`, when
-  Claude closes the tab, when the Claude session disconnects and when a new
-  diff reuses the tab name. Claude gets a rejection once the handler
-  returns, even if the handler never called `reject`.
+- The plugin calls `reject_command` when Claude closes the tab, when the
+  Claude session disconnects and when a new diff reuses the tab name. Claude
+  gets a rejection once the handler returns, even if the handler never
+  called `reject`.
 - `accept` may pass text that differs from Claude's proposal. Claude writes
   your text, but learns only that "the user modified your proposed content",
   not what you changed.

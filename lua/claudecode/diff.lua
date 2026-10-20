@@ -845,9 +845,8 @@ function M._resolve_diff_as_saved(tab_name, buffer_id)
     return
   end
 
-  -- Dispatch to a custom provider
+  -- A custom provider answers through ctx.accept itself; nothing saves a provider's buffer here.
   if diff_data.layout == "provider" then
-    require("claudecode.diff_provider").accept_command(diff_data)
     return
   end
 
@@ -1834,58 +1833,8 @@ function M.reload_file_buffers_manual(file_path, original_cursor_pos)
   return reload_file_buffers(file_path, original_cursor_pos)
 end
 
----Accept the current diff (user command version)
----This function reads the diff context from buffer variables
-function M.accept_current_diff()
-  local current_buffer = vim.api.nvim_get_current_buf()
-
-  -- Check for inline diff buffer first
-  if vim.b[current_buffer].claudecode_inline_diff then
-    local tab_name = vim.b[current_buffer].claudecode_diff_tab_name
-    if tab_name then
-      M._resolve_diff_as_saved(tab_name, current_buffer)
-    else
-      vim.notify("No active diff found in current buffer", vim.log.levels.WARN)
-    end
-    return
-  end
-
-  local tab_name = vim.b[current_buffer].claudecode_diff_tab_name
-
-  if not tab_name then
-    vim.notify("No active diff found in current buffer", vim.log.levels.WARN)
-    return
-  end
-
-  M._resolve_diff_as_saved(tab_name, current_buffer)
-end
-
----Deny/reject the current diff (user command version)
----This function reads the diff context from buffer variables
-function M.deny_current_diff()
-  local current_buffer = vim.api.nvim_get_current_buf()
-
-  -- Check for inline diff buffer first
-  if vim.b[current_buffer].claudecode_inline_diff then
-    local tab_name = vim.b[current_buffer].claudecode_diff_tab_name
-    if tab_name then
-      M._resolve_diff_as_rejected(tab_name)
-    else
-      vim.notify("No active diff found in current buffer", vim.log.levels.WARN)
-    end
-    return
-  end
-
-  local tab_name = vim.b[current_buffer].claudecode_diff_tab_name
-
-  if not tab_name then
-    vim.notify("No active diff found in current buffer", vim.log.levels.WARN)
-    return
-  end
-
-  -- Do not close windows/tabs here; just mark as rejected.
-  M._resolve_diff_as_rejected(tab_name)
-end
+-- claudecode.nvim: no accept_current_diff / deny_current_diff. Their commands are gone; a view
+-- accepts on :w and rejects when it is closed (docs/DESIGN.md item 7).
 
 -- Expose internal utilities for use by diff_inline.lua
 M._find_main_editor_window = find_main_editor_window
