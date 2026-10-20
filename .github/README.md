@@ -37,6 +37,7 @@ With plain lazy.nvim, from a local clone:
 {
   dir = "~/src/claudecode.nvim",
   dependencies = { "folke/snacks.nvim" },
+  event = "VeryLazy", -- not only on a key: a file Claude edited before a restart comes back under review
   cmd = { "ClaudeCode", "ClaudeCodeZen", "ClaudeCodeReview" },
   keys = {
     { "<leader>at", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude" },
@@ -54,6 +55,7 @@ Or from GitHub over SSH, since the repository is private:
   "odiumuniverse/claudecode.nvim",
   url = "git@github.com:odiumuniverse/claudecode.nvim.git",
   dependencies = { "folke/snacks.nvim" },
+  event = "VeryLazy",
   opts = {},
 }
 ```
@@ -77,11 +79,11 @@ In Manual mode the plugin asks about every edit, even one your Claude settings a
 
 `<leader>am` in the LazyVim spec starts Claude in Manual mode (`:ClaudeCode --permission-mode manual`). `<leader>at` starts it in the mode from your Claude settings (`permissions.defaultMode`). The flag counts only when Claude starts: while Claude runs, the key just shows or hides it, like `<leader>at`. Switch a running session with shift+tab.
 
-The modes need the hooks, so they work only for Claude started from Neovim.
+The modes need the hooks, so they work only for Claude started from Neovim. A Claude you start yourself has no hooks and asks only when your Claude settings say so.
 
 ## Hunk review
 
-Claude edits your files right away, the way it does in the terminal. The plugin then shows what changed on top of the code:
+When Claude edits your files right away, the way it does in the terminal, the plugin shows what changed on top of the code:
 
 - deleted lines appear in red above the change, as virtual lines that are not part of the file;
 - added lines get a green background;
@@ -107,25 +109,25 @@ The hunk keys exist only in buffers under review; `<leader>ak` works everywhere.
 
 ### What gets reviewed
 
+In the modes that review after write (see [Modes](#modes)):
+
 - `Edit`, `Write`, `MultiEdit` and `NotebookEdit`: always.
 - `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. Files that git checks out with CRLF endings (`eol=crlf`, `core.autocrlf`) keep them through review and `kx`.
-- An untracked file Bash rewrote: only when the file is open in Neovim, because its old text exists nowhere else.
+- An untracked file Bash rewrote: only when the file is open in Neovim and unmodified, because its old text exists nowhere else.
 - Not reviewed: binary files, files over 2 MB, new files Bash creates in paths that `.gitignore` covers, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
 - If you refuse an edit and then create or change that file yourself, review treats the file as yours.
 
 ### How it works
 
-Every Claude session started from Neovim gets `claude --settings <file>` with three hooks: `PreToolUse`, `PostToolUse` and `UserPromptSubmit`. Claude Code adds these to the hooks you already have; it does not replace them. Each hook is a short `nvim --clean -l` script. It copies the file before the edit and tells Neovim about it, waiting half a second at most for Neovim to take the message. A hook never blocks Claude: on any error it logs to `hooks.log` and exits with 0, so at worst one edit escapes review. The name of the settings file is computed from the paths of your `nvim` and of this copy of the plugin, so a second Neovim with another copy writes a file of its own and leaves yours alone.
+Every Claude session started from Neovim gets `claude --settings <file>` with three hooks: `PreToolUse`, `PostToolUse` and `UserPromptSubmit`. Claude Code adds these to the hooks you already have; it does not replace them. Each hook is a short `nvim --clean --headless -l` script. It copies the file before the edit and tells Neovim about it, waiting half a second at most for Neovim to take the message. A hook never blocks Claude: on any error it logs to `hooks.log` and exits with 0, so at worst one edit escapes review. The name of the settings file is computed from the paths of your `nvim` and of this copy of the plugin, so a second Neovim with another copy writes a file of its own and leaves yours alone.
 
 If you start Claude yourself (`terminal.provider = "none"`), the hooks are not attached and review after write stays off. Review before write still works: it needs only the IDE connection.
 
 ## Review before write
 
-In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal accepts what is left as it is. `:ClaudeCodeDiffAccept` and `:ClaudeCodeDiffDeny` work too.
+In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal answers with what is there now: Claude writes it, or gets a rejection when it equals the file. `:ClaudeCodeDiffAccept` does the same, and `:ClaudeCodeDiffDeny` refuses the whole proposal.
 
 Claude sends UTF-8. The plugin compares it with the file in the file's own encoding, so a Latin-1 or UTF-16 file shows only what Claude changed. It reads the encoding from the open buffer, or else from the byte order mark and `'fileencodings'`. The protocol carries text only, so Claude writes UTF-8 after you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
-
-For a Claude started from Neovim, Manual mode asks about every edit (see [Modes](#modes)). A Claude you started yourself has no hooks and asks only when your Claude settings say so.
 
 Set `review.before_write = false` to keep upstream's diff views, or set your own `diff_opts.provider` (see below).
 
@@ -174,9 +176,9 @@ Highlight groups, all defined with `default = true` so your colorscheme applies:
 
 `User` events for your config:
 
-- `ClaudeCodeReviewChanged`, `data = { bufnr, path, hunks }`: a buffer's hunks changed; `hunks` is how many are left.
-- `ClaudeCodeReviewPending`, `data = { count, files }`: the list of files waiting for review changed.
-- `ClaudeCodeDiffOpened` and `ClaudeCodeDiffClosed` now also fire for proposals. The opened event has `layout = "provider"` and none of the window fields of upstream's diffs.
+- `ClaudeCodeReviewChanged`, `data = { bufnr, path, hunks }`: the hunks of a buffer were worked out again; `hunks` is how many are left.
+- `ClaudeCodeReviewPending`, `data = { count, files }`: the files waiting for review were counted again; the list may be the same.
+- `ClaudeCodeDiffOpened` and `ClaudeCodeDiffClosed` also fire for proposals. The opened event has `layout = "provider"` and none of the window fields of upstream's diffs.
 
 ## Custom diff provider
 
