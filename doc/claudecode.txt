@@ -330,7 +330,7 @@ get the key (|claudecode-zen.keymap|).
                                                            *claudecode-zen-cz*
 `bin/cz` opens Neovim straight into zen. Put it on your PATH, then:
 >sh
-    ln -s ~/src/claudecode.nvim/bin/cz ~/.local/bin/cz
+    ln -s ~/.local/share/nvim/lazy/claudecode.nvim/bin/cz ~/.local/bin/cz
     cz            # new session
     cz --resume   # pick a session to resume
 <

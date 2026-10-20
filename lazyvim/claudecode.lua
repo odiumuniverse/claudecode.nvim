@@ -1,10 +1,9 @@
--- LazyVim spec: LazyVim's ai.claudecode keys plus review and zen.
--- Toggle Claude sits on <leader>at, not the extra's <leader>ac.
--- Link it into your config instead of the extra:
---   ln -s ~/src/claudecode.nvim/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
+-- LazyVim spec: LazyVim's ai.claudecode keys plus review and zen. Use it instead of the extra:
+-- copy it to ~/.config/nvim/lua/plugins/claudecode.lua.
+-- Toggle Claude sits on <leader>at rather than the extra's <leader>ac.
+-- To run the plugin from a clone, add dir = "<path to the clone>".
 return {
   "odiumuniverse/claudecode.nvim",
-  dir = vim.fn.expand("~/src/claudecode.nvim"),
   name = "claudecode.nvim",
   dependencies = { "folke/snacks.nvim" },
   -- Not lazy on keys: a file Claude edited before a restart must come back under review as you open it.

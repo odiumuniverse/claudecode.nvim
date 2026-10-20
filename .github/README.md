@@ -23,19 +23,15 @@ More documentation:
 
 ## Install
 
-With LazyVim, link the ready spec instead of the `ai.claudecode` extra. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>am`, `<leader>ak` and `<M-z>`:
-
-```sh
-ln -s ~/src/claudecode.nvim/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
-```
+With LazyVim, use the ready spec instead of the `ai.claudecode` extra: copy [lazyvim/claudecode.lua](https://github.com/odiumuniverse/claudecode.nvim/blob/main/lazyvim/claudecode.lua) to `~/.config/nvim/lua/plugins/claudecode.lua`. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>am`, `<leader>ak` and `<M-z>`.
 
 The spec loads the plugin on `VeryLazy`, not on a key: a file Claude edited before a restart comes back under review only if the plugin is running when you open it.
 
-With plain lazy.nvim, from a local clone:
+With plain lazy.nvim:
 
 ```lua
 {
-  dir = "~/src/claudecode.nvim",
+  "odiumuniverse/claudecode.nvim",
   dependencies = { "folke/snacks.nvim" },
   event = "VeryLazy", -- not only on a key: a file Claude edited before a restart comes back under review
   cmd = { "ClaudeCode", "ClaudeCodeZen", "ClaudeCodeReview" },
@@ -48,17 +44,7 @@ With plain lazy.nvim, from a local clone:
 }
 ```
 
-Or from GitHub over SSH, since the repository is private:
-
-```lua
-{
-  "odiumuniverse/claudecode.nvim",
-  url = "git@github.com:odiumuniverse/claudecode.nvim.git",
-  dependencies = { "folke/snacks.nvim" },
-  event = "VeryLazy",
-  opts = {},
-}
-```
+To run the plugin from a clone of your own, add `dir = "<path to the clone>"` to either spec.
 
 Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode` to check the IDE connection, the review hooks and zen.
 
@@ -141,7 +127,7 @@ Set `review.before_write = false` to keep upstream's diff views, or set your own
 `bin/cz` opens Neovim straight into zen:
 
 ```sh
-ln -s ~/src/claudecode.nvim/bin/cz ~/.local/bin/cz
+ln -s ~/.local/share/nvim/lazy/claudecode.nvim/bin/cz ~/.local/bin/cz
 cz            # new session
 cz --resume   # pick a session to resume
 ```
