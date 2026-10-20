@@ -69,7 +69,9 @@ function M.send(addr, payload)
   if not host then
     attempt(function(handle, on_connect)
       return handle:connect(addr, on_connect)
-    end, finish)
+    end, function()
+      finish(false)
+    end)
   else
     -- libuv connects to an address, not to a name: `nvim --listen localhost:6666` needs the name
     -- resolved, and `[::1]:6666` its brackets taken off. Every address is tried until one answers.

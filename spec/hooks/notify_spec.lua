@@ -148,6 +148,14 @@ describe("hook message to the editor", function()
     assert.is_true((vim.uv.hrtime() - start) / 1e6 < notify.TIMEOUT_MS)
   end)
 
+  it("answers false, not nil, when there is no socket at the path", function()
+    local start = vim.uv.hrtime()
+
+    assert.is_false(notify.send(vim.fn.tempname(), { event = "PostToolUse" }))
+
+    assert.is_true((vim.uv.hrtime() - start) / 1e6 < notify.TIMEOUT_MS)
+  end)
+
   it("gives up at once when nothing listens on the port", function()
     local port = serve_tcp(function() end)
     server:close()
