@@ -1082,9 +1082,16 @@ function M._create_commands()
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
       end
       local cmd_args = opts.args and opts.args ~= "" and opts.args or nil
+      -- Accounts (claudecode.features.cswap): `:ClaudeCode run [account] [args]`.
+      if cmd_args and (cmd_args == "run" or cmd_args:match("^run%s")) then
+        return require("claudecode.features.cswap").run(cmd_args:sub(4))
+      end
       terminal.simple_toggle({}, cmd_args)
     end, {
       nargs = "*",
+      complete = function(arglead, cmdline)
+        return require("claudecode.features.cswap").complete(arglead, cmdline)
+      end,
       desc = "Toggle the Claude Code terminal window (simple show/hide) with optional arguments",
     })
 

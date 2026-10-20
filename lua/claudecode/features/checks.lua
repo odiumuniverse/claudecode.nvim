@@ -95,6 +95,14 @@ function M.check()
       health.ok("Toggle with " .. tostring(config.zen.keymap) .. " or :ClaudeCodeZen")
     end
   end
+
+  health.start("Accounts (cswap)")
+  if vim.fn.executable(config.cswap.cmd) == 1 then
+    health.ok(":ClaudeCode run [account] runs Claude through " .. config.cswap.cmd)
+  else
+    -- cswap is optional: without it only `:ClaudeCode run` is missing.
+    health.info(config.cswap.cmd .. " not found: :ClaudeCode run needs it")
+  end
 end
 
 return M

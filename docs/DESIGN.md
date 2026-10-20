@@ -64,6 +64,16 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 29. **A proposal arrives in zen (Manual mode):** zen switches to the work state on the proposal and comes back once you have decided.
 30. **Zen shows a counter,** "N files wait for review · <leader>ak" ("1 file waits for review" for one, nothing for none), in the winbar above Claude, so that edits waiting for review do not pile up unnoticed.
 
+## Accounts (cswap)
+
+`:ClaudeCode run [account] [args]` runs Claude through cswap (claude-swap), a switcher for several Claude accounts.
+
+- **What runs:** `cswap run <account> -- <args>`. cswap reads its own options before `--` and hands the rest to Claude, so the review hooks' `--settings` goes after `--` as well: `hooks.decorate` puts it right after the base command, and the base command ends in `--`.
+- **The IDE connection holds.** `cswap run` launches Claude with `CLAUDE_CONFIG_DIR` set to the account's profile and leaves `ide/` out of that profile, yet Claude still finds Neovim through `CLAUDE_CODE_SSE_PORT` (checked on 2.1.304 with cswap 0.27.2: one client connected, the hooks attached).
+- **The account sticks.** A small seam in upstream's `terminal.lua`, `set_launch_cmd`, puts the cswap command in place of `terminal_cmd` for every launch until the next `run`: the toggle, focus, zen, `cz` and `--resume` all run the same account. Otherwise, after Claude exits, the next toggle would quietly open the default login.
+- **Replace, do not ask.** You typed `run`, so a running Claude is stopped: the job is stopped and its buffer wiped. Hiding the window is not enough, since the native provider keeps a hidden terminal running. The account is checked against `cswap list --json` first, and a typo leaves the running Claude alone. Zen closes for the switch and opens again with the new Claude.
+- **Code:** `lua/claudecode/features/cswap.lua`; `:ClaudeCode` hands it the arguments that start with `run` and asks it for completion.
+
 ## What openDiff taught us
 
 2026-10-19, Claude Code 2.1.303, Manual mode. Claude rewrote a file in one Write with two changes; we reverted one in the proposal buffer and saved.

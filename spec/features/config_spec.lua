@@ -34,6 +34,12 @@ describe("feature options", function()
     assert.matches("zen.keymap must be", config_error({ zen = { keymap = "" } }))
   end)
 
+  it("finds cswap on PATH unless you name it", function()
+    assert.equal("cswap", features.config(nil).cswap.cmd)
+    assert.equal("/opt/cswap", features.config({ cswap = { cmd = "/opt/cswap" } }).cswap.cmd)
+    assert.matches("cswap.cmd must be a non%-empty string", config_error({ cswap = { cmd = "" } }))
+  end)
+
   it("builds the hint from your keys", function()
     assert.equal("ko keep · kx revert", features.hint_text(features.config(nil).review))
     assert.equal(

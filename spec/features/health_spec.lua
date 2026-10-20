@@ -36,9 +36,18 @@ describe(":checkhealth claudecode", function()
     assert.matches("claudecode.nvim", text)
     assert.matches("Hunk review", text)
     assert.matches("Zen", text)
-    -- pcall in lua/claudecode/health.lua hides an error inside our checks; the last line shows the report ran through.
     assert.matches("Toggle with <M%-z>", text)
+    -- pcall in lua/claudecode/health.lua hides an error inside our checks; the last section shows the report ran through.
+    assert.matches("Accounts %(cswap%)", text)
     assert.is_nil(text:find("Failed to run healthcheck", 1, true))
+  end)
+
+  it("says whether :ClaudeCode run finds cswap", function()
+    features.state.config = features.config({ cswap = { cmd = "/nonexistent/cswap" } })
+    assert.matches("/nonexistent/cswap not found: :ClaudeCode run needs it", run_health())
+
+    features.state.config = features.config({ cswap = { cmd = "sh" } })
+    assert.matches(":ClaudeCode run %[account%] runs Claude through sh", run_health())
   end)
 
   it("shows the settings file of this editor by its own name", function()

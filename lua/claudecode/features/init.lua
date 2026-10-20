@@ -28,6 +28,7 @@ local M = {}
 ---@class ClaudeCodeFeaturesConfig
 ---@field review ClaudeCodeReviewConfig
 ---@field zen { enabled: boolean, keymap: string|false }
+---@field cswap { cmd: string } `:ClaudeCode run [account]` runs Claude through this cswap
 
 ---@type ClaudeCodeFeaturesConfig
 M.defaults = {
@@ -52,6 +53,9 @@ M.defaults = {
   zen = {
     enabled = true,
     keymap = "<M-z>",
+  },
+  cswap = {
+    cmd = "cswap",
   },
 }
 
@@ -86,6 +90,8 @@ function M.validate(config)
   check(type(zen) == "table", "zen must be a table")
   check(type(zen.enabled) == "boolean", "zen.enabled must be a boolean")
   check(is_key(zen.keymap), "zen.keymap must be a key string or false")
+  check(type(config.cswap) == "table", "cswap must be a table")
+  check(type(config.cswap.cmd) == "string" and config.cswap.cmd ~= "", "cswap.cmd must be a non-empty string")
 end
 
 ---@param user table|nil The options passed to require("claudecode").setup
@@ -95,6 +101,7 @@ function M.config(user)
   local config = vim.tbl_deep_extend("force", vim.deepcopy(M.defaults), {
     review = user.review or {},
     zen = user.zen or {},
+    cswap = user.cswap or {},
   })
   M.validate(config)
   return config
@@ -159,6 +166,8 @@ function M.setup(user, plugin_config)
     require("claudecode.hooks").disable()
     require("claudecode.review.bridge").enabled = false
   end
+
+  require("claudecode.features.cswap").setup(config.cswap)
 
   if config.zen.enabled then
     require("claudecode.zen").setup({

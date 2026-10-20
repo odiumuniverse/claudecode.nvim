@@ -338,13 +338,22 @@ local function no_proxy_with_loopback(...)
   return table.concat(entries, ",")
 end
 
+-- Accounts (claudecode.features.cswap): a command that runs in place of terminal_cmd for every
+-- launch until it changes.
+local launch_cmd = nil
+
+---@param cmd string|nil nil goes back to terminal_cmd
+function M.set_launch_cmd(cmd)
+  launch_cmd = cmd
+end
+
 ---Gets the claude command string and necessary environment variables
 ---@param cmd_args string? Optional arguments to append to the command
 ---@return string cmd_string The command string
 ---@return table env_table The environment variables table
 local function get_claude_command_and_env(cmd_args)
   -- Inline get_claude_command logic
-  local cmd_from_config = defaults.terminal_cmd
+  local cmd_from_config = launch_cmd or defaults.terminal_cmd
   local base_cmd
   if not cmd_from_config or cmd_from_config == "" then
     base_cmd = "claude" -- Default if not configured

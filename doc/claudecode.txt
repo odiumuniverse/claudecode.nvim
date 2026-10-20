@@ -15,6 +15,7 @@ CONTENTS                                                 *claudecode-contents*
       Hooks and state .............................. |claudecode-review-state|
     Review before write ..................... |claudecode-review-before-write|
     Zen mode ................................................ |claudecode-zen|
+    Accounts (cswap) ...................................... |claudecode-cswap|
     Commands ........................................... |claudecode-commands|
     Options ............................................. |claudecode-options|
     Events ............................................... |claudecode-events|
@@ -340,15 +341,50 @@ Zen needs Claude inside Neovim. With `terminal.provider` set to "external" or
 "none", it warns about that.
 
 ==============================================================================
+ACCOUNTS (CSWAP)                                           *claudecode-cswap*
+
+`:ClaudeCode run` runs Claude as one of your accounts in cswap
+(claude-swap, https://github.com/realiti4/claude-swap), a switcher for
+several Claude accounts:
+>vim
+    :ClaudeCode run 1             " account 1
+    :ClaudeCode run work          " an alias, or the account's email
+    :ClaudeCode run 1 --resume    " Claude's own arguments follow the account
+    :ClaudeCode run               " the account `cswap map` gives this
+                                  " directory, or your default login
+<
+- The account sticks. Every later launch from this Neovim runs it: the
+  toggle, focus, zen and `--resume` too, until the next `:ClaudeCode run`.
+- A Claude that already runs is stopped and replaced, without asking; its
+  conversation ends. cswap keeps the history of each account apart.
+- The plugin checks the account against `cswap list --json` before it stops
+  anything, so a mistyped account leaves the running Claude alone.
+- <Tab> completes the account numbers and aliases.
+- When zen is open, the new Claude opens in zen.
+- The plugin runs `cswap run {account} -- {args}`. cswap hands everything
+  after `--` to Claude, the review hooks' `--settings` included.
+- Each account has a profile of its own, so Claude asks once per account
+  whether you trust the project folder.
+
+|claudecode-cswap.cmd| names the cswap executable.
+
+==============================================================================
 COMMANDS                                                 *claudecode-commands*
 
-Upstream's commands all work as before. Review and zen add two commands. Two
-of upstream's also work on proposals (|claudecode-review-before-write|).
+Upstream's commands all work as before. Review and zen add two commands, and
+`:ClaudeCode` learns `run`. Two of upstream's also work on proposals
+(|claudecode-review-before-write|).
 
                                                            *:ClaudeCodeReview*
 :ClaudeCodeReview       Open the list of files with hunks you have not
                         decided on (|claudecode-review-files|). Defined when
                         `review.enabled` is true.
+
+                                                            *:ClaudeCode-run*
+:ClaudeCode run [{account}] [{args}]
+                        Run Claude as a cswap account and keep it for later
+                        launches (|claudecode-cswap|). Other arguments of
+                        `:ClaudeCode` go to Claude as before.
 
                                                               *:ClaudeCodeZen*
 :ClaudeCodeZen [{args}] Toggle zen (|claudecode-zen|). {args} go to the
@@ -364,7 +400,8 @@ of upstream's also work on proposals (|claudecode-review-before-write|).
 OPTIONS                                                   *claudecode-options*
 
 The options go into the same table as upstream's, passed to
-`require("claudecode").setup()`. Two keys are new, `review` and `zen`.
+`require("claudecode").setup()`. Three keys are new: `review`, `zen` and
+`cswap`.
 A wrong type or an unknown key in `review.keymaps` makes `setup()` fail with
 a message that names the option. Defaults:
 >lua
@@ -385,10 +422,13 @@ a message that names the option. Defaults:
         enabled = true,
         keymap = "<M-z>",
       },
+      cswap = {
+        cmd = "cswap",
+      },
     })
 <
 The `review` table is described under |claudecode-review|, the `zen` table
-under |claudecode-zen|.
+under |claudecode-zen|, the `cswap` table under |claudecode-cswap|.
 
 review.enabled                                     *claudecode-review.enabled*
     Type: boolean. Default: `true`.
@@ -468,6 +508,11 @@ zen.keymap                                             *claudecode-zen.keymap*
     Type: string or false. Default: `"<M-z>"`.
     Toggles zen in normal mode and inside the Claude terminal. `false`
     leaves it unmapped; |:ClaudeCodeZen| still works.
+
+cswap.cmd                                               *claudecode-cswap.cmd*
+    Type: string. Default: `"cswap"`.
+    The cswap executable for |:ClaudeCode-run|: a name on your PATH or a
+    full path.
 
 ==============================================================================
 EVENTS                                                     *claudecode-events*
@@ -600,8 +645,8 @@ HEALTH CHECK                                               *claudecode-health*
     :checkhealth claudecode
 <
 The report opens with the IDE connection: the Claude CLI, the terminal
-provider, the WebSocket server and the lock file. Sections for hunk review and
-zen follow and report:
+provider, the WebSocket server and the lock file. Sections for hunk review,
+zen and accounts follow and report:
 
 - whether Neovim is 0.11 or newer;
 - whether the review hooks are attached, and where their settings file is;
@@ -609,6 +654,7 @@ zen follow and report:
 - how many files wait for review, where the state directory is, whether other
   users can read it, and the last errors in `hooks.log`;
 - which list shows the files (|claudecode-review-files|);
-- whether zen can work with your `terminal.provider` (|claudecode-zen|).
+- whether zen can work with your `terminal.provider` (|claudecode-zen|);
+- whether `:ClaudeCode run` finds cswap (|claudecode-cswap|).
 
  vim:tw=78:ts=8:ft=help:norl:

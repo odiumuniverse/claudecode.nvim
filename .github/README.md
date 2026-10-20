@@ -5,6 +5,8 @@ The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP pr
 - **Hunk review.** Keep or revert each change Claude makes, the way Cursor does, instead of accepting or rejecting the whole file.
 - **Zen mode.** Run Claude full screen inside Neovim and flip to the code with one key.
 
+With [cswap](https://github.com/realiti4/claude-swap) (claude-swap) it also switches the Claude account Neovim runs: `:ClaudeCode run 1`.
+
 Claude runs as the unmodified `claude` binary, so you sign in with your own Claude subscription.
 
 Based on [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) (upstream).
@@ -134,6 +136,24 @@ cz --resume   # pick a session to resume
 
 Zen needs Claude inside Neovim (`terminal.provider` set to `snacks`, `native` or `auto`).
 
+## Accounts (cswap)
+
+`:ClaudeCode run` runs Claude as one of your accounts in cswap (claude-swap), a switcher for several Claude accounts:
+
+```vim
+:ClaudeCode run 1             " account 1
+:ClaudeCode run work          " an alias, or the account's email
+:ClaudeCode run 1 --resume    " Claude's own arguments follow the account
+:ClaudeCode run               " the account `cswap map` gives this directory, or your default login
+```
+
+- The account sticks. Every later launch from this Neovim runs it: the toggle, focus, zen and `--resume` too, until the next `:ClaudeCode run`.
+- A Claude that already runs is stopped and replaced, without asking; its conversation ends. cswap keeps the history of each account apart.
+- The plugin checks the account against `cswap list --json` before it stops anything, so a mistyped account leaves the running Claude alone. `<Tab>` completes the account numbers and aliases.
+- When zen is open, the new Claude opens in zen.
+- The plugin runs `cswap run <account> -- <args>`: cswap hands everything after `--` to Claude, the review hooks' `--settings` included.
+- Each account has a profile of its own, so Claude asks once per account whether you trust the project folder.
+
 ## Options
 
 These go into the same `opts` table as upstream's. Shown with their defaults:
@@ -155,6 +175,9 @@ opts = {
   zen = {
     enabled = true,
     keymap = "<M-z>",
+  },
+  cswap = {
+    cmd = "cswap",              -- the cswap executable for :ClaudeCode run: a name on PATH or a full path
   },
 }
 ```
