@@ -20,6 +20,8 @@ local M = {}
 ---@field enabled boolean
 ---@field keymaps ClaudeCodeReviewKeymaps Buffer-local keys while a file is under review
 ---@field files_keymap string|false Opens the list of files waiting for review
+---@field advance "hunk"|"file"|false After keep or revert: the next hunk, then the next file, or stay
+---@field cross_files boolean `]k` past the last hunk and `[k` before the first go to the next or previous file
 ---@field hint boolean|string Hint at the hunk under the cursor; true builds it from the keymaps
 ---@field word_diff boolean Highlight changed words inside changed lines
 ---@field before_write boolean Review Claude's proposals before they are written (Manual mode)
@@ -47,6 +49,8 @@ M.defaults = {
       first = "[K",
     },
     files_keymap = "<leader>ak",
+    advance = "hunk",
+    cross_files = true,
     hint = true,
     word_diff = true,
     before_write = true,
@@ -82,6 +86,11 @@ function M.validate(config)
     check(is_key(key), "review.keymaps." .. name .. " must be a key string or false")
   end
   check(is_key(review.files_keymap), "review.files_keymap must be a key string or false")
+  check(
+    review.advance == "hunk" or review.advance == "file" or review.advance == false,
+    "review.advance must be 'hunk', 'file' or false"
+  )
+  check(type(review.cross_files) == "boolean", "review.cross_files must be a boolean")
   check(type(review.hint) == "boolean" or type(review.hint) == "string", "review.hint must be a boolean or a string")
   check(type(review.word_diff) == "boolean", "review.word_diff must be a boolean")
   check(type(review.before_write) == "boolean", "review.before_write must be a boolean")
@@ -142,6 +151,9 @@ function M.setup(user, plugin_config)
   if config.review.enabled then
     require("claudecode.review").setup({
       keymaps = config.review.keymaps,
+      advance = config.review.advance,
+      cross_files = config.review.cross_files,
+      goto_file = require("claudecode.review.controller").goto_file,
       hint = M.hint_text(config.review),
       word_diff = config.review.word_diff,
     })

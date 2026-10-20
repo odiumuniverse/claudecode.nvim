@@ -37,6 +37,9 @@ local M = {}
 
 ---@class ClaudeCodeReviewConfig
 ---@field keymaps ClaudeCodeReviewKeymaps
+---@field advance "hunk"|"file"|false -- where the cursor goes after a keep or revert from a key
+---@field cross_files boolean -- `]k` past the last hunk and `[k` before the first go to the next or previous file
+---@field goto_file? fun(bufnr: integer, direction: "next"|"prev"): boolean -- open the next or previous file waiting for review
 ---@field hint string|false
 ---@field word_diff boolean
 
@@ -74,6 +77,8 @@ local DEFAULT_CONFIG = {
     last = "]K",
     first = "[K",
   },
+  advance = "hunk",
+  cross_files = true,
   hint = render.DEFAULT_HINT,
   word_diff = true,
 }
@@ -114,6 +119,18 @@ local function check_setup_opts(opts)
           fail(("keymaps.%s must be a non-empty string or false, got %s"):format(name, vim.inspect(lhs)))
         end
       end
+    elseif key == "advance" then
+      if value ~= "hunk" and value ~= "file" and value ~= false then
+        fail("advance must be 'hunk', 'file' or false, got " .. vim.inspect(value))
+      end
+    elseif key == "cross_files" then
+      if type(value) ~= "boolean" then
+        fail("cross_files must be a boolean, got " .. vim.inspect(value))
+      end
+    elseif key == "goto_file" then
+      if type(value) ~= "function" then
+        fail("goto_file must be a function, got " .. type(value))
+      end
     elseif key == "hint" then
       if value ~= false and type(value) ~= "string" then
         fail("hint must be a string or false, got " .. vim.inspect(value))
@@ -128,7 +145,7 @@ local function check_setup_opts(opts)
   end
 end
 
----@param opts { keymaps?: ClaudeCodeReviewKeymaps, hint?: string|false, word_diff?: boolean }|nil
+---@param opts { keymaps?: ClaudeCodeReviewKeymaps, advance?: "hunk"|"file"|false, cross_files?: boolean, goto_file?: fun(bufnr: integer, direction: "next"|"prev"): boolean, hint?: string|false, word_diff?: boolean }|nil
 function M.setup(opts)
   check_setup_opts(opts)
   config = vim.tbl_deep_extend("force", DEFAULT_CONFIG, opts or {})
@@ -497,8 +514,32 @@ local function pick_index(st, index)
   return index
 end
 
----Move the cursor to the start of a hunk. Like `]c`, it never wraps and a count that is too big
----goes as far as it can.
+---@param st ClaudeCodeReviewState
+---@return integer[] rows The rows the hunks start on, top to bottom
+local function hunk_rows(st)
+  local rows = {}
+  for i, hunk in ipairs(st.hunks) do
+    rows[i] = hunk_logic.anchor(hunk, st.line_count)
+  end
+  return rows
+end
+
+---Put the cursor on the first non-blank character of `row`, with a jumplist entry to come back to.
+---@param bufnr integer
+---@param win integer
+---@param row integer
+local function put_cursor(bufnr, win, row)
+  local text = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1] or ""
+  local col = math.min(#text:match("^%s*"), math.max(#text - 1, 0))
+  vim.api.nvim_win_call(win, function()
+    vim.cmd("normal! m'")
+    vim.api.nvim_win_set_cursor(win, { row, col })
+  end)
+end
+
+---Move the cursor to the start of a hunk. Within the file, like `]c`, it never wraps and a count that
+---is too big goes as far as it can. With no hunk left that way, `cross_files` goes on to the next
+---(or previous) file waiting for review.
 ---@param bufnr integer
 ---@param direction "next"|"prev"|"first"|"last"
 ---@param count integer
@@ -509,10 +550,7 @@ jump = function(bufnr, direction, count)
     return
   end
 
-  local rows = {}
-  for i, hunk in ipairs(st.hunks) do
-    rows[i] = hunk_logic.anchor(hunk, st.line_count)
-  end
+  local rows = hunk_rows(st)
   local row = vim.api.nvim_win_get_cursor(win)[1]
 
   local target
@@ -532,15 +570,48 @@ jump = function(bufnr, direction, count)
     target = ahead[math.min(count, #ahead)]
   end
   if not target then
+    if config.cross_files and config.goto_file and (direction == "next" or direction == "prev") then
+      config.goto_file(bufnr, direction)
+    end
     return
   end
+  put_cursor(bufnr, win, target)
+end
 
-  local text = vim.api.nvim_buf_get_lines(bufnr, target - 1, target, false)[1] or ""
-  local col = math.min(#text:match("^%s*"), math.max(#text - 1, 0))
-  vim.api.nvim_win_call(win, function()
-    vim.cmd("normal! m'")
-    vim.api.nvim_win_set_cursor(win, { target, col })
-  end)
+---Keep or revert the hunk under the cursor from a key, then move on as `advance` says: to the next
+---hunk, or to the first one after the last; with "file", to the next file once this one is done.
+---@param bufnr integer
+---@param action fun(bufnr: integer)
+local function decide(bufnr, action)
+  local st = states[bufnr]
+  local index = st and hunk_under_cursor(st)
+  local from = index and hunk_logic.anchor(st.hunks[index], st.line_count)
+  local before = st and #st.hunks or 0
+  action(bufnr)
+  if not (from and config.advance) then
+    return
+  end
+  local after = states[bufnr]
+  if not after then
+    if config.advance == "file" and config.goto_file then
+      config.goto_file(bufnr, "next")
+    end
+    return
+  end
+  local win = window_of(bufnr)
+  -- A revert that the file on disk refused decided nothing: stay.
+  if not win or #after.hunks >= before then
+    return
+  end
+  local rows = hunk_rows(after)
+  local target = rows[1]
+  for _, row in ipairs(rows) do
+    if row >= from then
+      target = row
+      break
+    end
+  end
+  put_cursor(bufnr, win, target)
 end
 
 ---@param bufnr integer
@@ -554,10 +625,10 @@ mappings_for = function(bufnr)
     end
   end
   add("keep", "keep hunk", function()
-    M.keep(bufnr)
+    decide(bufnr, M.keep)
   end)
   add("revert", "revert hunk", function()
-    M.revert(bufnr)
+    decide(bufnr, M.revert)
   end)
   add("keep_all", "keep all hunks", function()
     M.keep_all(bufnr)
@@ -699,6 +770,14 @@ end
 function M.base(bufnr)
   local st = state_of(bufnr)
   return st and vim.deepcopy(st.base) or {}
+end
+
+---Move the cursor to a hunk, as `]k`, `[k`, `]K` and `[K` do.
+---@param bufnr integer
+---@param direction "next"|"prev"|"first"|"last"
+---@param count? integer
+function M.jump(bufnr, direction, count)
+  jump(bufnr, direction, count or 1)
 end
 
 ---Let Neovim re-read the file if it changed, whatever 'autoread' says: a prompt would block.

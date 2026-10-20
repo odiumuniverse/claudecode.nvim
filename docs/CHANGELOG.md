@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- **Review moves on by itself.** After `cs` or `cx` the cursor goes to the next hunk, and from the last one back to the first (`review.advance = "hunk"`). With `advance = "file"` the next file waiting for review opens once a file is done; `false` keeps the cursor where it is.
+- **`]k` and `[k` cross files.** Past the last hunk `]k` opens the next file waiting for review at its first hunk, and `[k` before the first one opens the previous file at its last hunk. The list wraps around. `review.cross_files = false` keeps them inside the file.
+
 ### Changed
 
 - **Review keys are `cs` and `cx` now,** `cS` and `cX` for the whole file. `ko` and `kx` made every `k` in a buffer under review wait for `'timeoutlen'` before the cursor moved, and `KO` and `KX` did the same to `K` (LSP hover). Neovim waits for a motion after `c` anyway, so the new keys delay nothing. Your own `review.keymaps` still win.

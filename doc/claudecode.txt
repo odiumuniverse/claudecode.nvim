@@ -148,9 +148,16 @@ the revert back. If the file changed on disk since the buffer last read or
 wrote it, because Claude wrote again, nothing is reverted. The plugin warns,
 reloads the buffer when it can, and you revert again.
 
-`]k` and `[k` never wrap. A count past the last hunk goes as far as it can.
-They set the jump mark, so <C-o> goes back. `cs` and `cx` outside a hunk say
-"no hunk here".
+After `cs` or `cx` the cursor moves on to the next hunk, or to the first one
+after the last. Once the file has no hunk left, it stays; with `advance =
+"file"` the next file waiting for review opens (|claudecode-review.advance|).
+
+Inside a file `]k` and `[k` never wrap, and a count past the last hunk goes
+as far as it can. With no hunk left that way, `]k` opens the next file
+waiting for review at its first hunk and `[k` the previous one at its last
+hunk; the list goes in path order and wraps around
+(|claudecode-review.cross_files|). They set the jump mark, so <C-o> goes
+back. `cs` and `cx` outside a hunk say "no hunk here".
 
 Why `c`: Neovim waits for a motion after `c` in any case, and `s`, `x`, `S`
 and `X` are no motions, so these keys delay nothing. A key such as `ko` would
@@ -423,6 +430,8 @@ a message that names the option. Defaults:
           next = "]k", prev = "[k", last = "]K", first = "[K",
         },
         files_keymap = "<leader>ak",
+        advance = "hunk",
+        cross_files = true,
         hint = true,
         word_diff = true,
         picker = "auto",
@@ -492,6 +501,20 @@ review.files_keymap                           *claudecode-review.files_keymap*
     Type: string or false. Default: `"<leader>ak"`.
     Global normal-mode key for |:ClaudeCodeReview|. `false` leaves it
     unmapped. Zen shows the key next to its counter.
+
+review.advance                                     *claudecode-review.advance*
+    Type: string or false. Default: `"hunk"`.
+    Where the cursor goes after `cs` or `cx`. "hunk": to the next hunk, or
+    to the first one after the last; once the file has none left, it stays.
+    "file": the same, and once the file is done the next file waiting for
+    review opens at its first hunk. `false`: the cursor stays where it is.
+
+review.cross_files                             *claudecode-review.cross_files*
+    Type: boolean. Default: `true`.
+    `]k` past the last hunk opens the next file waiting for review at its
+    first hunk, and `[k` before the first hunk the previous file at its last
+    hunk. The list goes in path order and wraps around. `false` keeps them
+    inside the file.
 
 review.hint                                           *claudecode-review.hint*
     Type: boolean or string. Default: `true`.

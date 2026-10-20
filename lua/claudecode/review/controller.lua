@@ -262,6 +262,41 @@ function M.pending()
   return vim.deepcopy(state.pending)
 end
 
+---Open the file after (or before) the one in `bufnr` among the files waiting for review, at its
+---first (or last) hunk. The list goes in path order and wraps around. A proposal under review
+---before write is not on the list and goes nowhere.
+---@param bufnr integer
+---@param direction "next"|"prev"
+---@return boolean opened
+function M.goto_file(bufnr, direction)
+  if vim.b[bufnr].claudecode_proposal then
+    return false
+  end
+  local current = store_mod.normalize(vim.api.nvim_buf_get_name(bufnr))
+  local others = vim.tbl_filter(function(path)
+    return path ~= current
+  end, M.refresh_pending())
+  if #others == 0 then
+    return false
+  end
+  local forward = direction == "next"
+  local target = forward and others[1] or others[#others]
+  for i = 1, #others do
+    local path = forward and others[i] or others[#others + 1 - i]
+    if (forward and path > current) or (not forward and path < current) then
+      target = path
+      break
+    end
+  end
+  local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(target))
+  if not ok then
+    vim.notify("claudecode review: " .. tostring(err), vim.log.levels.WARN)
+    return false
+  end
+  engine.jump(vim.api.nvim_get_current_buf(), forward and "first" or "last")
+  return true
+end
+
 ---@param opts { dir: string|nil }|nil
 function M.setup(opts)
   opts = opts or {}

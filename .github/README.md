@@ -96,9 +96,11 @@ In auto mode Claude edits your files right away, the way it does in the terminal
 | `cs`         | Keep the hunk under the cursor                       |
 | `cx`         | Revert it; the file is written at once               |
 | `cS` / `cX`  | Keep or revert every hunk in the file                |
-| `]k` / `[k`  | Next or previous hunk (takes a count)                |
+| `]k` / `[k`  | Next or previous hunk (takes a count), then file     |
 | `]K` / `[K`  | Last or first hunk                                   |
 | `<leader>ak` | Files waiting for review: open, keep all, revert all |
+
+After `cs` or `cx` the cursor moves on to the next hunk, so a file is reviewed with one key per hunk; `advance = "file"` goes on to the next file too. `]k` past the last hunk opens the next file waiting for review, and `[k` before the first one goes back to the previous file.
 
 The hunk keys exist only in buffers under review; `<leader>ak` works everywhere. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
 
@@ -182,6 +184,8 @@ opts = {
       next = "]k", prev = "[k", last = "]K", first = "[K",
     },
     files_keymap = "<leader>ak",
+    advance = "hunk",           -- after cs/cx: "hunk" the next hunk, "file" then the next file, false stay
+    cross_files = true,         -- ]k past the last hunk and [k before the first go to the next/previous file
     hint = true,                -- true builds the hint from your keys; a string replaces it; false hides it
     word_diff = true,
     picker = "auto",            -- "snacks", "fzf" or "select"

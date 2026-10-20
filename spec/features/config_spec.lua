@@ -79,4 +79,15 @@ describe("feature options", function()
     assert.is_false(features.hint_text(features.config({ review = { hint = false } }).review))
     assert.equal("custom", features.hint_text(features.config({ review = { hint = "custom" } }).review))
   end)
+
+  it("moves on to the next hunk after a decision, and lets ]k cross files, by default", function()
+    local review = features.config(nil).review
+
+    assert.equal("hunk", review.advance)
+    assert.is_true(review.cross_files)
+    assert.equal("file", features.config({ review = { advance = "file" } }).review.advance)
+    assert.is_false(features.config({ review = { advance = false } }).review.advance)
+    assert.matches("review.advance must be", config_error({ review = { advance = "files" } }))
+    assert.matches("review.cross_files must be a boolean", config_error({ review = { cross_files = "yes" } }))
+  end)
 end)

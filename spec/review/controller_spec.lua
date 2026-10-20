@@ -725,4 +725,87 @@ describe("review controller", function()
     assert.same({ file }, controller.refresh_pending())
     vim.fn.delete(other, "rf")
   end)
+
+  describe("moving between the files waiting for review", function()
+    local a, b, c
+
+    local function press(keys)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)
+    end
+
+    -- Where the cursor is: the file's name in the work directory, and the row.
+    local function at()
+      return vim.fn.fnamemodify(vim.api.nvim_buf_get_name(0), ":t"), vim.api.nvim_win_get_cursor(0)[1]
+    end
+
+    before_each(function()
+      -- Every file has hunks on rows 2 and 5.
+      a, b, c = work .. "/a.txt", work .. "/b.txt", work .. "/c.txt"
+      for _, file in ipairs({ a, b, c }) do
+        write_file(file, "1\n2\n3\n4\n5\n")
+        store:snapshot(file)
+        write_file(file, "1\nX\n3\n4\nY\n")
+      end
+      controller.refresh_pending()
+    end)
+
+    after_each(function()
+      engine.setup({})
+    end)
+
+    it("opens the next file at its first hunk once a file is done, with advance = 'file'", function()
+      engine.setup({ advance = "file", goto_file = controller.goto_file })
+      open(a)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      press("cs")
+      press("cs")
+
+      local name, row = at()
+      assert.equal("b.txt", name)
+      assert.equal(2, row)
+    end)
+
+    it("goes on past the last hunk to the next file, and back to the previous file's last hunk", function()
+      engine.setup({ goto_file = controller.goto_file })
+      open(b)
+      vim.api.nvim_win_set_cursor(0, { 5, 0 })
+
+      press("]k")
+      assert.same({ "c.txt", 2 }, { at() })
+      press("[k")
+      assert.same({ "b.txt", 5 }, { at() })
+    end)
+
+    it("goes round the list: past the last file comes the first", function()
+      engine.setup({ goto_file = controller.goto_file })
+      open(c)
+      vim.api.nvim_win_set_cursor(0, { 5, 0 })
+
+      press("]k")
+
+      assert.same({ "a.txt", 2 }, { at() })
+    end)
+
+    it("keeps ]k inside the file with cross_files = false", function()
+      engine.setup({ cross_files = false, goto_file = controller.goto_file })
+      open(b)
+      vim.api.nvim_win_set_cursor(0, { 5, 0 })
+
+      press("]k")
+
+      assert.same({ "b.txt", 5 }, { at() })
+    end)
+
+    it("stays in the file once it is done, with the default advance", function()
+      engine.setup({ goto_file = controller.goto_file })
+      open(a)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      press("cs")
+      press("cs")
+
+      assert.equal("a.txt", (at()))
+    end)
+  end)
 end)

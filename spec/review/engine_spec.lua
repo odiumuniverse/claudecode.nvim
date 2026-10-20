@@ -478,6 +478,34 @@ describe("review engine navigation", function()
     press("<C-o>")
     assert.equal(3, row())
   end)
+
+  it("moves on to the next hunk once you keep one", function()
+    review_buffer()
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+    press("cs")
+
+    assert.equal(5, row())
+  end)
+
+  it("moves on from the last hunk to the first one left", function()
+    review_buffer()
+    vim.api.nvim_win_set_cursor(0, { 9, 0 })
+
+    press("cx")
+
+    assert.equal(2, row())
+  end)
+
+  it("stays on the spot with advance = false", function()
+    review.setup({ advance = false })
+    review_buffer()
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+    press("cs")
+
+    assert.equal(2, row())
+  end)
 end)
 
 ---Open a file holding `text` and put it under review against `base`.
