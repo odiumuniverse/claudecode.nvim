@@ -205,6 +205,46 @@ describe("review by permission mode", function()
       assert.same({ "sA" }, store:get(file).sessions)
     end)
 
+    describe("carries the edit into a base that", function()
+      local function accept(file, after)
+        run_hook("PreToolUse", edit("PreToolUse", "acceptEdits", file))
+        write_file(file, after)
+        run_hook("PostToolUse", edit("PostToolUse", "acceptEdits", file))
+      end
+
+      it("has CRLF endings", function()
+        local file = work .. "/crlf.txt"
+        write_file(file, "a\r\nb\r\nc\r\nd\r\ne\r\n")
+        store:snapshot(file)
+        write_file(file, "A\r\nb\r\nc\r\nd\r\ne\r\n")
+
+        accept(file, "A\r\nb\r\nc\r\nd\r\nE\r\n")
+
+        assert.equal("a\r\nb\r\nc\r\nd\r\nE\r\n", store:get(file).text)
+      end)
+
+      it("lacks the final newline, and keeps it lacking", function()
+        local file = work .. "/bare.txt"
+        write_file(file, "a\nb\nc\nd\ne")
+        store:snapshot(file)
+        write_file(file, "A\nb\nc\nd\ne")
+
+        accept(file, "A\nb\nc\nd\nE")
+
+        assert.equal("a\nb\nc\nd\nE", store:get(file).text)
+      end)
+
+      it("is empty because the file was", function()
+        local file = work .. "/empty.txt"
+        write_file(file, "")
+        store:snapshot(file)
+
+        accept(file, "x\ny\n")
+
+        assert.equal("x\ny\n", store:get(file).text)
+      end)
+    end)
+
     it("adds its session when the edit lands inside a hunk still waiting, since a revert takes it back", function()
       local file = work .. "/a.txt"
       write_file(file, "a\nb\nc\nd\ne\n")
