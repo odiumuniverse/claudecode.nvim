@@ -5,6 +5,8 @@ The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP pr
 - **Hunk review.** Keep or revert each change Claude makes, the way Cursor does, instead of accepting or rejecting the whole file.
 - **Zen mode.** Run Claude full screen inside Neovim and flip to the code with one key.
 
+![Claude edits cart.py; the edits show up as hunks; kx reverts one, ko keeps the other; Alt+z opens zen and goes back](demo.gif)
+
 With [cswap](https://github.com/realiti4/claude-swap) (claude-swap) it also switches the Claude account Neovim runs: `:ClaudeCode run 1`.
 
 Claude runs as the unmodified `claude` binary, so you sign in with your own Claude subscription.
