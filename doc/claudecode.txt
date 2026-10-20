@@ -221,8 +221,11 @@ are reviewed:
   only your uncommitted work it threw away, and the edits Claude made after
   the checkout, compared with the new HEAD. The files git simply checked out
   are not Claude's edits and stay out of review.
-- An untracked file Bash rewrote: only when the file is open in Neovim and
-  unmodified, because its old text exists nowhere else.
+- An untracked file Bash rewrote or deleted. Git keeps no copy of it, so
+  the plugin copies untracked files up to 2 MB before each Bash call, 200
+  files and 20 MB at most; on APFS a copy is a clone and costs next to
+  nothing. Past those limits such a file is reviewed only when it is open in
+  Neovim and unmodified.
 - Files outside the project as well, such as Claude's memory under
   `~/.claude/`: review follows Claude's edit tools wherever they write.
 

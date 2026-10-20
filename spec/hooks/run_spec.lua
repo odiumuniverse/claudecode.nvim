@@ -425,7 +425,10 @@ describe("hook script", function()
       end)
     end)
 
-    it("reports untracked files Bash changed so the editor can take their base from the buffer", function()
+    it("leaves an untracked file past its limit of copies to the editor, whose buffer may hold its text", function()
+      for i = 1, store_mod.MAX_UNTRACKED_COPIES do
+        write_file(string.format("%s/copied-%03d.txt", work, i), "x\n")
+      end
       write_file(work .. "/notes.txt", "before\n")
       local editor = start_editor()
       run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "echo" }), { CLAUDECODE_NVIM = editor.addr })
@@ -441,6 +444,29 @@ describe("hook script", function()
       assert.same({ work .. "/notes.txt" }, received.untracked_changed)
       assert.equal("s1", received.session_id)
       assert.is_nil(store:get(work .. "/notes.txt"))
+    end)
+
+    it("takes the base of an untracked file Bash rewrote, open in Neovim or not", function()
+      write_file(work .. "/notes.txt", "before\n")
+      run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "sed" }))
+      write_file(work .. "/notes.txt", "after\n")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Bash", { command = "sed" }))
+
+      assert.equal("before\n", store:get(work .. "/notes.txt").text)
+      assert.is_nil(vim.uv.fs_stat(dir .. "/bash/toolu_01.untracked"))
+    end)
+
+    it("puts an untracked file Bash deleted under review", function()
+      write_file(work .. "/notes.txt", "before\n")
+      run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "rm notes.txt" }))
+      vim.uv.fs_unlink(work .. "/notes.txt")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Bash", { command = "rm notes.txt" }))
+
+      local base = store:get(work .. "/notes.txt")
+      assert.equal("before\n", base.text)
+      assert.is_false(base.new_file)
     end)
   end)
 

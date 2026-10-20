@@ -206,6 +206,16 @@ end
 
 local SNIFF_BYTES = 8000
 
+local function read_file(path)
+  local f = io.open(path, "rb")
+  if not f then
+    return nil
+  end
+  local data = f:read("*a")
+  f:close()
+  return data
+end
+
 local function head_of(path)
   local f = io.open(path, "rb")
   if not f then
@@ -297,18 +307,29 @@ local function changes_of(snap, head, diff_out, untracked_out)
   end
 
   local before = snap.untracked or {}
+  local copies = snap.copies or {}
+  -- An untracked file copied before the call comes up as a tracked one would, the copy its base.
+  -- Of the others only the path goes to the editor, whose buffer may hold the old text.
+  local function untracked_change(rel)
+    local text = copies[rel] and read_file(copies[rel])
+    if text then
+      changes.tracked[#changes.tracked + 1] = { path = top .. "/" .. rel, text = text }
+    else
+      changes.untracked_changed[#changes.untracked_changed + 1] = top .. "/" .. rel
+    end
+  end
   local now = {}
   for _, rel in ipairs(split_z(untracked_out)) do
     now[rel] = true
     if before[rel] == nil then
       changes.created[#changes.created + 1] = top .. "/" .. rel
     elseif before[rel] ~= "" and stat_key(top .. "/" .. rel) ~= before[rel] then
-      changes.untracked_changed[#changes.untracked_changed + 1] = top .. "/" .. rel
+      untracked_change(rel)
     end
   end
   for rel in pairs(before) do
     if not now[rel] and not uv.fs_stat(top .. "/" .. rel) then
-      changes.untracked_changed[#changes.untracked_changed + 1] = top .. "/" .. rel
+      untracked_change(rel)
     end
   end
   table.sort(changes.created)

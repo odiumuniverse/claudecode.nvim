@@ -159,7 +159,7 @@ local function pre_tool_use(store, input, env)
     store:drop_stale_bash(M.STALE_BASH_S)
     local snaps = require("claudecode.hooks.git").snapshots(input.cwd or uv.cwd(), env.project)
     if #snaps > 0 then
-      store:save_bash(input.tool_use_id, snaps)
+      store:save_bash(input.tool_use_id, snaps, M.MAX_BYTES)
     end
   end
 end
@@ -217,6 +217,7 @@ local function post_tool_use(store, input, env)
         snaps = { snaps }
       end
       local changes = require("claudecode.hooks.git").changes_all(snaps)
+      store:drop_bash_copies(input.tool_use_id)
       -- Only a base already waiting for you moves along such a change; its buffer reloads.
       local function move_along(change)
         local current, too_big = read_all(change.path)

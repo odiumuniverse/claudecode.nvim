@@ -519,6 +519,23 @@ describe("review store", function()
     assert.same({ stash = "b" }, store:take_bash("toolu_new"))
   end)
 
+  it("drops the copies of untracked files along with a snapshot whose call never finished", function()
+    local top = vim.fn.tempname()
+    vim.fn.mkdir(top, "p")
+    vim.fn.writefile({ "mine" }, top .. "/u.txt")
+    store:save_bash("toolu_old", { { top = top, untracked = { ["u.txt"] = "1.0:5" } } }, 1024)
+    local copies = dir .. "/bash/toolu_old.untracked"
+    assert.is_not_nil(vim.uv.fs_stat(copies))
+    local day_ago = os.time() - 25 * 3600
+    vim.uv.fs_utime(dir .. "/bash/toolu_old.json", day_ago, day_ago)
+    vim.uv.fs_utime(copies, day_ago, day_ago)
+
+    store:drop_stale_bash(24 * 3600)
+    vim.fn.delete(top, "rf")
+
+    assert.is_nil(vim.uv.fs_stat(copies))
+  end)
+
   it("lists the files whose edit has started and not finished", function()
     local file = work .. "/a.txt"
     write_file(file, "x\n")

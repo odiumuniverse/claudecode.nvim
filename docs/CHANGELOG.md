@@ -5,6 +5,7 @@
 ### Fixed
 
 - **Bash in a folder of repositories.** When the project folder is not a git repository but holds several, Bash edits in any of them now come up for review. Before, a Bash call that started in such a folder escaped review entirely, and so did one that went `cd ../web` from a neighbor. The plugin snapshots up to 32 repositories one level below the folder, all at once: with 22 that takes about 0.3 s per Bash call.
+- **An untracked file Bash rewrote or deleted** comes up for review even when Neovim does not have it open, as a file Claude created and you kept but have not committed yet does when a formatter rewrites it. Before each Bash call the plugin copies untracked files up to 2 MB, 200 files and 20 MB at most; on APFS a copy is a clone.
 - Bash snapshots run their git commands at once: in a repository of 6 000 files a Bash call waits about 90 ms for review instead of 140.
 
 ## 1.1.0 (2026-10-20)

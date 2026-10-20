@@ -529,18 +529,63 @@ function Store:take_before(id)
   return text or nil
 end
 
+-- Git keeps no copy of an untracked file, so the Bash hook keeps one for a call: a rewrite of the
+-- file can be reviewed even when no buffer holds its old text. On APFS a copy is a clone and costs
+-- next to nothing; elsewhere these limits bound it.
+M.MAX_UNTRACKED_COPIES = 200
+M.MAX_UNTRACKED_COPY_BYTES = 20 * 1024 * 1024
+
+local function copies_dir(self, id)
+  return valid_id(id) and (self.dir .. "/bash/" .. id .. ".untracked") or nil
+end
+
+---Copy the untracked files of `snaps`, in path order, while the limits allow.
+---Each copied file gets `snap.copies[rel]`, the path of its copy.
+local function copy_untracked(self, id, snaps, max_file_bytes)
+  local dir = copies_dir(self, id)
+  local count, bytes = 0, 0
+  for _, snap in ipairs(snaps) do
+    local rels = vim.tbl_keys(snap.untracked or {})
+    table.sort(rels)
+    for _, rel in ipairs(rels) do
+      if count >= M.MAX_UNTRACKED_COPIES then
+        return
+      end
+      -- Without a stat key the hook cannot tell that Bash rewrote the file anyway.
+      local stat = snap.untracked[rel] ~= "" and uv.fs_stat(snap.top .. "/" .. rel)
+      if
+        stat
+        and stat.type == "file"
+        and stat.size <= max_file_bytes
+        and bytes + stat.size <= M.MAX_UNTRACKED_COPY_BYTES
+      then
+        ensure_dir(dir)
+        count = count + 1
+        local copy = dir .. "/" .. count
+        if uv.fs_copyfile(snap.top .. "/" .. rel, copy, { ficlone = true }) then
+          bytes = bytes + stat.size
+          snap.copies = snap.copies or {}
+          snap.copies[rel] = copy
+        end
+      end
+    end
+  end
+end
+
 ---@param id string tool_use_id of the Bash call
----@param snap table
+---@param snaps table[] From hooks.git.snapshots
+---@param max_file_bytes integer Untracked files up to this size get a copy, see copy_untracked
 ---@return boolean saved
-function Store:save_bash(id, snap)
+function Store:save_bash(id, snaps, max_file_bytes)
   local file = bash_file(self, id)
   if not file then
     return false
   end
   ensure_dir(self.dir)
   ensure_dir(self.dir .. "/bash")
+  copy_untracked(self, id, snaps, max_file_bytes)
   local tmp = tmp_name(file)
-  if not write_all(tmp, vim.json.encode(snap)) then
+  if not write_all(tmp, vim.json.encode(snaps)) then
     uv.fs_unlink(tmp)
     return false
   end
@@ -564,8 +609,21 @@ function Store:drop_stale_bash(max_age)
     local path = self.dir .. "/bash/" .. name
     local stat = uv.fs_stat(path)
     if stat and stat.mtime.sec < cutoff then
-      uv.fs_unlink(path)
+      if stat.type == "directory" then
+        vim.fn.delete(path, "rf")
+      else
+        uv.fs_unlink(path)
+      end
     end
+  end
+end
+
+---Remove the copies of untracked files that a Bash call kept, once PostToolUse has read them.
+---@param id string tool_use_id of the Bash call
+function Store:drop_bash_copies(id)
+  local dir = copies_dir(self, id)
+  if dir then
+    vim.fn.delete(dir, "rf")
   end
 end
 
