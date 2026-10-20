@@ -45,6 +45,49 @@ describe("review hooks wiring", function()
     assert.is_nil(env.CLAUDECODE_REVIEW_BEFORE_WRITE)
   end)
 
+  describe("the settings file", function()
+    local copy_a = "/plugin/lua/claudecode/hooks/run.lua"
+
+    it("is named after the nvim binary and the plugin copy whose paths it holds", function()
+      hooks.setup({ state_root = state, progpath = "/usr/bin/nvim", script = copy_a })
+
+      assert.equal(state .. "/hooks-settings-3add094d502e.json", hooks.settings_file())
+    end)
+
+    it("is the same file at every launch of one copy, and another file for another copy or binary", function()
+      hooks.setup({ state_root = state, progpath = "/usr/bin/nvim", script = copy_a })
+      local first = hooks.settings_file()
+      hooks.setup({ state_root = state, progpath = "/usr/bin/nvim", script = copy_a })
+      assert.equal(first, hooks.settings_file())
+
+      hooks.setup({ state_root = state, progpath = "/usr/bin/nvim", script = "/dev/lua/claudecode/hooks/run.lua" })
+      local other_copy = hooks.settings_file()
+      hooks.setup({ state_root = state, progpath = "/opt/nvim-nightly/bin/nvim", script = copy_a })
+      local other_binary = hooks.settings_file()
+
+      assert.are_not.equal(first, other_copy)
+      assert.are_not.equal(first, other_binary)
+      assert.are_not.equal(other_copy, other_binary)
+    end)
+
+    it("is never shared: a launch from another copy leaves the file of the first as it was", function()
+      hooks.setup({ state_root = state, progpath = "/usr/bin/nvim", script = copy_a })
+      hooks.decorate("claude", nil, {})
+      local first_file = hooks.settings_file()
+      local first_text = table.concat(vim.fn.readfile(first_file), "\n")
+
+      hooks.setup({ state_root = state, progpath = "/opt/nvim-dev", script = "/dev/lua/claudecode/hooks/run.lua" })
+      hooks.decorate("claude", nil, {})
+
+      assert.are_not.equal(first_file, hooks.settings_file())
+      assert.equal(first_text, table.concat(vim.fn.readfile(first_file), "\n"))
+      local second = vim.json.decode(table.concat(vim.fn.readfile(hooks.settings_file()), "\n"))
+      assert.matches("^'/opt/nvim%-dev' ", second.hooks.PreToolUse[1].hooks[1].command)
+      assert.matches("'/dev/lua/claudecode/hooks/run%.lua' PreToolUse$", second.hooks.PreToolUse[1].hooks[1].command)
+      assert.is_nil(vim.uv.fs_stat(state .. "/hooks-settings.json"))
+    end)
+  end)
+
   it("keys the state directory by project", function()
     assert.are_not.equal(hooks.state_dir("/a"), hooks.state_dir("/b"))
     assert.equal(hooks.state_dir("/a"), hooks.state_dir("/a"))

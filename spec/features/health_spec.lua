@@ -41,6 +41,23 @@ describe(":checkhealth claudecode", function()
     assert.is_nil(text:find("Failed to run healthcheck", 1, true))
   end)
 
+  it("shows the settings file of this editor by its own name", function()
+    features.state.config = features.config({})
+    local hooks = require("claudecode.hooks")
+    local state = vim.fn.tempname()
+    hooks.setup({
+      state_root = state,
+      progpath = "/usr/bin/nvim",
+      script = "/plugin/lua/claudecode/hooks/run.lua",
+    })
+
+    local text = run_health()
+    hooks.setup()
+    hooks.disable()
+
+    assert.is_not_nil(text:find(state .. "/hooks-settings-3add094d502e.json", 1, true))
+  end)
+
   it("asks for setup when the features did not start", function()
     features.state.config = nil
 
