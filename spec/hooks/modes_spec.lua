@@ -1,4 +1,5 @@
 --- Tests for how Claude's permission mode picks the review: before write, after write, or none.
+local helpers = require("helpers")
 local store_mod = require("claudecode.review.store")
 
 local script = vim.fn.fnamemodify(package.searchpath("claudecode.hooks.run", package.path), ":p")
@@ -132,6 +133,21 @@ describe("review by permission mode", function()
       assert.is_nil(store:get(file))
     end)
 
+    it("still tells the editor which file changed, so an open buffer reloads", function()
+      local file = work .. "/a.txt"
+      write_file(file, "one\n")
+      local editor = helpers.start_editor()
+      local env = { CLAUDECODE_NVIM = editor.addr }
+
+      run_hook("PreToolUse", edit("PreToolUse", "acceptEdits", file), env)
+      write_file(file, "two\n")
+      run_hook("PostToolUse", edit("PostToolUse", "acceptEdits", file), env)
+
+      local received = editor.received()
+      editor.stop()
+      assert.same({ file }, received.files)
+    end)
+
     it("carries the edit into an existing base and keeps the hunks still pending", function()
       local file = work .. "/a.txt"
       write_file(file, "a\nb\nc\nd\ne\n")
@@ -204,6 +220,43 @@ describe("review by permission mode", function()
       assert.equal("a\nb\nc\nd\nE\n", store:get(work .. "/pending.txt").text)
       assert.is_nil(store:get(work .. "/fresh.txt"))
       assert.is_nil(store:get(work .. "/created.txt"))
+    end)
+
+    it("tells the editor about every file Bash wrote, whether it has a base or not", function()
+      local function git(...)
+        local res = vim.system({ "git", "-C", work, ... }, { text = true }):wait()
+        assert(res.code == 0, res.stderr)
+      end
+      git("init", "-q")
+      git("config", "user.email", "t@example.com")
+      git("config", "user.name", "t")
+      write_file(work .. "/tracked.txt", "x\n")
+      git("add", ".")
+      git("commit", "-qm", "init")
+      write_file(work .. "/notes.txt", "mine\n") -- untracked
+      local editor = helpers.start_editor()
+      local env = { CLAUDECODE_NVIM = editor.addr }
+      local bash = {
+        cwd = work,
+        tool_name = "Bash",
+        tool_input = { command = "sed" },
+        tool_use_id = "toolu_4",
+        permission_mode = "acceptEdits",
+      }
+
+      run_hook("PreToolUse", bash, env)
+      write_file(work .. "/tracked.txt", "y\n")
+      vim.uv.fs_utime(work .. "/notes.txt", 1, 1)
+      write_file(work .. "/notes.txt", "mine, rewritten\n")
+      write_file(work .. "/created.txt", "new\n")
+      run_hook("PostToolUse", bash, env)
+
+      local received = editor.received()
+      editor.stop()
+      table.sort(received.files)
+      assert.same({ work .. "/created.txt", work .. "/notes.txt", work .. "/tracked.txt" }, received.files)
+      assert.same({}, received.untracked_changed)
+      assert.is_nil(store:get(work .. "/notes.txt"))
     end)
   end)
 end)

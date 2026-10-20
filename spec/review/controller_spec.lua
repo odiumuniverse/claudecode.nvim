@@ -82,6 +82,18 @@ describe("review controller", function()
     assert.equal(1, pending_events[#pending_events].count)
   end)
 
+  it("reloads an open file Claude changed without review, and starts none", function()
+    local file = work .. "/a.txt"
+    write_file(file, "one\n")
+    local buf = open(file)
+
+    write_file(file, "one\nadded\n")
+    controller.on_hook({ event = "PostToolUse", dir = dir, tool_name = "Edit", files = { file } })
+
+    assert.same({ "one", "added" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    assert.is_false(engine.is_attached(buf))
+  end)
+
   it("leaves a buffer with your unsaved edits alone and warns", function()
     local file = work .. "/a.txt"
     write_file(file, "one\n")

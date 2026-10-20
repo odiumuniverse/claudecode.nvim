@@ -153,9 +153,11 @@ local function post_tool_use(store, input, env)
     if path then
       local current, too_big = read_all(path)
       local before = store:take_before(input.tool_use_id)
-      if not too_big and carry(store, path, before, current) then
-        payload.files[1] = require("claudecode.review.store").normalize(path)
+      if not too_big then
+        carry(store, path, before, current)
       end
+      -- Without a base there is nothing to move, but an open buffer still has to reload.
+      payload.files[1] = require("claudecode.review.store").normalize(path)
     end
   elseif EDIT_TOOLS[input.tool_name] then
     local path = edit_path(input)
@@ -178,10 +180,14 @@ local function post_tool_use(store, input, env)
         -- Bash's edits need no review either: only bases already waiting for you move along.
         for _, change in ipairs(changes.tracked) do
           local current, too_big = read_all(change.path)
-          if not too_big and carry(store, change.path, change.text, current) then
-            payload.files[#payload.files + 1] = change.path
+          if not too_big then
+            carry(store, change.path, change.text, current)
           end
+          payload.files[#payload.files + 1] = change.path
         end
+        -- Open buffers of the other files Bash wrote reload too; none of them gets a base.
+        vim.list_extend(payload.files, changes.created)
+        vim.list_extend(payload.files, changes.untracked_changed)
       else
         for _, change in ipairs(changes.tracked) do
           if reviewable(change.text) and reviewable(read_all(change.path)) then
