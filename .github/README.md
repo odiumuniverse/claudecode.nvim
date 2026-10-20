@@ -1,5 +1,15 @@
 # claudecode.nvim
 
+[![CI](https://github.com/odiumuniverse/claudecode.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/odiumuniverse/claudecode.nvim/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/odiumuniverse/claudecode.nvim)](https://github.com/odiumuniverse/claudecode.nvim/releases)
+[![Neovim 0.11+](https://img.shields.io/badge/Neovim-0.11%2B-57A143?logo=neovim&logoColor=white)](https://neovim.io)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/odiumuniverse/claudecode.nvim/blob/main/LICENSE)
+
+**Claude Code in Neovim, with Cursor-style review: keep or revert each change Claude makes, hunk by hunk.**
+
+> [!NOTE]
+> The original [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) has had no new commits since June 2026. This repository is the up-to-date version: it keeps everything upstream does and adds hunk review, Claude's permission modes, zen mode and account switching.
+
 The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP protocol that Anthropic's VS Code extension uses. Claude opens files, reads your selection and diagnostics, and shows its edits as diffs. Two features come on top:
 
 - **Hunk review.** Keep or revert each change Claude makes, the way Cursor does, instead of accepting or rejecting the whole file.
