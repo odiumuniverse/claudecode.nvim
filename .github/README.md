@@ -213,7 +213,7 @@ How it behaves:
 - `accept` may pass text that differs from Claude's proposal. Claude writes your text, but it only learns that "the user modified your proposed content", not what you changed.
 - The plugin calls `close` once per diff: after Claude closes the tab, when the Claude session disconnects, when a new diff reuses the tab name, and when `open` throws (`reason` is `"setup failed"`). Make `close` safe to run on a half-built UI.
 - A provider gets the diff even when the file's buffer has unsaved edits; the built-in views refuse it.
-- Claude Code (checked on 2.1.304) treats the answer by tool. An Edit's text becomes a patch against the file and lands byte for byte. A Write's text loses one trailing newline, so `accept` adds one, and the file ends up with exactly your text. `openDiff` does not name the tool: the review hooks note it before Claude asks. Without their note (Claude started outside Neovim) only a new file counts as a Write, and any other text goes as is, as in upstream's views.
+- Claude Code (checked on 2.1.304) treats the answer by tool. An Edit of an existing file becomes a patch against it and lands byte for byte. The text of a Write, or of any new file, loses one trailing newline, so `accept` adds one, and the file ends up with exactly your text. `openDiff` does not name the tool: the review hooks note it before Claude asks. Without their note (Claude started outside Neovim) an existing file's text goes as is, as in upstream's views.
 
 ## Development
 

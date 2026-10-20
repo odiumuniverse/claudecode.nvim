@@ -572,13 +572,13 @@ How it behaves:
   (`reason` is "setup failed"). Make it safe to run on a half-built UI.
 - A provider gets the diff even when the file's buffer has unsaved edits. The
   built-in views refuse it.
-- Claude Code (checked on 2.1.304) treats the answer by tool. An Edit's text
-  becomes a patch against the file and lands byte for byte. A Write's text
-  loses one trailing newline, so `accept` adds one, and the file ends up with
-  exactly your text. openDiff does not name the tool: the review hooks note
-  it before Claude asks. Without their note (Claude started outside Neovim)
-  only a new file counts as a Write, and any other text goes as is, as in
-  upstream's views.
+- Claude Code (checked on 2.1.304) treats the answer by tool. An Edit of an
+  existing file becomes a patch against it and lands byte for byte. The text
+  of a Write, or of any new file, loses one trailing newline, so `accept`
+  adds one, and the file ends up with exactly your text. openDiff does not
+  name the tool: the review hooks note it before Claude asks. Without their
+  note (Claude started outside Neovim) an existing file's text goes as is, as
+  in upstream's views.
 
 The plugin fires the User events ClaudeCodeDiffOpened and ClaudeCodeDiffClosed
 for provider diffs too (|claudecode-events|).

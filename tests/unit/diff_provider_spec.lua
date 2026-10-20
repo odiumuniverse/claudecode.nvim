@@ -118,6 +118,14 @@ describe("diff_opts.provider", function()
       assert.equal("Write", ctx.tool)
     end)
 
+    -- Live on 2.1.304: Edit with an empty old_string, the answer "hello\nworld\n" gave "hello\nworld".
+    it("adds one newline to an Edit that creates a file: Claude Code drops one there too", function()
+      local text, ctx = accepted("Edit", "/tmp/claudecode_provider_spec_missing.txt")
+
+      assert.equal("line 1\nline 2 edited\n\n", text)
+      assert.equal("Edit", ctx.tool)
+    end)
+
     it("sends the text as is when nobody knows the tool, as upstream's views do", function()
       local text, ctx = accepted(nil)
 

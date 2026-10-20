@@ -38,7 +38,7 @@ function M.setup(provider, params, resolution_callback)
     new_file_contents = params.new_file_contents,
     is_new_file = vim.fn.filereadable(params.old_file_path) ~= 1,
   }
-  -- Only Write creates a file.
+  -- A new file mostly comes from Write; an Edit with an empty old_string makes one too.
   ctx.tool = M.tool_of(params.new_file_path) or (ctx.is_new_file and "Write" or nil)
 
   local state = {
@@ -69,11 +69,12 @@ function M.setup(provider, params, resolution_callback)
   ---@param content string
   function ctx.accept(content)
     -- Claude Code (2.1.304) turns an Edit's answer into a patch against the file, which keeps it byte
-    -- for byte, and drops one trailing "\n" from a Write's answer: give a Write one to drop.
+    -- for byte, and drops one trailing "\n" from the answer for a Write or a new file: give it one to drop.
+    local drops_newline = ctx.tool == "Write" or ctx.is_new_file
     resolve("saved", {
       content = {
         { type = "text", text = "FILE_SAVED" },
-        { type = "text", text = ctx.tool == "Write" and content .. "\n" or content },
+        { type = "text", text = drops_newline and content .. "\n" or content },
       },
     })
   end
