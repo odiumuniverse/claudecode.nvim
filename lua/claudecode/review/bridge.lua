@@ -8,9 +8,29 @@ local M = {}
 
 M.enabled = false
 
+---Claude's own notification ("Claude is waiting for your input"), which the hooks' settings turn off
+---in the terminal. Not while you look at Claude: there it is noise.
+---@param payload { message: string|nil }
+local function show(payload)
+  if type(payload.message) ~= "string" or payload.message == "" then
+    return
+  end
+  local claude = require("claudecode.terminal").get_active_terminal_bufnr()
+  if claude and vim.api.nvim_get_current_buf() == claude then
+    return
+  end
+  vim.notify(payload.message, vim.log.levels.INFO, { title = "Claude" })
+end
+
 ---@param payload table
 function M.on_hook(payload)
   if not M.enabled or type(payload) ~= "table" then
+    return
+  end
+  if payload.event == "Notification" then
+    vim.schedule(function()
+      show(payload)
+    end)
     return
   end
   vim.schedule(function()

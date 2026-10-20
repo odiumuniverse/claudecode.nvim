@@ -93,11 +93,11 @@ describe("review hooks wiring", function()
     assert.equal(hooks.state_dir("/a"), hooks.state_dir("/a"))
   end)
 
-  it("registers the hooks for edits, Bash and prompts", function()
+  it("registers the hooks for edits, Bash, prompts and Claude's notifications", function()
     hooks.decorate("claude", nil, {})
     local settings = vim.json.decode(table.concat(vim.fn.readfile(hooks.settings_file()), "\n"))
 
-    for _, event in ipairs({ "PreToolUse", "PostToolUse", "UserPromptSubmit" }) do
+    for _, event in ipairs({ "PreToolUse", "PostToolUse", "UserPromptSubmit", "Notification" }) do
       local entry = settings.hooks[event][1]
       assert.equal("command", entry.hooks[1].type)
       assert.matches("hooks/run%.lua' " .. event .. "$", entry.hooks[1].command)
@@ -106,11 +106,11 @@ describe("review hooks wiring", function()
     assert.equal("Edit|Write|MultiEdit|NotebookEdit|Bash", settings.hooks.PreToolUse[1].matcher)
   end)
 
-  it("has Claude ring the bell instead of a desktop notification the Neovim terminal would print", function()
+  it("turns off Claude's own notification, which the Neovim terminal would print as text", function()
     hooks.decorate("claude", nil, {})
     local settings = vim.json.decode(table.concat(vim.fn.readfile(hooks.settings_file()), "\n"))
 
-    assert.equal("terminal_bell", settings.preferredNotifChannel)
+    assert.equal("notifications_disabled", settings.preferredNotifChannel)
   end)
 
   it("writes a command the shell can run as is", function()

@@ -356,10 +356,10 @@ the next time any session asks for its own.
 HOOKS AND STATE                                      *claudecode-review-state*
 
 Every Claude session the plugin starts gets `claude --settings {file}` with
-three hooks: PreToolUse and PostToolUse for Edit, Write, MultiEdit,
-NotebookEdit and Bash, and UserPromptSubmit. Claude Code adds them to the
-hooks you already have. It does not replace them. The plugin rewrites the
-settings file at every launch:
+four hooks: PreToolUse and PostToolUse for Edit, Write, MultiEdit,
+NotebookEdit and Bash, UserPromptSubmit, and Notification. Claude Code adds
+them to the hooks you already have. It does not replace them. The plugin
+rewrites the settings file at every launch:
 `stdpath("state")/claudecode/hooks-settings-{id}.json`. The hooks in it run
 this Neovim's binary on this copy of the plugin, and {id} comes from both
 paths. A second Neovim with another binary or another copy of the plugin
@@ -370,6 +370,16 @@ Each hook is a short `nvim --clean --headless -l` script. It copies the file
 before the edit and tells Neovim about it, waiting half a second at most
 for Neovim to take the message. A hook never blocks Claude: on any error it
 writes to `hooks.log` and exits with 0, so at worst one edit escapes review.
+
+                                               *claudecode-notifications*
+Claude's notifications, such as "Claude is waiting for your input" and
+"Claude needs your permission", come to Neovim as |vim.notify()| with the
+title "Claude", but not while the cursor is in Claude's terminal: there you
+see them anyway. The settings file sets `preferredNotifChannel` to
+"notifications_disabled", so Claude sends nothing to the terminal itself.
+Some multiplexers and Kitty would get a desktop notification as Kitty's
+escape sequence, which the Neovim terminal passes on and the outer terminal
+can print as text over Claude's prompt.
 
 If you start Claude yourself (`terminal.provider = "none"`), no hooks are
 attached and review after write stays off. Review before write still works,

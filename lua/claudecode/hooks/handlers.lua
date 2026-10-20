@@ -277,6 +277,15 @@ function M.handle(event, input, env)
     return post_tool_use(store, input, env)
   elseif event == "UserPromptSubmit" then
     return context("UserPromptSubmit", take_summary(store, input))
+  elseif event == "Notification" then
+    -- "Claude is waiting for your input": shown in Neovim, since the settings turn Claude's own
+    -- notification off.
+    require("claudecode.hooks.notify").send(env.nvim, {
+      event = "Notification",
+      message = input.message,
+      title = input.title,
+      notification_type = input.notification_type,
+    })
   end
   return nil
 end

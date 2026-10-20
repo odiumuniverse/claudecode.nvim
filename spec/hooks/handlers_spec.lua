@@ -42,6 +42,39 @@ describe("hook handlers", function()
     vim.fn.delete(dir, "rf")
   end)
 
+  it("passes Claude's notification on to Neovim and answers nothing", function()
+    local notify = require("claudecode.hooks.notify")
+    local send, got = notify.send, {}
+    notify.send = function(addr, payload)
+      got[#got + 1] = { addr, payload }
+      return true
+    end
+    local input = {
+      hook_event_name = "Notification",
+      session_id = "s1",
+      message = "Claude needs your permission to use Bash",
+      title = "Claude Code",
+      notification_type = "permission_prompt",
+    }
+
+    local ok, output = pcall(handlers.handle, "Notification", input, { dir = dir, nvim = "/tmp/nvim.sock" })
+    notify.send = send
+
+    assert(ok, tostring(output))
+    assert.is_nil(output)
+    assert.same({
+      {
+        "/tmp/nvim.sock",
+        {
+          event = "Notification",
+          message = "Claude needs your permission to use Bash",
+          title = "Claude Code",
+          notification_type = "permission_prompt",
+        },
+      },
+    }, got)
+  end)
+
   describe("a file bigger than MAX_BYTES", function()
     local max
 
