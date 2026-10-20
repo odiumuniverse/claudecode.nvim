@@ -100,8 +100,8 @@ diff views.
 ==============================================================================
 HUNK REVIEW                                                *claudecode-review*
 
-When Claude edits your files right away, as it does in a terminal, the plugin
-draws what changed on top of the code:
+In auto mode Claude edits your files right away, as it does in a terminal.
+The plugin then draws what changed on top of the code:
 
 - deleted lines appear in red above the change, as virtual lines that are
   not part of the file;
@@ -173,8 +173,8 @@ WHAT GETS REVIEWED                                   *claudecode-review-scope*
 Unless Claude is in accept-edits or plan mode (|claudecode-modes|), these
 are reviewed:
 
-- Edit, Write, MultiEdit and NotebookEdit: always. In Manual mode you see the
-  proposal first (|claudecode-review-before-write|).
+- Edit, Write, MultiEdit and NotebookEdit: every call. In Manual mode you see
+  the proposal first (|claudecode-review-before-write|).
 - Bash in a git repository: every file it changed, created or deleted. The
   plugin snapshots the work tree before the call with `git stash create`,
   which does not touch your stash list. Files that git checks out with CRLF
