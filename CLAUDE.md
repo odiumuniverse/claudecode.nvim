@@ -6,6 +6,31 @@ This file provides context for Claude Code when working with this codebase.
 
 claudecode.nvim - A Neovim plugin that implements the same WebSocket-based MCP protocol as Anthropic's official IDE extensions. Built with pure Lua and zero dependencies.
 
+## This Repository
+
+This claudecode.nvim is a product of its own, built on [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) ("upstream"). The sections after this one come from upstream and describe upstream's parts: the IDE connection, the MCP tools, the terminal; where they no longer held here (the release, the checks before a commit), they are corrected. On top of upstream's parts:
+
+- **Hunk review** (`lua/claudecode/review/`): Claude's edits show up as hunks in the buffer; `cs`/`cx` keep or revert one, `cS`/`cX` the whole file, `]k`/`[k` move, `<leader>ak` lists the files waiting for review. `review/init.lua` is the engine, `review/controller.lua` ties it to the stored bases, `review/render.lua` draws.
+- **Hooks** (`lua/claudecode/hooks/`): every Claude that Neovim starts gets `claude --settings <file>` with PreToolUse, PostToolUse, UserPromptSubmit and Notification hooks. Each one is `nvim --clean --headless -l lua/claudecode/hooks/run.lua <event>`: it takes the file before the edit (for Bash, a git snapshot of the repositories), tells the editor through `hooks/notify.lua` → `review/bridge.lua`, and hands Claude a summary of your reverts.
+- **Review before write** in Manual mode: `review/provider.lua` answers upstream's `openDiff` with the hunks you kept.
+- **Notes for Claude** (`review/notes.lua`, `review/note_box.lua`, the lists in `review/picker.lua`), **zen** (`lua/claudecode/zen/`), **accounts** through cswap (`lua/claudecode/features/cswap.lua`). Options, their checks and the wiring are in `lua/claudecode/features/init.lua`; the LazyVim spec is `lazyvim/claudecode.lua`.
+
+Docs, all in English:
+
+- `.github/README.md` is what GitHub shows. The root `README.md` stays upstream's.
+- `doc/claudecode.txt` is `:help claudecode`: lines of at most 78 columns, and `spec/features/help_spec.lua` checks its tags and option defaults against the code.
+- `docs/DESIGN.md` holds the decisions and why, the places our code touches upstream files (item 7), what Claude Code's `openDiff` and hooks do in practice, and "Edges the tests found". Read it before changing how review behaves.
+- `docs/CHANGELOG.md` is our changelog (Unreleased on top). The root `CHANGELOG.md` is upstream's; `fork/sync.sh` removes it.
+- Nothing personal goes into the repository, its history or the demos: no home paths, private project names or the tools of one machine.
+
+Tests come in two suites:
+
+- `scripts/test-nvim.sh [path…]` runs `spec/` with busted inside a real headless Neovim. Our features are tested here, at their public seams: keys pressed in real buffers, hook scripts run as Claude Code runs them.
+- `mise run test` runs upstream's mocked suites in `tests/`.
+- Before every commit run `scripts/test-nvim.sh`, `mise run test`, `mise exec -- luacheck lua spec tests lazyvim --no-unused-args --no-max-line-length` and `mise exec -- treefmt --fail-on-change`, and check each commit, not only the last one. A change in behavior also gets a check by hand with a real Claude.
+
+Upstream: `fork/sync.sh` rebases our commits onto `upstream/main` and removes the files in `fork/cleanup.txt` again. Review replaces some upstream commands, and they are cut from upstream's code: `:ClaudeCodeDiffAccept`, `:ClaudeCodeDiffDeny`, `:ClaudeCodeCloseAllDiffs`, `:ClaudeCodeOpen`, `:ClaudeCodeClose`, `:ClaudeCodeStart`, `:ClaudeCodeStop`, `:ClaudeCodeStatus`, `:ClaudeCodeSelectModel`, `:ClaudeCodeSendText`. Keep them cut on a rebase and do not bring them back. The server starts with the plugin, and `:checkhealth claudecode` shows its state, the review hooks and zen.
+
 ## Common Development Commands
 
 ### Testing
@@ -260,7 +285,7 @@ cd scripts/
 
 **Authentication Flow Testing**:
 
-1. Start the plugin: `:ClaudeCodeStart`
+1. Start Neovim with the plugin: the server starts on its own, and `:checkhealth claudecode` shows it
 2. Check lock file contains `authToken`: `cat ~/.claude/ide/*.lock | jq .authToken`
 3. Test WebSocket connection with auth: Use test scripts in `scripts/` directory
 4. Verify authentication in logs: Set `log_level = "debug"` in config
@@ -372,54 +397,43 @@ Log levels for authentication events:
 
 ### Version Updates
 
-When updating the version number for a new release, you must update **ALL** of these files:
+A release of this repository updates two files:
 
-1. **`lua/claudecode/init.lua`** - Main version table:
+1. **`lua/claudecode/init.lua`** - Main version table. It feeds `:checkhealth` and the MCP `serverInfo`; on a rebase onto an upstream version bump, keep ours:
 
    ```lua
    M.version = {
-     major = 0,
-     minor = 2,  -- Update this
+     major = 1,
+     minor = 1,  -- Update this
      patch = 0,  -- Update this
      prerelease = nil,  -- Remove for stable releases
    }
    ```
 
-2. **`scripts/claude_interactive.sh`** - Multiple client version references:
-   - Line ~52: `"version": "0.2.0"` (handshake)
-   - Line ~223: `"version": "0.2.0"` (initialize)
-   - Line ~309: `"version": "0.2.0"` (reconnect)
+2. **`docs/CHANGELOG.md`** - Turn "Unreleased" into the release section with its date and a line on what the release is about; keep "Upgrading" for anything that changes what users press or set.
 
-3. **`scripts/lib_claude.sh`** - ClaudeCodeNvim version:
-   - Line ~120: `"version": "0.2.0"` (init message)
-
-4. **`CHANGELOG.md`** - Add new release section with:
-   - Release date
-   - Features with PR references
-   - Bug fixes with PR references
-   - Development improvements
+The `"version"` strings in `scripts/claude_interactive.sh` and `scripts/lib_claude.sh` are what those test clients report; they are upstream's and stay as they are.
 
 ### Release Commands
 
+`gh` in this clone resolves to upstream, so always pass `--repo`:
+
 ```bash
-# Get merged PRs since last version
-gh pr list --state merged --base main --json number,title,mergedAt,url --jq 'sort_by(.mergedAt) | reverse'
+# What changed since the last release
+git log --oneline v1.1.0..HEAD
 
-# Get commit history
-git log --oneline v0.1.0..HEAD
+# Annotated tag on main; the maintainer pushes main and the tag
+git tag -a vX.Y.Z -m "claudecode.nvim X.Y.Z"
 
-# Always run before committing
-mise run all
-
-# Verify no old version references remain
-rg "0\.1\.0" .  # Should only show CHANGELOG.md historical entries
+# After the push: the release from the pushed tag, never a new tag on the remote
+gh release create vX.Y.Z --repo odiumuniverse/claudecode.nvim --verify-tag --notes-file <notes>
 ```
 
 ## Development Workflow
 
 ### Pre-commit Requirements
 
-**ALWAYS run `mise run all` before committing any changes.** This runs code quality checks and formatting that must pass for CI to succeed. Never skip this step - many PRs fail CI because contributors don't run the build commands before committing.
+**ALWAYS run `mise run all` and `scripts/test-nvim.sh` before committing any changes** (see "This Repository" for the full list). `mise run all` runs code quality checks, formatting and upstream's tests; `scripts/test-nvim.sh` runs the specs of review, hooks and zen, which `mise run all` leaves out. Never skip this step - many PRs fail CI because contributors don't run the build commands before committing.
 
 ### Recommended Development Flow
 
@@ -491,7 +505,7 @@ error({
 ### Development Quality Gates
 
 1. **`mise run check`** - Syntax and linting (0 warnings required)
-2. **`mise run test`** - All tests passing (320/320 success rate required)
+2. **`mise run test`** and **`scripts/test-nvim.sh`** - Every test passing
 3. **`mise run format`** - Consistent code formatting
 4. **MCP Validation** - Tools return proper format structure
 5. **Integration Test** - End-to-end protocol flow verification
