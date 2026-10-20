@@ -681,6 +681,37 @@ local function decide_all(bufnr, action)
   end
 end
 
+---`c` itself, for when Neovim gives up on `cs` and the like after 'timeoutlen' and runs `c` alone:
+---the change operator would then take the next key for a motion, and in LazyVim `s` and `r` start
+---Flash. This mapping reads the next key without a timeout. One of ours does what its mapping does;
+---another mapping on `c` and that key (the global `cR`) runs; any other key makes the usual change,
+---with the count and register you typed, and the motions and text objects of plugins.
+---@param actions table<string, fun()> By the key after `c`
+---@return fun()
+local function after_c(actions)
+  return function()
+    local count, register = vim.v.count, vim.v.register
+    local ok, key = pcall(vim.fn.getcharstr)
+    if not ok or key == "\27" then
+      return
+    end
+    if actions[key] then
+      return actions[key]()
+    end
+    local other = vim.fn.maparg("c" .. key, "n", false, true)
+    if other.callback then
+      return other.callback()
+    end
+    -- Ahead of what is still typed: "cwTWO" pasted or typed fast must change first, then insert.
+    if other.rhs and other.rhs ~= "" and other.expr ~= 1 then
+      vim.api.nvim_feedkeys(vim.keycode(other.rhs), other.noremap == 1 and "ni" or "mi", false)
+      return
+    end
+    vim.api.nvim_feedkeys(key, "mi", false)
+    vim.api.nvim_feedkeys('"' .. register .. (count > 0 and count or "") .. "c", "ni", false)
+  end
+end
+
 ---@param bufnr integer
 ---@return ClaudeCodeReviewMapping[]
 mappings_for = function(bufnr)
@@ -727,6 +758,17 @@ mappings_for = function(bufnr)
       vim.cmd.normal({ args = { vim.keycode("<Esc>") }, bang = true })
       note(bufnr, math.min(a, b), math.max(a, b))
     end, "x")
+  end
+  local actions = {}
+  for _, mapping in ipairs(mappings) do
+    local key = (mapping.mode or "n") == "n" and mapping.lhs:match("^c(.)$")
+    if key then
+      actions[key] = mapping.callback
+    end
+  end
+  if next(actions) then
+    mappings[#mappings + 1] =
+      { lhs = "c", desc = "Claude review: c waits for its next key", callback = after_c(actions) }
   end
   return mappings
 end

@@ -327,10 +327,32 @@ function M.goto_file(bufnr, direction)
   return true
 end
 
----@param opts { dir: string|nil }|nil
+---The keys that move between hunks, global as well: a buffer under review has its own, and in any
+---other file they go to the files waiting for review. Without them `]k` in a file of your own did
+---nothing, and the user took the review for broken.
+---@param keymaps { next: string|false|nil, prev: string|false|nil }|nil
+local function map_moves(keymaps)
+  for _, lhs in ipairs(state.moves or {}) do
+    pcall(vim.keymap.del, "n", lhs)
+  end
+  state.moves = {}
+  for direction, lhs in pairs(keymaps or {}) do
+    if lhs then
+      vim.keymap.set("n", lhs, function()
+        if not M.goto_file(vim.api.nvim_get_current_buf(), direction) then
+          vim.notify("claudecode: nothing waits for review")
+        end
+      end, { desc = "Claude review: " .. direction .. " file waiting for review" })
+      state.moves[#state.moves + 1] = lhs
+    end
+  end
+end
+
+---@param opts { dir: string|nil, keymaps: { next: string|false|nil, prev: string|false|nil }|nil }|nil
 function M.setup(opts)
   opts = opts or {}
   M.use_dir(opts.dir or require("claudecode.hooks").state_dir(vim.fn.getcwd()))
+  map_moves(opts.keymaps)
   require("claudecode.diff_provider").tool_of = function(path)
     return state.store and state.store:edit_tool(path, M.EDITING_MAX_AGE_S)
   end
@@ -365,6 +387,7 @@ function M.teardown()
       engine.detach(buf)
     end
   end
+  map_moves(nil)
   state.store = nil
   state.pending = {}
   require("claudecode.review.notes").reset()

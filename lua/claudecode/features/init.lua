@@ -196,7 +196,11 @@ function M.setup(user, plugin_config)
     -- Your own diff_opts.provider shows proposals too, so manual mode asks for it as well.
     local own_provider = plugin_config and plugin_config.diff_opts and plugin_config.diff_opts.provider ~= nil
     require("claudecode.hooks").setup({ before_write = config.review.before_write or own_provider })
-    require("claudecode.review.controller").setup()
+    require("claudecode.review.controller").setup({
+      -- ]k and [k in a file not under review go to the files waiting for review.
+      keymaps = config.review.cross_files and { next = config.review.keymaps.next, prev = config.review.keymaps.prev }
+        or nil,
+    })
     require("claudecode.review.bridge").enabled = true
     -- Your own diff_opts.provider wins over ours.
     local diff_opts = plugin_config and plugin_config.diff_opts

@@ -11,7 +11,8 @@
 ### Fixed
 
 - **A note keeps its line after you save and close its file.** The line was written once, when you saved the note, so lines added above it and saved sent the list, `cR` and Claude to the old line once the file was closed. Now it follows the file on disk.
-
+- **`c`, a pause, then `s` no longer starts Flash.** Neovim gave up on `cs` after `'timeoutlen'` (300 ms in LazyVim) and ran the change operator, so `s` started Flash and `r` Remote Flash, under which-key's "+Change" window. In a buffer under review `c` now waits for its next key as long as you like; any key other than ours changes text as always.
+- **`]k` and `[k` work in any file.** In a file that is not under review they did nothing, though files waited for review. Now they open the next or previous one, or say that none waits.
 - **Bash in a folder of repositories.** When the project folder is not a git repository but holds several, Bash edits in any of them now come up for review. Before, a Bash call that started in such a folder escaped review entirely, and so did one that went `cd ../web` from a neighbor. The plugin snapshots up to 32 repositories one level below the folder, all at once: with 22 that takes about 0.3 s per Bash call.
 - **An untracked file Bash rewrote or deleted** comes up for review even when Neovim does not have it open, as a file Claude created and you kept but have not committed yet does when a formatter rewrites it. Before each Bash call the plugin copies untracked files up to 2 MB, 200 files and 20 MB at most; on APFS a copy is a clone.
 - **Review no longer fights your git over `index.lock`.** The Bash snapshot took the lock on a tree with uncommitted changes, so a commit you made in lazygit while Claude ran Bash could fail, and the snapshot dropped out when your git held the lock. It now works on a copy of the index.

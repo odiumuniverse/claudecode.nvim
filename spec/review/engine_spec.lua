@@ -263,6 +263,46 @@ describe("review engine keymaps", function()
 
     assert.same({}, buffer_map(bufnr, "cs"))
   end)
+
+  describe("after c", function()
+    -- Neovim gives up on cs after 'timeoutlen' and runs c alone: its mapping reads the next key.
+    local function c_then(keys)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "t", false)
+      buffer_map(vim.api.nvim_get_current_buf(), "c").callback()
+      press("")
+    end
+
+    it("still keeps the hunk when s comes only after a pause", function()
+      local bufnr = helpers.buffer({ "a", "X", "c" })
+      local opts, calls = recorder()
+      review.attach(bufnr, { "a", "b", "c" }, opts)
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      c_then("s")
+
+      assert.same({ "resolved" }, calls.done)
+      assert.same({ "a", "X", "c" }, lines(bufnr))
+    end)
+
+    it("changes text as always after any other key, with a count and a register", function()
+      local bufnr = helpers.buffer({ "one two three", "X", "c" })
+      review.attach(bufnr, { "one two three", "b", "c" }, {})
+      vim.api.nvim_win_set_cursor(0, { 1, 4 })
+
+      c_then("wTWO<Esc>")
+      assert.equal("one TWO three", lines(bufnr)[1])
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      c_then("2wnew<Esc>")
+      assert.equal("new three", lines(bufnr)[1])
+      vim.api.nvim_win_set_cursor(0, { 1, 4 })
+      vim.fn.setreg("a", "")
+      press('"acwfour<Esc>')
+      assert.equal("new four", lines(bufnr)[1])
+      assert.equal("three", vim.fn.getreg("a"))
+      c_then("cwhole<Esc>")
+      assert.equal("whole", lines(bufnr)[1])
+    end)
+  end)
 end)
 
 describe("review engine keep", function()

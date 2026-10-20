@@ -821,6 +821,36 @@ describe("review controller", function()
       assert.same({ "a.txt", 2 }, { at() })
     end)
 
+    it("takes ]k and [k to the files waiting for review from a file that is not one of them", function()
+      controller.setup({ dir = dir, keymaps = { next = "]k", prev = "[k" } })
+      local other = work .. "/b0.txt"
+      write_file(other, "mine\n")
+
+      open(other)
+      press("]k")
+      assert.same({ "c.txt", 2 }, { at() })
+      open(other)
+      press("[k")
+      assert.same({ "b.txt", 5 }, { at() })
+    end)
+
+    it("says so when ]k finds no file waiting for review", function()
+      for _, file in ipairs({ a, b, c }) do
+        store:remove(file)
+      end
+      controller.setup({ dir = dir, keymaps = { next = "]k", prev = "[k" } })
+      local notify, said = vim.notify, nil
+      vim.notify = function(msg)
+        said = msg
+      end
+      open(work .. "/b0.txt")
+
+      press("]k")
+      vim.notify = notify
+
+      assert.matches("nothing waits for review", said)
+    end)
+
     it("keeps ]k inside the file with cross_files = false", function()
       engine.setup({ cross_files = false, goto_file = controller.goto_file })
       open(b)
