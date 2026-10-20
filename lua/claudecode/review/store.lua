@@ -366,21 +366,40 @@ function Store:list()
   return bases
 end
 
+-- A session that stays away this long will not come back for its reverts.
+local REVERTS_MAX_AGE_S = 7 * 24 * 3600
+
+---Tell Claude about a revert: every session that edited the file hears of it, from its own file in
+---`reverts/`. A file whose base knows no session (made before sessions were tracked) goes to
+---`reverts.jsonl`, which any session takes.
 ---@param rec ClaudeCodeRevertRecord
 function Store:append_revert(rec)
   ensure_dir(self.dir)
-  -- One write per record on an O_APPEND descriptor keeps concurrent appends whole.
-  local fd = uv.fs_open(self.dir .. "/reverts.jsonl", "a", FILE_MODE)
-  if fd then
-    uv.fs_write(fd, vim.json.encode(rec) .. "\n", -1)
-    uv.fs_close(fd)
+  local base = type(rec.path) == "string" and self:get(rec.path) or nil
+  local files = {}
+  for _, id in ipairs(base and base.sessions or {}) do
+    files[#files + 1] = self.dir .. "/reverts/" .. id .. ".jsonl"
+  end
+  if #files > 0 then
+    ensure_dir(self.dir .. "/reverts")
+  else
+    files[1] = self.dir .. "/reverts.jsonl"
+  end
+  local line = vim.json.encode(rec) .. "\n"
+  for _, file in ipairs(files) do
+    -- One write per record on an O_APPEND descriptor keeps concurrent appends whole.
+    local fd = uv.fs_open(file, "a", FILE_MODE)
+    if fd then
+      uv.fs_write(fd, line, -1)
+      uv.fs_close(fd)
+    end
   end
 end
 
----Read and clear the revert records. A record appended meanwhile lands in a fresh file.
+---Read and clear one file of revert records. A record appended meanwhile lands in a fresh file.
+---@param log string
 ---@return ClaudeCodeRevertRecord[]
-function Store:take_reverts()
-  local log = self.dir .. "/reverts.jsonl"
+local function take_file(log)
   local taking = tmp_name(log)
   if not uv.fs_rename(log, taking) then
     return {}
@@ -394,6 +413,36 @@ function Store:take_reverts()
       records[#records + 1] = rec
     end
   end
+  return records
+end
+
+---The files of sessions that never came back for them go after a week.
+function Store:_drop_stale_reverts()
+  local handle = uv.fs_scandir(self.dir .. "/reverts")
+  local cutoff = os.time() - REVERTS_MAX_AGE_S
+  while handle do
+    local name = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+    local path = self.dir .. "/reverts/" .. name
+    local stat = uv.fs_stat(path)
+    if stat and stat.mtime.sec < cutoff then
+      uv.fs_unlink(path)
+    end
+  end
+end
+
+---Read and clear the revert records of a session, and those in the common file.
+---@param session_id string|nil Without a usable id only the common file is taken
+---@return ClaudeCodeRevertRecord[]
+function Store:take_reverts(session_id)
+  local records = {}
+  if valid_id(session_id) then
+    records = take_file(self.dir .. "/reverts/" .. session_id .. ".jsonl")
+  end
+  vim.list_extend(records, take_file(self.dir .. "/reverts.jsonl"))
+  self:_drop_stale_reverts()
   return records
 end
 

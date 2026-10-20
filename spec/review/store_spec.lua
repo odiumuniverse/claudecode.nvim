@@ -291,6 +291,100 @@ describe("review store", function()
     end)
   end)
 
+  describe("revert records of several sessions", function()
+    local a, b
+
+    local function revert(path, line)
+      store:append_revert({ path = path, line = line or 1, base_lines = { "a" }, claude_lines = { "b" }, time = 1 })
+    end
+
+    before_each(function()
+      a, b = work .. "/a.txt", work .. "/b.txt"
+      write_file(a, "x\n")
+      write_file(b, "y\n")
+    end)
+
+    it("gives a revert only to the session that edited the file", function()
+      store:snapshot(a, "sA")
+      store:snapshot(b, "sB")
+      revert(a)
+      revert(b)
+
+      local for_a, for_b = store:take_reverts("sA"), store:take_reverts("sB")
+
+      assert.equal(1, #for_a)
+      assert.equal(a, for_a[1].path)
+      assert.equal(1, #for_b)
+      assert.equal(b, for_b[1].path)
+    end)
+
+    it("gives a revert to every session that edited the file", function()
+      store:snapshot(a, "sA")
+      store:snapshot(a, "sB")
+      revert(a)
+
+      assert.equal(1, #store:take_reverts("sA"))
+      assert.equal(1, #store:take_reverts("sB"))
+      assert.same({}, store:take_reverts("sA"))
+    end)
+
+    it("puts a revert of a base without sessions where any session takes it, once", function()
+      store:snapshot(a)
+      revert(a)
+
+      assert.equal(1, #store:take_reverts("sA"))
+      assert.same({}, store:take_reverts("sB"))
+    end)
+
+    it("hands the common file to a session that has no id, and leaves the sessions' files", function()
+      store:snapshot(a, "sA")
+      store:snapshot(b)
+      revert(a)
+      revert(b)
+
+      local taken = store:take_reverts()
+
+      assert.equal(1, #taken)
+      assert.equal(b, taken[1].path)
+      assert.equal(1, #store:take_reverts("sA"))
+    end)
+
+    it("reads no file outside the reverts directory for a session id that is not a plain name", function()
+      vim.fn.mkdir(dir .. "/reverts", "p")
+      write_file(dir .. "/x.jsonl", vim.json.encode({ path = "/p/x", line = 1 }) .. "\n")
+      store:snapshot(b)
+      revert(b)
+
+      local taken = store:take_reverts("../x")
+
+      assert.equal(1, #taken)
+      assert.equal(b, taken[1].path)
+      assert.is_not_nil(read_file(dir .. "/x.jsonl"))
+    end)
+
+    it("writes no file outside the reverts directory for a session id in a base", function()
+      store:snapshot(a, "../x")
+      revert(a)
+
+      assert.is_nil(read_file(dir .. "/x.jsonl"))
+      assert.equal(1, #store:take_reverts())
+    end)
+
+    it("deletes the file of a session untouched for a week when any session takes its own", function()
+      store:snapshot(a, "gone")
+      store:snapshot(b, "recent")
+      revert(a)
+      revert(b)
+      local week_and_a_day = os.time() - 8 * 24 * 3600
+      assert(vim.uv.fs_utime(dir .. "/reverts/gone.jsonl", week_and_a_day, week_and_a_day))
+
+      assert.same({}, store:take_reverts("other"))
+
+      assert.is_nil(vim.uv.fs_stat(dir .. "/reverts/gone.jsonl"))
+      assert.equal(1, #store:take_reverts("recent"))
+    end)
+  end)
+
   it("hands a Bash snapshot out once", function()
     store:save_bash("toolu_1", { stash = "abc", untracked = { "x.txt" } })
 
