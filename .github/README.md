@@ -122,10 +122,11 @@ Unless Claude is in accept-edits or plan mode (see [Modes](#modes)):
 
 - `Edit`, `Write`, `MultiEdit` and `NotebookEdit`: every call. In Manual mode you see the proposal first (see [Review before write](#review-before-write)).
 - `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. Files that git checks out with CRLF endings (`eol=crlf`, `core.autocrlf`) keep them through review and `cx`.
+- `Bash` in a project whose folder is not a git repository but holds several, one per service, say: every repository one level below that folder, up to 32, so `cd api && make fmt` from the folder or `cd ../web` from a neighbor is reviewed too. The plugin snapshots them all at once; with 22 repositories that takes about 0.3 s per Bash call.
 - A Bash command that moves HEAD (`git switch`, `pull`, `rebase`, `reset`): only your uncommitted work it threw away, and the edits Claude made after the checkout, compared with the new HEAD. The files git simply checked out are not Claude's edits and stay out of review.
 - An untracked file Bash rewrote: only when the file is open in Neovim and unmodified, because its old text exists nowhere else.
 - Files outside the project as well, such as Claude's memory under `~/.claude/`: review follows Claude's edit tools wherever they write.
-- Not reviewed: binary files, files over 2 MB, new files Bash creates in paths that `.gitignore` covers, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
+- Not reviewed: binary files, files over 2 MB, new files Bash creates in paths that `.gitignore` covers, edits outside a Claude tool call (yours, `git pull`, other programs), Bash edits outside git repositories, and an edit the same Bash call commits (`sed -i f && git commit -am …`): after the call `f` matches the new HEAD, as after a checkout.
 - If you refuse an edit and then create or change that file yourself, review treats the file as yours.
 
 ### How it works

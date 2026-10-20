@@ -36,7 +36,8 @@ describe("hook script", function()
       .system({ vim.v.progpath, "--clean", "--headless", "-l", script, event }, {
         stdin = vim.json.encode(input),
         -- NVIM would point at this test Neovim, which cannot answer while it waits for the hook.
-        env = vim.tbl_extend("force", { CLAUDECODE_REVIEW_DIR = dir, NVIM = "" }, env or {}),
+        -- CLAUDE_PROJECT_DIR is set when the tests run under Claude Code.
+        env = vim.tbl_extend("force", { CLAUDECODE_REVIEW_DIR = dir, NVIM = "", CLAUDE_PROJECT_DIR = "" }, env or {}),
         text = true,
       })
       :wait()
@@ -440,6 +441,59 @@ describe("hook script", function()
       assert.same({ work .. "/notes.txt" }, received.untracked_changed)
       assert.equal("s1", received.session_id)
       assert.is_nil(store:get(work .. "/notes.txt"))
+    end)
+  end)
+
+  describe("around Bash in a folder of repositories", function()
+    before_each(function()
+      for _, name in ipairs({ "api", "web" }) do
+        local repo = work .. "/" .. name
+        vim.fn.mkdir(repo, "p")
+        git(repo, "init", "-q")
+        git(repo, "config", "user.email", "t@example.com")
+        git(repo, "config", "user.name", "t")
+        write_file(repo .. "/tracked.txt", "committed in " .. name .. "\n")
+        git(repo, "add", "tracked.txt")
+        git(repo, "commit", "-qm", "init")
+      end
+    end)
+
+    it("takes bases of the files Bash changed in a repository below the folder", function()
+      local cmd = { command = "cd api && sed -i '' s/committed/changed/ tracked.txt" }
+      run_hook("PreToolUse", tool("PreToolUse", "Bash", cmd))
+      write_file(work .. "/api/tracked.txt", "changed in api\n")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd))
+
+      assert.equal("committed in api\n", store:get(work .. "/api/tracked.txt").text)
+      assert.is_nil(store:get(work .. "/web/tracked.txt"))
+    end)
+
+    it("takes no base for the files a branch switch below the folder checked out", function()
+      local api = work .. "/api"
+      git(api, "switch", "-q", "-c", "other")
+      write_file(api .. "/tracked.txt", "on other\n")
+      git(api, "commit", "-qam", "other")
+      git(api, "switch", "-q", "-")
+      local cmd = { command = "cd api && git switch other" }
+      run_hook("PreToolUse", tool("PreToolUse", "Bash", cmd))
+      git(api, "switch", "-q", "other")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd))
+
+      assert.is_nil(store:get(api .. "/tracked.txt"))
+    end)
+
+    it("takes bases in a neighbor of the repository Claude stands in", function()
+      local env = { CLAUDE_PROJECT_DIR = work }
+      local cmd = { command = "cd ../web && sed -i '' s/committed/changed/ tracked.txt" }
+      local extra = { cwd = work .. "/api" }
+      run_hook("PreToolUse", tool("PreToolUse", "Bash", cmd, extra), env)
+      write_file(work .. "/web/tracked.txt", "changed in web\n")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd, extra), env)
+
+      assert.equal("committed in web\n", store:get(work .. "/web/tracked.txt").text)
     end)
   end)
 

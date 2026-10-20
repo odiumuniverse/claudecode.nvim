@@ -20,6 +20,8 @@ local ok, err = pcall(function()
     dir = dir,
     nvim = os.getenv("CLAUDECODE_NVIM") or os.getenv("NVIM"),
     before_write = os.getenv("CLAUDECODE_REVIEW_BEFORE_WRITE") == "1",
+    -- Claude Code sets it for every hook: the folder Claude was started in.
+    project = os.getenv("CLAUDE_PROJECT_DIR"),
   })
   if output then
     io.write(vim.json.encode(output))

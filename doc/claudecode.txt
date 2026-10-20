@@ -212,6 +212,11 @@ are reviewed:
   plugin snapshots the work tree before the call with `git stash create`,
   which does not touch your stash list. Files that git checks out with CRLF
   endings (`eol=crlf`, `core.autocrlf`) keep them through review and revert.
+- Bash in a project whose folder is not a git repository but holds several:
+  every repository one level below that folder, up to 32, so `cd api && make
+  fmt` from the folder or `cd ../web` from a neighbor is reviewed too. The
+  plugin snapshots them all at once; with 22 repositories that takes about
+  0.3 s per Bash call.
 - A Bash command that moves HEAD (`git switch`, `pull`, `rebase`, `reset`):
   only your uncommitted work it threw away, and the edits Claude made after
   the checkout, compared with the new HEAD. The files git simply checked out
@@ -226,7 +231,9 @@ Not reviewed:
 - binary files (a NUL byte in the first 8000 bytes) and files over 2 MB;
 - new files Bash creates in paths that `.gitignore` covers;
 - edits outside a Claude tool call: yours, `git pull`, other programs;
-- Bash edits outside git repositories.
+- Bash edits outside git repositories;
+- an edit the same Bash call commits (`sed -i f && git commit -am …`): after
+  the call `f` matches the new HEAD, as after a checkout.
 
 If you refuse an edit and then create or change that file yourself, review
 treats the file as yours.

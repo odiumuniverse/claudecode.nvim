@@ -157,9 +157,9 @@ local function pre_tool_use(store, input, env)
     end
   elseif input.tool_name == "Bash" then
     store:drop_stale_bash(M.STALE_BASH_S)
-    local snap = require("claudecode.hooks.git").snapshot(input.cwd or uv.cwd())
-    if snap then
-      store:save_bash(input.tool_use_id, snap)
+    local snaps = require("claudecode.hooks.git").snapshots(input.cwd or uv.cwd(), env.project)
+    if #snaps > 0 then
+      store:save_bash(input.tool_use_id, snaps)
     end
   end
 end
@@ -210,9 +210,13 @@ local function post_tool_use(store, input, env)
       payload.files[1] = require("claudecode.review.store").normalize(path)
     end
   elseif input.tool_name == "Bash" then
-    local snap = store:take_bash(input.tool_use_id)
-    if snap then
-      local changes = require("claudecode.hooks.git").changes(snap)
+    local snaps = store:take_bash(input.tool_use_id)
+    if snaps then
+      -- A call that began before an update of the plugin left one snapshot, not a list.
+      if snaps.top then
+        snaps = { snaps }
+      end
+      local changes = require("claudecode.hooks.git").changes_all(snaps)
       -- Only a base already waiting for you moves along such a change; its buffer reloads.
       local function move_along(change)
         local current, too_big = read_all(change.path)
@@ -262,7 +266,7 @@ end
 
 ---@param event string Hook event name from argv
 ---@param input table Decoded hook input
----@param env { dir: string, nvim: string|nil, before_write: boolean|nil }
+---@param env { dir: string, nvim: string|nil, before_write: boolean|nil, project: string|nil }
 ---@return table|nil output JSON object for stdout
 function M.handle(event, input, env)
   local store = require("claudecode.review.store").new(env.dir)

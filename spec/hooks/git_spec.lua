@@ -64,4 +64,54 @@ describe("hook git snapshots", function()
 
     assert.is_not_nil(snap)
   end)
+
+  describe("in a folder of repositories", function()
+    local folder, max_repos
+
+    local function repo(name)
+      local path = folder .. "/" .. name
+      vim.fn.mkdir(path, "p")
+      sh(path, "git init -q && git config user.email t@example.com && git config user.name t")
+      write_file(path .. "/f.txt", name .. "\n")
+      sh(path, "git add -A && git commit -qm init")
+      return path
+    end
+
+    local function tops(snaps)
+      return vim.tbl_map(function(snap)
+        return snap.top
+      end, snaps)
+    end
+
+    before_each(function()
+      folder = vim.fn.tempname()
+      vim.fn.mkdir(folder, "p")
+      folder = vim.uv.fs_realpath(folder)
+      max_repos = git.MAX_REPOS
+    end)
+
+    after_each(function()
+      git.MAX_REPOS = max_repos
+      vim.fn.delete(folder, "rf")
+    end)
+
+    it("snapshots no more repositories than its limit, in name order", function()
+      local a, b = repo("a"), repo("b")
+      repo("c")
+      git.MAX_REPOS = 2
+
+      assert.same({ a, b }, tops(git.snapshots(folder)))
+    end)
+
+    it("leaves out only the repository git could not snapshot", function()
+      local a, b = repo("a"), repo("b")
+      write_file(a .. "/f.txt", "my work in progress\n")
+      write_file(a .. "/.git/index.lock", "")
+
+      local snaps = git.snapshots(folder)
+      vim.uv.fs_unlink(a .. "/.git/index.lock")
+
+      assert.same({ b }, tops(snaps))
+    end)
+  end)
 end)

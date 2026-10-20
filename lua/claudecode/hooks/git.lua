@@ -14,15 +14,58 @@ local EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 -- Past this many untracked files, skip the per-file stat that spots Bash rewriting one.
 local MAX_UNTRACKED_STAT = 5000
 
-local function run(cwd, args)
+-- A folder of repositories gets a snapshot of this many of them at most: each one costs every Bash call.
+M.MAX_REPOS = 32
+
+local HEAD = { "rev-parse", "--verify", "-q", "HEAD" }
+local STASH = { "stash", "create" }
+local UNTRACKED = { "ls-files", "--others", "--exclude-standard", "-z" }
+
+local function start(cwd, args)
   local cmd = { "git", "-C", cwd }
   vim.list_extend(cmd, args)
   -- Optional locks off: our read-only calls must not fight your git commands over index.lock.
-  local res = vim.system(cmd, { text = false, env = { GIT_OPTIONAL_LOCKS = "0" } }):wait(10000)
+  return vim.system(cmd, { text = false, env = { GIT_OPTIONAL_LOCKS = "0" } })
+end
+
+---@return string|nil stdout Nil when git failed
+local function finish(job)
+  local res = job:wait(10000)
   if res.code ~= 0 then
     return nil
   end
   return res.stdout or ""
+end
+
+local function run(cwd, args)
+  return finish(start(cwd, args))
+end
+
+---Start git in several repositories at once: a folder of them costs the slowest one, not the sum.
+---Start every command a step needs before waiting for any of them.
+---@param tops string[]
+---@param args string[]|fun(i: integer): string[] The same arguments everywhere, or per repository
+---@return table[] jobs
+local function start_each(tops, args)
+  local jobs = {}
+  for i, top in ipairs(tops) do
+    jobs[i] = start(top, type(args) == "function" and args(i) or args)
+  end
+  return jobs
+end
+
+---@param jobs table[] From start_each
+---@return table<integer, string> outs By index; nil where git failed
+local function finish_each(jobs)
+  local outs = {}
+  for i, job in ipairs(jobs) do
+    outs[i] = finish(job)
+  end
+  return outs
+end
+
+local function trim(out)
+  return (out or ""):gsub("%s+$", "")
 end
 
 local function split_z(out)
@@ -41,13 +84,6 @@ local function stat_key(path)
   return string.format("%d.%d:%d", st.mtime.sec, st.mtime.nsec or 0, st.size)
 end
 
----@param top string
----@return string head The commit HEAD points to, "" in a repository without commits
-local function head_of_repo(top)
-  local out = run(top, { "rev-parse", "--verify", "-q", "HEAD" }) or ""
-  return (out:gsub("%s+$", ""))
-end
-
 ---@param cwd string
 ---@return string|nil toplevel
 function M.toplevel(cwd)
@@ -59,43 +95,113 @@ function M.toplevel(cwd)
   return uv.fs_realpath(top) or top
 end
 
----Record the work tree before a Bash call.
----@param cwd string
----@return table|nil snap { top, head, stash, untracked = { [relpath] = stat_key } }
-function M.snapshot(cwd)
-  local top = M.toplevel(cwd)
-  if not top then
+---@param top string
+---@param head string The commit HEAD points to, "" in a repository without commits
+---@param stash string|nil What `stash create` printed; nil when it failed
+---@param untracked_out string|nil What `ls-files --others` printed
+---@return table|nil snap
+local function snapshot_of(top, head, stash, untracked_out)
+  if head == "" then
+    stash = EMPTY_TREE
+  elseif stash == nil then
+    -- It takes the index lock, so it fails next to another git process. Falling back to HEAD
+    -- would make all of your uncommitted work look like Claude's change: better no snapshot.
     return nil
-  end
-  local head = head_of_repo(top)
-  local stash = EMPTY_TREE
-  if head ~= "" then
+  else
     -- `stash create` stores the work tree as a dangling commit without touching the stash list;
     -- it prints nothing on a clean tree, where HEAD already is the snapshot.
-    local out = run(top, { "stash", "create" })
-    for _ = 1, 2 do
-      if out ~= nil then
-        break
-      end
-      uv.sleep(100) -- a parallel hook or your own git command usually lets go of the index lock at once
-      out = run(top, { "stash", "create" })
-    end
-    if out == nil then
-      -- It takes the index lock, so it fails next to another git process. Falling back to HEAD
-      -- would make all of your uncommitted work look like Claude's change: better no snapshot.
-      return nil
-    end
-    stash = out:gsub("%s+$", "")
+    stash = trim(stash)
     if stash == "" then
       stash = head
     end
   end
   local untracked = {}
-  local files = split_z(run(top, { "ls-files", "--others", "--exclude-standard", "-z" }))
-  for i, rel in ipairs(files) do
+  for i, rel in ipairs(split_z(untracked_out)) do
     untracked[rel] = i <= MAX_UNTRACKED_STAT and (stat_key(top .. "/" .. rel) or "") or ""
   end
   return { top = top, head = head, stash = stash, untracked = untracked }
+end
+
+---@param tops string[]
+---@return table<integer, table> snaps By index in `tops`; nil where git could not take one
+local function snapshot_all(tops)
+  local head_jobs, stash_jobs, untracked_jobs =
+    start_each(tops, HEAD), start_each(tops, STASH), start_each(tops, UNTRACKED)
+  local heads, stashes, untracked = finish_each(head_jobs), finish_each(stash_jobs), finish_each(untracked_jobs)
+  for _ = 1, 2 do
+    local again = {}
+    for i = 1, #tops do
+      if heads[i] and not stashes[i] then
+        again[#again + 1] = i
+      end
+    end
+    if #again == 0 then
+      break
+    end
+    uv.sleep(100) -- a parallel hook or your own git command usually lets go of the index lock at once
+    local outs = finish_each(start_each(
+      vim.tbl_map(function(i)
+        return tops[i]
+      end, again),
+      STASH
+    ))
+    for k, i in ipairs(again) do
+      stashes[i] = outs[k]
+    end
+  end
+  local snaps = {}
+  for i, top in ipairs(tops) do
+    snaps[i] = snapshot_of(top, trim(heads[i]), stashes[i], untracked[i])
+  end
+  return snaps
+end
+
+---Record the work tree before a Bash call.
+---@param cwd string
+---@return table|nil snap { top, head, stash, untracked = { [relpath] = stat_key } }
+function M.snapshot(cwd)
+  local top = M.toplevel(cwd)
+  return top and snapshot_all({ top })[1] or nil
+end
+
+---The repositories one level below `dir`, in name order.
+---@param dir string
+---@return string[]
+local function repos_below(dir)
+  local tops = {}
+  for name in vim.fs.dir(dir) do
+    local path = dir .. "/" .. name
+    if uv.fs_stat(path .. "/.git") then
+      tops[#tops + 1] = uv.fs_realpath(path) or path
+    end
+  end
+  table.sort(tops)
+  return tops
+end
+
+---Record the work trees a Bash call can touch: the repository around `cwd`, and, when the project
+---root is no repository but a folder that holds several, each repository one level below it.
+---@param cwd string
+---@param project string|nil Where Claude was started; `cwd` when unknown
+---@return table[] snaps As M.snapshot gives them; a repository git could not snapshot is left out
+function M.snapshots(cwd, project)
+  local root = project and project ~= "" and project or cwd
+  local top = M.toplevel(cwd)
+  local tops = { top }
+  if not (root == cwd and top or M.toplevel(root)) then
+    for _, repo in ipairs(repos_below(root)) do
+      if repo ~= top then
+        tops[#tops + 1] = repo
+      end
+    end
+  end
+  local count = math.min(#tops, M.MAX_REPOS)
+  local taken = snapshot_all(vim.list_slice(tops, 1, count))
+  local snaps = {}
+  for i = 1, count do
+    snaps[#snaps + 1] = taken[i]
+  end
+  return snaps
 end
 
 local SNIFF_BYTES = 8000
@@ -150,9 +256,9 @@ end
 ---A call that moved HEAD (switch, pull, rebase, reset) had git rewrite files. Which of them matched
 ---the old HEAD before the call, and which differ from the new HEAD after it.
 ---@param snap table From M.snapshot
+---@param head string HEAD now
 ---@return { head: string, dirty_before: table<string, true>, dirty_after: table<string, true> }|nil
-local function head_move(snap)
-  local head = head_of_repo(snap.top)
+local function head_move(snap, head)
   if not snap.head or snap.head == "" or head == "" or head == snap.head then
     return nil
   end
@@ -164,15 +270,17 @@ local function head_move(snap)
   return { head = head, dirty_before = dirty_before, dirty_after = dirty_after }
 end
 
----What a Bash call changed since `snap`.
 ---@param snap table From M.snapshot
----@return table changes { tracked = { {path, text|nil} }, checked_out = { {path, text|nil} }, created = {path}, untracked_changed = {path} }
-function M.changes(snap)
+---@param head string HEAD now
+---@param diff_out string|nil What `git diff --name-only` against the snapshot printed
+---@param untracked_out string|nil What `ls-files --others` printed
+---@return table changes As M.changes gives them
+local function changes_of(snap, head, diff_out, untracked_out)
   local top, stash = snap.top, snap.stash
   local changes = { tracked = {}, checked_out = {}, created = {}, untracked_changed = {} }
 
-  local move = head_move(snap)
-  for _, rel in ipairs(split_z(run(top, { "diff", "--name-only", "-z", "--no-renames", stash }))) do
+  local move = head_move(snap, head)
+  for _, rel in ipairs(split_z(diff_out)) do
     local list, from = changes.tracked, stash
     if move and not move.dirty_before[rel] then
       if move.dirty_after[rel] then
@@ -190,7 +298,7 @@ function M.changes(snap)
 
   local before = snap.untracked or {}
   local now = {}
-  for _, rel in ipairs(split_z(run(top, { "ls-files", "--others", "--exclude-standard", "-z" }))) do
+  for _, rel in ipairs(split_z(untracked_out)) do
     now[rel] = true
     if before[rel] == nil then
       changes.created[#changes.created + 1] = top .. "/" .. rel
@@ -206,6 +314,34 @@ function M.changes(snap)
   table.sort(changes.created)
   table.sort(changes.untracked_changed)
   return changes
+end
+
+---What a Bash call changed since `snaps`, in all of their repositories together.
+---@param snaps table[] From M.snapshots
+---@return table changes As M.changes gives them
+function M.changes_all(snaps)
+  local tops = vim.tbl_map(function(snap)
+    return snap.top
+  end, snaps)
+  local head_jobs, untracked_jobs = start_each(tops, HEAD), start_each(tops, UNTRACKED)
+  local diff_jobs = start_each(tops, function(i)
+    return { "diff", "--name-only", "-z", "--no-renames", snaps[i].stash }
+  end)
+  local heads, diffs, untracked = finish_each(head_jobs), finish_each(diff_jobs), finish_each(untracked_jobs)
+  local all = { tracked = {}, checked_out = {}, created = {}, untracked_changed = {} }
+  for i, snap in ipairs(snaps) do
+    for key, list in pairs(changes_of(snap, trim(heads[i]), diffs[i], untracked[i])) do
+      vim.list_extend(all[key], list)
+    end
+  end
+  return all
+end
+
+---What a Bash call changed since `snap`.
+---@param snap table From M.snapshot
+---@return table changes { tracked = { {path, text|nil} }, checked_out = { {path, text|nil} }, created = {path}, untracked_changed = {path} }
+function M.changes(snap)
+  return M.changes_all({ snap })
 end
 
 return M

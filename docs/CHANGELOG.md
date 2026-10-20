@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Bash in a folder of repositories.** When the project folder is not a git repository but holds several, Bash edits in any of them now come up for review. Before, a Bash call that started in such a folder escaped review entirely, and so did one that went `cd ../web` from a neighbor. The plugin snapshots up to 32 repositories one level below the folder, all at once: with 22 that takes about 0.3 s per Bash call.
+- Bash snapshots run their git commands at once: in a repository of 6 000 files a Bash call waits about 90 ms for review instead of 140.
+
 ## 1.1.0 (2026-10-20)
 
 Review without leaving Neovim and with fewer keystrokes: notes that send Claude back to rework a change, a cursor that moves on by itself, and review keys that no longer slow down `k`.
