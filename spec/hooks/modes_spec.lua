@@ -16,7 +16,12 @@ describe("review by permission mode", function()
     local res = vim
       .system({ vim.v.progpath, "--clean", "--headless", "-l", script, event }, {
         stdin = vim.json.encode(input),
-        env = vim.tbl_extend("force", { CLAUDECODE_REVIEW_DIR = dir, CLAUDECODE_REVIEW_BEFORE_WRITE = "1" }, env or {}),
+        -- NVIM would point at this test Neovim, which cannot answer while it waits for the hook.
+        env = vim.tbl_extend(
+          "force",
+          { CLAUDECODE_REVIEW_DIR = dir, CLAUDECODE_REVIEW_BEFORE_WRITE = "1", NVIM = "" },
+          env or {}
+        ),
         text = true,
       })
       :wait()
