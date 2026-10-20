@@ -167,7 +167,8 @@ hunk; the list goes in path order and wraps around
 (|claudecode-review.cross_files|). They set the jump mark, so <C-o> goes
 back. In a file that is not under review, `]k` and `[k` open the next or
 previous file waiting for review, and say "nothing waits for review" when
-none does; a global mapping of your own on these keys stays yours there. `cs` and `cx` outside a hunk say "no hunk here".
+none does; a global mapping of your own on these keys stays yours there.
+`cs` and `cx` outside a hunk say "no hunk here".
 
 Why `c`: Neovim waits for a motion after `c` in any case, and `s`, `x`, `S`
 and `X` are no motions, so these keys delay nothing. A key such as `ko` would
