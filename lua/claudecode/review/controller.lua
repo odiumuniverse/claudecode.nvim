@@ -207,10 +207,13 @@ function M.on_hook(payload)
     local buf = loaded_buf(path)
     if buf then
       if vim.bo[buf].modified then
+        -- A file without a base (an edit taken without review) has no review to start.
+        local later = state.store:get(path) and " Review starts after :e! loads Claude's version." or ""
         vim.notify(
           "claudecode: Claude changed "
             .. vim.fn.fnamemodify(path, ":~:.")
-            .. " on disk, but the buffer has unsaved edits. Review starts after :e! loads Claude's version.",
+            .. " on disk, but the buffer has unsaved edits."
+            .. later,
           vim.log.levels.WARN
         )
       else

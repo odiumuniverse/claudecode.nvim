@@ -114,6 +114,26 @@ describe("review controller", function()
     assert.matches("a%.txt", warned.msg)
   end)
 
+  it("warns about unsaved edits without promising a review when the file has no base", function()
+    local file = work .. "/a.txt"
+    write_file(file, "one\n")
+    local buf = open(file)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "mine" })
+    local warned
+    local notify = vim.notify
+    vim.notify = function(msg)
+      warned = msg
+    end
+
+    write_file(file, "claude\n")
+    controller.on_hook({ event = "PostToolUse", dir = dir, tool_name = "Edit", files = { file } })
+    vim.notify = notify
+
+    assert.matches("a%.txt", warned)
+    assert.matches("unsaved edits", warned)
+    assert.is_nil(warned:find("Review", 1, true))
+  end)
+
   it("forgets the base once you keep every hunk", function()
     local file = work .. "/a.txt"
     write_file(file, "one\n")
