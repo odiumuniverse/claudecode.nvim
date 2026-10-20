@@ -33,10 +33,12 @@ describe("review provider", function()
     end
   end
 
-  -- The text Claude will write, with the trailing "\n" Claude Code drops undone.
-  local function written(handle)
+  -- The text Claude will write: Claude Code drops one trailing "\n" from a Write's answer and keeps
+  -- an Edit's as is. Without a note from the hooks only a new file counts as a Write.
+  local function written(handle, tool)
     assert.equal("FILE_SAVED", handle.result.content[1].text)
-    return (handle.result.content[2].text:gsub("\n$", ""))
+    local answer = handle.result.content[2].text
+    return tool == "Write" and (answer:gsub("\n$", "")) or answer
   end
 
   before_each(function()
@@ -89,6 +91,29 @@ describe("review provider", function()
     assert.equal("one\nTWO\nthree\n", written(handle))
     assert.equal(file_buf, vim.api.nvim_get_current_buf())
     assert.is_nil(proposal_buf())
+  end)
+
+  describe("tells the tool from the note the hook left before Claude asked", function()
+    local function accept_noted(tool)
+      local file = work .. "/a.txt"
+      write_file(file, "one\ntwo\n")
+      store:begin_edit("toolu_1", file, false, nil, tool)
+      local handle = propose(file, "one\nTWO\n")
+
+      engine.keep_all(proposal_buf())
+      vim.wait(100)
+
+      assert.equal("FILE_SAVED", handle.result.content[1].text)
+      return handle.result.content[2].text
+    end
+
+    it("gives a Write the newline Claude Code drops from its answer", function()
+      assert.equal("one\nTWO\n\n", accept_noted("Write"))
+    end)
+
+    it("hands an Edit its text as is", function()
+      assert.equal("one\nTWO\n", accept_noted("Edit"))
+    end)
   end)
 
   it("rejects the proposal when you revert every hunk", function()
@@ -203,7 +228,7 @@ describe("review provider", function()
     engine.keep_all(buf)
     vim.wait(100)
 
-    assert.equal("fresh\n", written(handle))
+    assert.equal("fresh\n", written(handle, "Write"))
   end)
 
   it("steps out of zen for the proposal and goes back once you decide", function()

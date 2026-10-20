@@ -257,6 +257,9 @@ end
 function M.setup(opts)
   opts = opts or {}
   M.use_dir(opts.dir or require("claudecode.hooks").state_dir(vim.fn.getcwd()))
+  require("claudecode.diff_provider").tool_of = function(path)
+    return state.store and state.store:edit_tool(path, M.EDITING_MAX_AGE_S)
+  end
   state.group = vim.api.nvim_create_augroup("ClaudeCodeReviewController", { clear = true })
   vim.api.nvim_create_autocmd("BufReadPost", {
     group = state.group,
@@ -283,6 +286,9 @@ function M.teardown()
   end
   state.store = nil
   state.pending = {}
+  require("claudecode.diff_provider").tool_of = function()
+    return nil
+  end
 end
 
 return M

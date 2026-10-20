@@ -76,21 +76,54 @@ describe("diff_opts.provider", function()
     assert.equal(wins_before, #vim.api.nvim_list_wins())
   end)
 
-  it("answers FILE_SAVED so that Claude writes exactly the text passed to ctx.accept", function()
-    local provider = recording_provider()
-    diff.setup({ terminal = {}, diff_opts = { provider = provider } })
-    local handle = open_pending(file, "tab-accept")
+  describe("answers FILE_SAVED so that Claude writes exactly the text passed to ctx.accept", function()
+    local diff_provider = require("claudecode.diff_provider")
+    local tool_of = diff_provider.tool_of
 
-    provider.opened[1].accept("line 1\nline 2 edited\n")
+    after_each(function()
+      diff_provider.tool_of = tool_of
+    end)
 
-    assert.equal("dead", coroutine.status(handle.co))
-    -- Claude Code 2.1.303 drops one trailing "\n" from the text before writing it.
-    assert.same({
-      content = {
-        { type = "text", text = "FILE_SAVED" },
-        { type = "text", text = "line 1\nline 2 edited\n\n" },
-      },
-    }, handle.result)
+    local function accepted(tool, old_path)
+      diff_provider.tool_of = function(path)
+        assert.equal(file, path)
+        return tool
+      end
+      local provider = recording_provider()
+      diff.setup({ terminal = {}, diff_opts = { provider = provider } })
+      local handle = open_pending(old_path or file, "tab-accept")
+
+      provider.opened[1].accept("line 1\nline 2 edited\n")
+
+      assert.equal("dead", coroutine.status(handle.co))
+      assert.equal("FILE_SAVED", handle.result.content[1].text)
+      return handle.result.content[2].text, provider.opened[1]
+    end
+
+    it("sends an Edit's text as is: Claude Code turns it into a patch against the file", function()
+      local text, ctx = accepted("Edit")
+
+      assert.equal("line 1\nline 2 edited\n", text)
+      assert.equal("Edit", ctx.tool)
+    end)
+
+    it("adds one newline to a Write's text: Claude Code drops one before writing", function()
+      assert.equal("line 1\nline 2 edited\n\n", (accepted("Write")))
+    end)
+
+    it("takes a proposal for a new file as a Write when nobody knows the tool", function()
+      local text, ctx = accepted(nil, "/tmp/claudecode_provider_spec_missing.txt")
+
+      assert.equal("line 1\nline 2 edited\n\n", text)
+      assert.equal("Write", ctx.tool)
+    end)
+
+    it("sends the text as is when nobody knows the tool, as upstream's views do", function()
+      local text, ctx = accepted(nil)
+
+      assert.equal("line 1\nline 2 edited\n", text)
+      assert.is_nil(ctx.tool)
+    end)
   end)
 
   it("answers DIFF_REJECTED with the tab name on ctx.reject", function()
@@ -214,7 +247,7 @@ describe("diff_opts.provider", function()
     diff._resolve_diff_as_saved("tab-command", 0)
 
     assert.equal("FILE_SAVED", handle.result.content[1].text)
-    assert.equal("from the provider\n\n", handle.result.content[2].text)
+    assert.equal("from the provider\n", handle.result.content[2].text)
   end)
 
   it("accepts Claude's proposal on :ClaudeCodeDiffAccept when the provider has no command handler", function()
@@ -224,7 +257,7 @@ describe("diff_opts.provider", function()
 
     diff._resolve_diff_as_saved("tab-command-default", 0)
 
-    assert.equal("line 1\nline 2\nnew line\n\n", handle.result.content[2].text)
+    assert.equal("line 1\nline 2\nnew line\n", handle.result.content[2].text)
   end)
 
   it("lets :ClaudeCodeDiffDeny reject through the provider", function()

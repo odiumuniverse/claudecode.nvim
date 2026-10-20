@@ -13,8 +13,16 @@ local M = {}
 ---@field new_file_path string
 ---@field new_file_contents string Claude's proposed text
 ---@field is_new_file boolean
+---@field tool string|nil Claude's tool, "Edit" or "Write", when known
 ---@field accept fun(content: string) Claude writes `content` to the file
 ---@field reject fun() The file stays as it is
+
+---Which of Claude's tools proposes the change to `path`. openDiff does not say; the review hooks
+---note it before Claude asks (review/controller.lua sets this).
+---@type fun(path: string): string|nil
+M.tool_of = function()
+  return nil
+end
 
 ---Hand a proposed change to the provider and register it as a pending diff.
 ---@param provider ClaudeCodeDiffProvider
@@ -30,6 +38,8 @@ function M.setup(provider, params, resolution_callback)
     new_file_contents = params.new_file_contents,
     is_new_file = vim.fn.filereadable(params.old_file_path) ~= 1,
   }
+  -- Only Write creates a file.
+  ctx.tool = M.tool_of(params.new_file_path) or (ctx.is_new_file and "Write" or nil)
 
   local state = {
     layout = "provider",
@@ -58,11 +68,12 @@ function M.setup(provider, params, resolution_callback)
   ---Accept the proposal; Claude writes `content` to the file.
   ---@param content string
   function ctx.accept(content)
+    -- Claude Code (2.1.304) turns an Edit's answer into a patch against the file, which keeps it byte
+    -- for byte, and drops one trailing "\n" from a Write's answer: give a Write one to drop.
     resolve("saved", {
       content = {
         { type = "text", text = "FILE_SAVED" },
-        -- Claude Code (2.1.303, 2.1.304) drops one trailing "\n" before writing; give it one to drop.
-        { type = "text", text = content .. "\n" },
+        { type = "text", text = ctx.tool == "Write" and content .. "\n" or content },
       },
     })
   end

@@ -65,6 +65,15 @@ describe("review by permission mode", function()
     assert.equal("one\n", store:get(file).text)
   end)
 
+  it("notes which tool asks, since Claude Code writes the answer to an Edit and a Write differently", function()
+    local file = work .. "/a.txt"
+    write_file(file, "one\n")
+
+    run_hook("PreToolUse", edit("PreToolUse", "default", file, { tool_name = "Write" }))
+
+    assert.equal("Write", store:edit_tool(file, 3600))
+  end)
+
   it("lets Claude edit on its own in the other modes", function()
     local file = work .. "/a.txt"
     write_file(file, "one\n")

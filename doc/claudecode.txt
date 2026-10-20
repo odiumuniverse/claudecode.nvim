@@ -538,6 +538,7 @@ it.
     new_file_path      string   where Claude will write
     new_file_contents  string   Claude's proposed text
     is_new_file        boolean  the file does not exist yet
+    tool               string?  Claude's tool, "Edit" or "Write", when known
     accept(content)    Claude writes `content` to the file
     reject()           the file stays as it is
 
@@ -557,10 +558,13 @@ How it behaves:
   (`reason` is "setup failed"). Make it safe to run on a half-built UI.
 - A provider gets the diff even when the file's buffer has unsaved edits. The
   built-in views refuse it.
-- Claude Code (checked on 2.1.303 and 2.1.304) drops one trailing newline
-  from the text it gets back. `accept` adds one before answering, so the file
-  ends up with exactly your text. Upstream's own diff views lose the final
-  newline this way.
+- Claude Code (checked on 2.1.304) treats the answer by tool. An Edit's text
+  becomes a patch against the file and lands byte for byte. A Write's text
+  loses one trailing newline, so `accept` adds one, and the file ends up with
+  exactly your text. openDiff does not name the tool: the review hooks note
+  it before Claude asks. Without their note (Claude started outside Neovim)
+  only a new file counts as a Write, and any other text goes as is, as in
+  upstream's views.
 
 The plugin fires the User events ClaudeCodeDiffOpened and ClaudeCodeDiffClosed
 for provider diffs too (|claudecode-events|).

@@ -231,6 +231,23 @@ describe("review store", function()
     assert.same({}, (store:editing(3600)))
   end)
 
+  it("tells which tool is editing a file, for as long as its note lives", function()
+    local file = work .. "/a.txt"
+    local other = work .. "/b.txt"
+    write_file(file, "x\n")
+    write_file(other, "x\n")
+    store:begin_edit("toolu_1", file, false, nil, "Write")
+    store:begin_edit("toolu_2", other, false)
+
+    assert.equal("Write", store:edit_tool(file, 3600))
+    assert.is_nil(store:edit_tool(other, 3600))
+    assert.is_nil(store:edit_tool(work .. "/none.txt", 3600))
+
+    local hour_ago = os.time() - 3700
+    vim.uv.fs_utime(dir .. "/editing/toolu_1.json", hour_ago, hour_ago)
+    assert.is_nil(store:edit_tool(file, 3600))
+  end)
+
   it("keeps a path with quotes, spaces and Cyrillic in the list of edits", function()
     local file = work .. "/it's a 'тест'.txt"
     write_file(file, "x\n")

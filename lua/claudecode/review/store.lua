@@ -363,8 +363,9 @@ end
 ---@param created boolean|nil This PreToolUse created the base (it did not exist before)
 ---@param stamp ClaudeCodeFileStamp|nil The file as PreToolUse found it. Once it differs, the file is
 ---  either Claude's write on its way to PostToolUse, or yours.
+---@param tool string|nil Claude's tool, such as "Edit" or "Write": openDiff does not name it
 ---@return boolean saved
-function Store:begin_edit(id, path, created, stamp)
+function Store:begin_edit(id, path, created, stamp, tool)
   local file = id_file(self, "editing", id)
   if not file then
     return false
@@ -372,7 +373,7 @@ function Store:begin_edit(id, path, created, stamp)
   ensure_dir(self.dir)
   ensure_dir(self.dir .. "/editing")
   local tmp = tmp_name(file)
-  local note = { path = M.normalize(path), created = created == true, stamp = stamp }
+  local note = { path = M.normalize(path), created = created == true, stamp = stamp, tool = tool }
   if not write_all(tmp, vim.json.encode(note)) then
     uv.fs_unlink(tmp)
     return false
@@ -414,6 +415,7 @@ end
 ---@field path string|nil
 ---@field created boolean The base was made by that edit's PreToolUse
 ---@field stamp ClaudeCodeFileStamp|nil
+---@field tool string|nil
 
 ---@return ClaudeCodeReviewEditNote[]
 local function read_notes(self)
@@ -435,9 +437,30 @@ local function read_notes(self)
       path = valid and rec.path or nil,
       created = valid and rec.created == true or false,
       stamp = valid and type(rec.stamp) == "table" and rec.stamp or nil,
+      tool = valid and type(rec.tool) == "string" and rec.tool or nil,
     }
   end
   return notes
+end
+
+---Which of Claude's tools is editing `path`, as its PreToolUse noted. Claude asks before an edit
+---after that hook, so a proposal Claude sends to the editor finds the note in place.
+---@param path string
+---@param max_age integer Seconds after which a note no longer counts
+---@return string|nil tool
+function Store:edit_tool(path, max_age)
+  path = M.normalize(path)
+  local cutoff = os.time() - max_age
+  local newest
+  for _, note in ipairs(read_notes(self)) do
+    local live = note.mtime == nil or note.mtime >= cutoff
+    if note.valid and live and note.path == path and note.tool then
+      if not newest or (note.mtime or 0) > (newest.mtime or 0) then
+        newest = note
+      end
+    end
+  end
+  return newest and newest.tool
 end
 
 ---@class ClaudeCodeReviewStaleEdit

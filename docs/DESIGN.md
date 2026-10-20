@@ -65,7 +65,7 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 
 - **The CLI writes exactly the text we send back** in the `FILE_SAVED` answer: one change of the two ended up on disk.
 - **The model gets only a generic sentence:** _"The file … has been updated successfully. The user modified your proposed content before accepting it."_ The CLI does not say which hunks you reverted. The transcript metadata has `userModified: true` and `structuredPatch`, but the model never sees them. Haiku reread the file on its own and noticed the revert, but we cannot count on that.
-- **The CLI strips exactly one `\n` from the end of the answer.** A 2026-10-20 test with three Writes: the answer `alpha\ndelta\n` gave the file `alpha\ndelta`, `…\n\n` gave `…\n`, and `…\n  \n\n` gave `…\n  \n`. The CLI leaves spaces alone. So `ctx.accept` appends one `\n`, and the file gets exactly the text passed in. Upstream's built-in diff views send the text as is and lose the final newline. A rerun on 2.1.304 with the fix: all three files matched the text byte for byte.
+- **The CLI treats the answer by tool.** A 2026-10-20 test with three Writes: the answer `alpha\ndelta\n` gave the file `alpha\ndelta`, `…\n\n` gave `…\n`, and `…\n  \n\n` gave `…\n  \n`. A Write's answer loses exactly one `\n`; the CLI leaves spaces alone. An Edit's answer keeps every byte: on 2.1.304 the CLI turns it into a patch against the file (the transcript shows `oldString` and `newString` of the changed region), and the file got the answer byte for byte. So `ctx.accept` appends one `\n` for a Write only. `openDiff` does not name the tool. The `PreToolUse` hook writes it into the `editing/` note, and the seam looks it up there (`diff_provider.tool_of`, set by the controller). Without a note a new file counts as a Write, and any other text goes as is, as in upstream's views. At first we applied the Write rule to every tool, and Manual mode added an empty line to the end of each Edit we accepted; the live test caught it.
 - **If your settings allow Edit (`permissions.allow`),** Edit runs without asking, and `openDiff` never fires, even in Manual mode. Review before write then covers Write and tools without a permission rule; review after write remains the main path. Since then the Manual-mode hook asks about every edit anyway (see "How the modes work").
 
 ## Modules and contracts
@@ -134,7 +134,7 @@ review.revert_all(bufnr)
 ```
 bases/<sha256 of the path>  -- a JSON line { path, new_file, created_at }, then the file bytes before Claude's first edit
 bash/<tool_use_id>.json     -- snapshot before Bash: { top, stash, untracked = { [path] = mtime:size } }
-editing/<tool_use_id>.json  -- an Edit or Write that started and has not finished, with the file's stamp
+editing/<tool_use_id>.json  -- an Edit or Write that started and has not finished, with the file's stamp and the tool
 accepting/<tool_use_id>     -- the file before an edit in accept-edits or plan mode, to carry into its base
 reverts.jsonl               -- one ClaudeCodeRevertRecord per line
 hooks.log                   -- hook errors, at most 64 KB

@@ -122,7 +122,7 @@ local function pre_tool_use(store, input, env)
       local stamp = require("claudecode.review.store").stamp(path)
       -- An earlier edit of this file was refused and you changed the file since: its base is out of date.
       store:forget_refused(path, stamp)
-      store:begin_edit(input.tool_use_id, path, store:snapshot(path), stamp)
+      store:begin_edit(input.tool_use_id, path, store:snapshot(path), stamp, input.tool_name)
       if ASK_MODES[input.permission_mode] and env.before_write then
         return ask()
       end

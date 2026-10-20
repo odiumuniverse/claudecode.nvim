@@ -205,7 +205,7 @@ require("claudecode").setup({
 })
 ```
 
-`ctx` carries `tab_name`, `old_file_path`, `new_file_path`, `new_file_contents` and `is_new_file`.
+`ctx` carries `tab_name`, `old_file_path`, `new_file_path`, `new_file_contents`, `is_new_file` and `tool`: Claude's tool, `"Edit"` or `"Write"`, when the plugin knows it.
 
 How it behaves:
 
@@ -213,7 +213,7 @@ How it behaves:
 - `accept` may pass text that differs from Claude's proposal. Claude writes your text, but it only learns that "the user modified your proposed content", not what you changed.
 - The plugin calls `close` once per diff: after Claude closes the tab, when the Claude session disconnects, when a new diff reuses the tab name, and when `open` throws (`reason` is `"setup failed"`). Make `close` safe to run on a half-built UI.
 - A provider gets the diff even when the file's buffer has unsaved edits; the built-in views refuse it.
-- Claude Code (checked on 2.1.303 and 2.1.304) drops one trailing newline from the text it gets back. `accept` adds one before answering, so the file ends up with exactly your text. Upstream's own diff views lose the final newline this way.
+- Claude Code (checked on 2.1.304) treats the answer by tool. An Edit's text becomes a patch against the file and lands byte for byte. A Write's text loses one trailing newline, so `accept` adds one, and the file ends up with exactly your text. `openDiff` does not name the tool: the review hooks note it before Claude asks. Without their note (Claude started outside Neovim) only a new file counts as a Write, and any other text goes as is, as in upstream's views.
 
 ## Development
 
