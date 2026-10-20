@@ -241,6 +241,8 @@ function M.open(ctx)
 
   engine.attach(buf, base_lines, {
     write_on_revert = false,
+    -- Claude waits for an answer here; a note would sit on a path that is not a file yet.
+    notes = false,
     on_revert = function(rec)
       rec.path = session.path
       session.reverts[#session.reverts + 1] = rec

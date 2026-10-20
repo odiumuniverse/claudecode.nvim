@@ -34,6 +34,8 @@ local function define_highlights()
     ClaudeCodeReviewDelete = "DiffDelete",
     ClaudeCodeReviewHint = "Comment",
     ClaudeCodeReviewCount = "Special",
+    ClaudeCodeReviewNote = "Comment",
+    ClaudeCodeReviewNoteSign = "Special",
   }
   for name, target in pairs(links) do
     vim.api.nvim_set_hl(0, name, { default = true, link = target })

@@ -22,6 +22,7 @@ local state = {
   work_tab = nil, ---@type integer|nil
   showtabline = nil, ---@type integer|nil
   pending = 0,
+  notes = 0, -- review notes not sent to Claude yet
   group = nil, ---@type integer|nil
 }
 
@@ -86,11 +87,11 @@ function M.is_active()
 end
 
 local function counter_text()
-  if state.pending == 0 then
+  -- The words of the statusline component, on the right, out of Claude's way.
+  local what = require("claudecode.review.controller").status(state.pending, state.notes or 0)
+  if what == "" then
     return ""
   end
-  -- The words of the statusline component (controller.status), on the right, out of Claude's way.
-  local what = ("review: %d %s"):format(state.pending, state.pending == 1 and "file" or "files")
   local key = state.opts.files_key and ("%#ClaudeCodeZenKey# · " .. state.opts.files_key) or ""
   return "%=%#ClaudeCodeZenPending#" .. what .. key .. " %*"
 end
@@ -238,6 +239,7 @@ function M.setup(opts)
     pattern = "ClaudeCodeReviewPending",
     callback = function(ev)
       state.pending = (ev.data and ev.data.count) or 0
+      state.notes = (ev.data and ev.data.notes) or 0
       update_counter()
     end,
   })

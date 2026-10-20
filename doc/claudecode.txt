@@ -11,6 +11,7 @@ CONTENTS                                                 *claudecode-contents*
       Files waiting for review ..................... |claudecode-review-files|
       What gets reviewed ........................... |claudecode-review-scope|
       Your edits ................................... |claudecode-review-edits|
+      Notes for Claude .................................... |claudecode-notes|
       Reverts and Claude ........................... |claudecode-review-notes|
       Hooks and state .............................. |claudecode-review-state|
     Review before write ..................... |claudecode-review-before-write|
@@ -140,6 +141,11 @@ when the review ends. Set a key to `false` to leave it unmapped
     [k    review.keymaps.prev         Previous hunk; takes a count
     ]K    review.keymaps.last         Last hunk
     [K    review.keymaps.first        First hunk
+    cr    review.keymaps.note         Note for Claude on this line
+
+In visual mode `<leader>an` (`review.keymaps.note_range`) takes a note on the
+selected lines. `cR` sends every note to Claude from any buffer
+(|claudecode-notes|).
 
 Keeping makes Claude's text the new base. The buffer and the file stay as
 they are.
@@ -241,6 +247,46 @@ When Claude writes a file, the PostToolUse hook tells Neovim which files
 changed, and their open buffers reload. A buffer with unsaved edits does not
 reload: the plugin warns you, and when the file has hunks waiting, review
 starts once `:edit!` loads Claude's version.
+
+------------------------------------------------------------------------------
+NOTES FOR CLAUDE                                            *claudecode-notes*
+
+Instead of reverting a change, ask Claude to rework it. Put the cursor on the
+line in question and press `cr`, or select lines and press `<leader>an`. A box
+opens right under that line and moves the code below out of its way, so even
+a long hunk stays in sight; near the bottom of the window the window scrolls
+to make room. Type what you want; the box grows up to 10 lines.
+
+    <CR>      Save the note; with `notes.send = "enter"`, save and send
+    <S-CR>    Save the note and send every note to Claude
+    <C-s>     The same, for a terminal that sends Shift+Enter as Enter
+    <Esc>     Close the box and drop what you typed
+
+<C-j> starts a new line in the note. Back in Normal mode (`jk`, say) the box
+stays open: <CR> saves there too, and <Esc> drops what you typed.
+
+A saved note shows as one line under its last line, "▎ note: …", and moves
+with the code around it. `cr` on a noted line opens the note again; save it
+empty to delete it. Notes go to the state directory at once and survive a
+restart of Neovim. A note on lines you revert with `cx` goes away: the text it
+was about is gone.
+
+A note counts as a decision on its hunk: after <CR> the cursor moves on to the
+next hunk without a note, `cs` and `cx` move on past noted hunks too, and a
+file whose hunks all have notes is done for `advance = "file"`.
+`review.notes.advance = false` turns this off.
+
+`cR` (|claudecode-review.notes.send_keymap|) or |:ClaudeCodeReviewSend| sends
+every note from every file in one message, from any buffer. The message lists
+each place as file:line, the first lines of the code there and your note, and
+asks Claude to rework them. It is typed into the Claude terminal in Neovim and
+submitted; while Claude works, Claude Code queues it. Sent notes go away.
+When Claude does not run in a Neovim terminal (the "external" and "none"
+providers, or Claude not started yet), the notes stay and the message goes to
+the clipboard.
+
+A proposal under review before write takes no notes: Claude waits for your
+answer there (|claudecode-review-before-write|).
 
 ------------------------------------------------------------------------------
 REVERTS AND CLAUDE                                   *claudecode-review-notes*
@@ -400,14 +446,18 @@ several Claude accounts:
 ==============================================================================
 COMMANDS                                                 *claudecode-commands*
 
-Upstream's commands all work as before. Review and zen add two commands, and
-`:ClaudeCode` learns `run`. Two of upstream's also work on proposals
+Upstream's commands all work as before. Review and zen add three commands,
+and `:ClaudeCode` learns `run`. Two of upstream's also work on proposals
 (|claudecode-review-before-write|).
 
                                                            *:ClaudeCodeReview*
 :ClaudeCodeReview       Open the list of files with hunks you have not
                         decided on (|claudecode-review-files|). Defined when
                         `review.enabled` is true.
+
+                                                       *:ClaudeCodeReviewSend*
+:ClaudeCodeReviewSend   Send every note to Claude in one message
+                        (|claudecode-notes|), as `cR` does.
 
                                                             *:ClaudeCode-run*
 :ClaudeCode run [{account}] [{args}]
@@ -441,6 +491,13 @@ a message that names the option. Defaults:
         keymaps = {
           keep = "cs", revert = "cx", keep_all = "cS", revert_all = "cX",
           next = "]k", prev = "[k", last = "]K", first = "[K",
+          note = "cr", note_range = "<leader>an",
+        },
+        notes = {
+          enabled = true,
+          send = "batch",
+          advance = true,
+          send_keymap = "cR",
         },
         files_keymap = "<leader>ak",
         advance = "hunk",
@@ -509,6 +566,37 @@ review.keymaps.last                           *claudecode-review.keymaps.last*
 review.keymaps.first                         *claudecode-review.keymaps.first*
     Type: string or false. Default: `"[K"`.
     Jump to the first hunk.
+
+review.keymaps.note                           *claudecode-review.keymaps.note*
+    Type: string or false. Default: `"cr"`.
+    Open a note for Claude on the line under the cursor
+    (|claudecode-notes|).
+
+review.keymaps.note_range               *claudecode-review.keymaps.note_range*
+    Type: string or false. Default: `"<leader>an"`.
+    Visual mode: open a note on the selected lines. Not on `c`: in Visual
+    mode `c` acts at once, and a mapping on it would make it wait.
+
+review.notes                                         *claudecode-review.notes*
+    Type: table. Notes for Claude (|claudecode-notes|).
+
+review.notes.enabled                         *claudecode-review.notes.enabled*
+    Type: boolean. Default: `true`.
+    `false` maps neither the note keys nor the send key.
+
+review.notes.send                               *claudecode-review.notes.send*
+    Type: string. Default: `"batch"`.
+    "batch": <CR> saves a note and <S-CR> sends every note. "enter": <CR>
+    sends at once.
+
+review.notes.advance                         *claudecode-review.notes.advance*
+    Type: boolean. Default: `true`.
+    A note counts as a decision on its hunk for |claudecode-review.advance|.
+
+review.notes.send_keymap                 *claudecode-review.notes.send_keymap*
+    Type: string or false. Default: `"cR"`.
+    Global normal-mode key that sends every note. Neovim waits for a motion
+    after `c` anyway, and `R` is none, so it delays nothing.
 
 review.files_keymap                           *claudecode-review.files_keymap*
     Type: string or false. Default: `"<leader>ak"`.
@@ -617,6 +705,8 @@ config win. The review groups are defined again after `:colorscheme`.
                                 statusline component in the LazyVim spec
     ClaudeCodeZenPending        link to Special; the counter in zen
     ClaudeCodeZenKey            link to Comment; the key next to it
+    ClaudeCodeReviewNote        link to Comment; a saved note under its line
+    ClaudeCodeReviewNoteSign    link to Special; the "▎ note:" before it
 
 ==============================================================================
 DIFF PROVIDER                                       *claudecode-diff-provider*

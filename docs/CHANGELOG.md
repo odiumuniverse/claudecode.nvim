@@ -4,6 +4,7 @@
 
 ### Added
 
+- **Notes for Claude.** `cr` on a line, or `<leader>an` on a selection, opens a box right under it; the code below moves down instead of hiding. Enter saves the note, which shows as one gray line under the code and survives a restart; the cursor moves on to the next hunk. Shift+Enter in the box, `<C-s>`, or `cR` anywhere send every note from every file to Claude in one message, typed into the Claude terminal in Neovim. `review.notes.send = "enter"` sends each note on Enter; `review.notes.advance = false` keeps the cursor still. The statusline counts the notes not sent yet.
 - **Review moves on by itself.** After `cs` or `cx` the cursor goes to the next hunk, and from the last one back to the first (`review.advance = "hunk"`). With `advance = "file"` the next file waiting for review opens once a file is done, by its last hunk or by `cS` or `cX`; `false` keeps the cursor where it is.
 - **`]k` and `[k` cross files.** Past the last hunk `]k` opens the next file waiting for review at its first hunk, and `[k` before the first one opens the previous file at its last hunk. The list wraps around. `review.cross_files = false` keeps them inside the file.
 - **Progress at a glance.** The hint at a hunk starts with its number in the file, `2/5  cs keep · cx revert`. The statusline shows how many files wait, `review: 4 files`, and nothing once they are done: the LazyVim spec adds it to lualine, and `require("claudecode.review.controller").status()` gives it to any statusline. Zen's counter says the same, on the right and in a calmer color.

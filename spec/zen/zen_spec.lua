@@ -262,6 +262,14 @@ describe("zen", function()
     vim.api.nvim_exec_autocmds("User", { pattern = "ClaudeCodeReviewPending", data = { count = 1, files = {} } })
     assert.matches("review: 1 file", vim.wo.winbar)
 
+    -- Notes not sent yet count too, files or not.
+    local data = { count = 1, files = {}, notes = 2 }
+    vim.api.nvim_exec_autocmds("User", { pattern = "ClaudeCodeReviewPending", data = data })
+    assert.matches("review: 1 file · 2 notes", vim.wo.winbar)
+    data = { count = 0, files = {}, notes = 1 }
+    vim.api.nvim_exec_autocmds("User", { pattern = "ClaudeCodeReviewPending", data = data })
+    assert.matches("review: 1 note", vim.wo.winbar)
+
     vim.api.nvim_exec_autocmds("User", { pattern = "ClaudeCodeReviewPending", data = { count = 0, files = {} } })
     assert.equal("", vim.wo.winbar)
   end)

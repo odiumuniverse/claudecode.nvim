@@ -15,9 +15,18 @@ local M = {}
 ---@field prev string|false
 ---@field last string|false
 ---@field first string|false
+---@field note string|false       Note on the line under the cursor
+---@field note_range string|false Note on the selected lines (visual mode)
+
+---@class ClaudeCodeReviewNotesConfig
+---@field enabled boolean
+---@field send "batch"|"enter" "batch": Enter saves, Shift+Enter sends every note; "enter": Enter sends at once
+---@field advance boolean A note counts as a decision: the cursor moves on as after `cs`
+---@field send_keymap string|false Global key that sends every note to Claude
 
 ---@class ClaudeCodeReviewConfig
 ---@field enabled boolean
+---@field notes ClaudeCodeReviewNotesConfig
 ---@field keymaps ClaudeCodeReviewKeymaps Buffer-local keys while a file is under review
 ---@field files_keymap string|false Opens the list of files waiting for review
 ---@field advance "hunk"|"file"|false After keep or revert: the next hunk, then the next file, or stay
@@ -47,6 +56,15 @@ M.defaults = {
       prev = "[k",
       last = "]K",
       first = "[K",
+      -- r is no motion either; in visual mode `c` acts at once, so a range note goes on the leader.
+      note = "cr",
+      note_range = "<leader>an",
+    },
+    notes = {
+      enabled = true,
+      send = "batch",
+      advance = true,
+      send_keymap = "cR",
     },
     files_keymap = "<leader>ak",
     advance = "hunk",
@@ -91,6 +109,12 @@ function M.validate(config)
     "review.advance must be 'hunk', 'file' or false"
   )
   check(type(review.cross_files) == "boolean", "review.cross_files must be a boolean")
+  local notes = review.notes
+  check(type(notes) == "table", "review.notes must be a table")
+  check(type(notes.enabled) == "boolean", "review.notes.enabled must be a boolean")
+  check(notes.send == "batch" or notes.send == "enter", "review.notes.send must be 'batch' or 'enter'")
+  check(type(notes.advance) == "boolean", "review.notes.advance must be a boolean")
+  check(is_key(notes.send_keymap), "review.notes.send_keymap must be a key string or false")
   check(type(review.hint) == "boolean" or type(review.hint) == "string", "review.hint must be a boolean or a string")
   check(type(review.word_diff) == "boolean", "review.word_diff must be a boolean")
   check(type(review.before_write) == "boolean", "review.before_write must be a boolean")
@@ -149,11 +173,20 @@ function M.setup(user, plugin_config)
   M.state.config = config
 
   if config.review.enabled then
+    local notes = config.review.notes
+    local notes_mod = require("claudecode.review.notes")
+    notes_mod.setup(notes.enabled and {
+      send = notes.send,
+      advance = notes.advance,
+      send_keymap = notes.send_keymap,
+    } or {})
     require("claudecode.review").setup({
       keymaps = config.review.keymaps,
       advance = config.review.advance,
       cross_files = config.review.cross_files,
       goto_file = require("claudecode.review.controller").goto_file,
+      note = notes.enabled and notes_mod.open or nil,
+      noted = notes.enabled and notes.advance and notes_mod.noted or nil,
       hint = M.hint_text(config.review),
       word_diff = config.review.word_diff,
     })

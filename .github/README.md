@@ -90,20 +90,24 @@ In auto mode Claude edits your files right away, the way it does in the terminal
 - added lines get a green background;
 - inside a changed line, only the changed words are highlighted;
 - the hunk under the cursor shows which hunk of how many in the file it is, and the keys: `2/5  cs keep · cx revert`;
-- the statusline shows how many files wait for review, `review: 4 files`, and nothing once they are done. The LazyVim spec adds this to lualine; elsewhere it is `require("claudecode.review.controller").status()`.
+- the statusline shows how many files wait for review and how many notes you have not sent, `review: 4 files · 2 notes`, and nothing once they are done. The LazyVim spec adds this to lualine; elsewhere it is `require("claudecode.review.controller").status()`.
 
-| Key          | What it does                                         |
-| ------------ | ---------------------------------------------------- |
-| `cs`         | Keep the hunk under the cursor                       |
-| `cx`         | Revert it; the file is written at once               |
-| `cS` / `cX`  | Keep or revert every hunk in the file                |
-| `]k` / `[k`  | Next or previous hunk (takes a count), then file     |
-| `]K` / `[K`  | Last or first hunk                                   |
-| `<leader>ak` | Files waiting for review: open, keep all, revert all |
+| Key          | What it does                                              |
+| ------------ | --------------------------------------------------------- |
+| `cs`         | Keep the hunk under the cursor                            |
+| `cx`         | Revert it; the file is written at once                    |
+| `cS` / `cX`  | Keep or revert every hunk in the file                     |
+| `]k` / `[k`  | Next or previous hunk (takes a count), then file          |
+| `]K` / `[K`  | Last or first hunk                                        |
+| `cr`         | Note for Claude on this line; `<leader>an` on a selection |
+| `cR`         | Send every note to Claude, from any buffer                |
+| `<leader>ak` | Files waiting for review: open, keep all, revert all      |
 
 After `cs` or `cx` the cursor moves on to the next hunk, so a file is reviewed with one key per hunk; `advance = "file"` goes on to the next file too. `]k` past the last hunk opens the next file waiting for review, and `[k` before the first one goes back to the previous file.
 
 The hunk keys exist only in buffers under review; `<leader>ak` works everywhere. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
+
+**Ask Claude to rework a change without leaving Neovim.** `cr` opens a box right under the line with the cursor; the code below moves down instead of hiding, so a long hunk stays in sight. Type what you want and press Enter: the note is saved at once, shows as one gray line under the code, and survives a restart. The cursor moves on to the next hunk. Leave notes in as many files as you like, then press Shift+Enter in the box, or `cR` anywhere, and every note goes to Claude in one message: each place as file:line, the first lines of the code there and your words. The message is typed into the Claude terminal in Neovim; while Claude works, Claude Code queues it. `review.notes.send = "enter"` sends each note on Enter instead. `<C-s>` in the box does what Shift+Enter does, for a terminal that cannot tell them apart.
 
 **Claude learns what you reverted.** Claude Code itself never tells the model that you rejected part of an edit. The plugin adds a short note to Claude's context instead: right after Claude's next file edit or Bash call, or with your next message. The note names the file and line, shows Claude's text and the text that came back, and asks Claude not to reapply the change unless you ask. With several Claude sessions in one project, each session hears only about the files it edited; the note about a file two sessions edited reaches both.
 
@@ -183,6 +187,13 @@ opts = {
     keymaps = {                 -- buffer-local while a file is under review; false disables a key
       keep = "cs", revert = "cx", keep_all = "cS", revert_all = "cX",
       next = "]k", prev = "[k", last = "]K", first = "[K",
+      note = "cr", note_range = "<leader>an", -- a note for Claude; note_range is for visual mode
+    },
+    notes = {
+      enabled = true,
+      send = "batch",           -- "batch": Enter saves, Shift+Enter sends every note; "enter": Enter sends
+      advance = true,           -- a note counts as a decision: the cursor moves on as after cs
+      send_keymap = "cR",       -- global key that sends every note
     },
     files_keymap = "<leader>ak",
     advance = "hunk",           -- after cs/cx: "hunk" the next hunk, "file" then the next file, false stay
@@ -201,7 +212,7 @@ opts = {
 }
 ```
 
-Highlight groups, all defined with `default = true` so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeReviewCount`, `ClaudeCodeZenPending`, `ClaudeCodeZenKey`.
+Highlight groups, all defined with `default = true` so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeReviewCount`, `ClaudeCodeReviewNote`, `ClaudeCodeReviewNoteSign`, `ClaudeCodeZenPending`, `ClaudeCodeZenKey`.
 
 `User` events for your config:
 

@@ -17,6 +17,7 @@ local M = {}
 ---@field on_revert? fun(rec: ClaudeCodeRevertRecord) -- cx/cX was applied to the buffer
 ---@field on_done? fun(reason: "resolved"|"detached") -- no hunks left, or detach was called
 ---@field write_on_revert? boolean                    -- default true: cx writes the file at once
+---@field notes? boolean                              -- false: no note keys (a proposal before write)
 
 ---@class ClaudeCodeRevertRecord
 ---@field path string           -- absolute path of the buffer
@@ -34,12 +35,16 @@ local M = {}
 ---@field prev? string|false
 ---@field last? string|false
 ---@field first? string|false
+---@field note? string|false
+---@field note_range? string|false
 
 ---@class ClaudeCodeReviewConfig
 ---@field keymaps ClaudeCodeReviewKeymaps
 ---@field advance "hunk"|"file"|false -- where the cursor goes after a keep or revert from a key
 ---@field cross_files boolean -- `]k` past the last hunk and `[k` before the first go to the next or previous file
 ---@field goto_file? fun(bufnr: integer, direction: "next"|"prev"): boolean -- open the next or previous file waiting for review
+---@field note? fun(bufnr: integer, first: integer, last: integer) -- open a note on those lines; without it the note keys stay unmapped
+---@field noted? fun(bufnr: integer, first: integer, last: integer): boolean -- a note on those lines: moving on skips the hunk
 ---@field hint string|false
 ---@field word_diff boolean
 
@@ -76,6 +81,8 @@ local DEFAULT_CONFIG = {
     prev = "[k",
     last = "]K",
     first = "[K",
+    note = "cr",
+    note_range = "<leader>an",
   },
   advance = "hunk",
   cross_files = true,
@@ -127,9 +134,9 @@ local function check_setup_opts(opts)
       if type(value) ~= "boolean" then
         fail("cross_files must be a boolean, got " .. vim.inspect(value))
       end
-    elseif key == "goto_file" then
+    elseif key == "goto_file" or key == "note" or key == "noted" then
       if type(value) ~= "function" then
-        fail("goto_file must be a function, got " .. type(value))
+        fail(key .. " must be a function, got " .. type(value))
       end
     elseif key == "hint" then
       if value ~= false and type(value) ~= "string" then
@@ -586,6 +593,54 @@ local function done_with_file(bufnr)
   end
 end
 
+---A hunk you left a note on counts as decided when `noted` says so.
+---@param st ClaudeCodeReviewState
+---@param hunk ClaudeCodeHunk
+---@return boolean
+local function has_note(st, hunk)
+  if not config.noted then
+    return false
+  end
+  local row = hunk_logic.anchor(hunk, st.line_count)
+  local last = hunk.cur_count > 0 and hunk.cur_start + hunk.cur_count - 1 or row
+  return config.noted(st.bufnr, math.min(row, last), last) == true
+end
+
+---Move on from row `from` as `advance` says: to the first hunk at or below it that is still
+---undecided, or round to the first one; with none left the file is done.
+---@param bufnr integer
+---@param from integer
+local function move_on(bufnr, from)
+  if not config.advance then
+    return
+  end
+  local st = states[bufnr]
+  if not st then
+    done_with_file(bufnr)
+    return
+  end
+  local win = window_of(bufnr)
+  if not win then
+    return
+  end
+  local target, first
+  for _, hunk in ipairs(st.hunks) do
+    if not has_note(st, hunk) then
+      local row = hunk_logic.anchor(hunk, st.line_count)
+      first = first or row
+      if not target and row >= from then
+        target = row
+      end
+    end
+  end
+  target = target or first
+  if target then
+    put_cursor(bufnr, win, target)
+  else
+    done_with_file(bufnr)
+  end
+end
+
 ---Keep or revert the hunk under the cursor from a key, then move on as `advance` says: to the next
 ---hunk, or to the first one after the last; with "file", to the next file once this one is done.
 ---@param bufnr integer
@@ -596,28 +651,20 @@ local function decide(bufnr, action)
   local from = index and hunk_logic.anchor(st.hunks[index], st.line_count)
   local before = st and #st.hunks or 0
   action(bufnr)
-  if not (from and config.advance) then
-    return
-  end
   local after = states[bufnr]
-  if not after then
-    done_with_file(bufnr)
-    return
-  end
-  local win = window_of(bufnr)
   -- A revert that the file on disk refused decided nothing: stay.
-  if not win or #after.hunks >= before then
+  if not from or (after and #after.hunks >= before) then
     return
   end
-  local rows = hunk_rows(after)
-  local target = rows[1]
-  for _, row in ipairs(rows) do
-    if row >= from then
-      target = row
-      break
-    end
-  end
-  put_cursor(bufnr, win, target)
+  move_on(bufnr, from)
+end
+
+---Move on from row `from` after a decision made elsewhere, such as a note: to the next hunk
+---still undecided, or to the next file, as `advance` says.
+---@param bufnr integer
+---@param from integer
+function M.move_on(bufnr, from)
+  move_on(bufnr, from)
 end
 
 ---Keep or revert the whole file from a key; with `advance = "file"` the next file opens, as after
@@ -636,10 +683,10 @@ end
 ---@return ClaudeCodeReviewMapping[]
 mappings_for = function(bufnr)
   local mappings = {}
-  local function add(name, desc, callback)
+  local function add(name, desc, callback, mode)
     local lhs = config.keymaps[name]
     if lhs then
-      mappings[#mappings + 1] = { lhs = lhs, desc = "Claude review: " .. desc, callback = callback }
+      mappings[#mappings + 1] = { lhs = lhs, desc = "Claude review: " .. desc, callback = callback, mode = mode }
     end
   end
   add("keep", "keep hunk", function()
@@ -666,6 +713,18 @@ mappings_for = function(bufnr)
   add("first", "first hunk", function()
     jump(bufnr, "first", 1)
   end)
+  local st = states[bufnr]
+  if config.note and not (st and st.opts.notes == false) then
+    add("note", "note for Claude", function()
+      local row = vim.api.nvim_win_get_cursor(0)[1]
+      config.note(bufnr, row, row)
+    end)
+    add("note_range", "note for Claude on these lines", function()
+      local a, b = vim.fn.line("v"), vim.fn.line(".")
+      vim.cmd.normal({ args = { vim.keycode("<Esc>") }, bang = true })
+      config.note(bufnr, math.min(a, b), math.max(a, b))
+    end, "x")
+  end
   return mappings
 end
 

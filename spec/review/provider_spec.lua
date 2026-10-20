@@ -78,6 +78,19 @@ describe("review provider", function()
     assert.is_true(vim.api.nvim_buf_is_valid(file_buf))
   end)
 
+  it("maps no note keys in a proposal: Claude waits for an answer there, not for notes", function()
+    engine.setup({ note = function() end })
+    local file = work .. "/a.txt"
+    write_file(file, "one\n")
+    propose(file, "ONE\n")
+
+    local map = vim.api.nvim_buf_call(proposal_buf(), function()
+      return vim.fn.maparg("cr", "n", false, true)
+    end)
+
+    assert.is_true(vim.tbl_isempty(map) or map.buffer ~= 1)
+  end)
+
   it("keeps ]k and the moves after a decision inside the proposal, while Claude waits", function()
     local function press(keys)
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)

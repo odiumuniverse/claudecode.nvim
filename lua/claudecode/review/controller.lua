@@ -64,6 +64,7 @@ function M.use_dir(dir)
     return
   end
   state.store = store_mod.new(dir, { lock_wait_ms = M.LOCK_WAIT_MS })
+  require("claudecode.review.notes").use_dir(dir)
 end
 
 ---@return ClaudeCodeReviewStore|nil
@@ -153,6 +154,7 @@ function M.attach_if_pending(buf)
       reverted = true
       store:append_revert(rec)
       restore_final_newline(buf, rec, store:get(path))
+      require("claudecode.review.notes").drop(buf, rec.line, rec.line + math.max(#rec.base_lines, 1) - 1)
     end,
     on_done = function(reason)
       if reason ~= "resolved" then
@@ -250,11 +252,20 @@ function M.refresh_pending()
   end
   table.sort(pending)
   state.pending = pending
+  M.announce()
+  return pending
+end
+
+---Tell listeners (zen, a statusline) what waits for you: the files and the notes.
+function M.announce()
   vim.api.nvim_exec_autocmds("User", {
     pattern = "ClaudeCodeReviewPending",
-    data = { count = #pending, files = vim.deepcopy(pending) },
+    data = {
+      count = #state.pending,
+      files = vim.deepcopy(state.pending),
+      notes = require("claudecode.review.notes").count(),
+    },
   })
-  return pending
 end
 
 ---@return string[]
@@ -262,15 +273,22 @@ function M.pending()
   return vim.deepcopy(state.pending)
 end
 
----The files waiting for review as a short text for a statusline: "review: 2 files", or "" when
+---What waits for you as a short text for a statusline: "review: 2 files · 3 notes", or "" when
 ---nothing waits, so that a statusline component disappears.
+---@param files? integer Files waiting for review; the controller's count by default
+---@param notes? integer Notes not sent yet
 ---@return string
-function M.status()
-  local count = #state.pending
-  if count == 0 then
-    return ""
+function M.status(files, notes)
+  files = files or #state.pending
+  notes = notes or require("claudecode.review.notes").count()
+  local parts = {}
+  if files > 0 then
+    parts[#parts + 1] = ("%d %s"):format(files, files == 1 and "file" or "files")
   end
-  return ("review: %d %s"):format(count, count == 1 and "file" or "files")
+  if notes > 0 then
+    parts[#parts + 1] = ("%d %s"):format(notes, notes == 1 and "note" or "notes")
+  end
+  return #parts > 0 and ("review: " .. table.concat(parts, " · ")) or ""
 end
 
 ---Open the file after (or before) the one in `bufnr` among the files waiting for review, at its
@@ -321,6 +339,7 @@ function M.setup(opts)
     group = state.group,
     callback = function(ev)
       M.attach_if_pending(ev.buf)
+      require("claudecode.review.notes").attach(ev.buf)
     end,
   })
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
@@ -342,6 +361,7 @@ function M.teardown()
   end
   state.store = nil
   state.pending = {}
+  require("claudecode.review.notes").reset()
   require("claudecode.diff_provider").tool_of = function()
     return nil
   end

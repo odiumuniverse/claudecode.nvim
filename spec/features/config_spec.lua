@@ -48,7 +48,7 @@ describe("feature options", function()
 
     local config = features.config(nil)
     local keys = vim.tbl_values(config.review.keymaps)
-    vim.list_extend(keys, { config.review.files_keymap, config.zen.keymap })
+    vim.list_extend(keys, { config.review.files_keymap, config.zen.keymap, config.review.notes.send_keymap })
     for _, lhs in ipairs(keys) do
       assert(delays_nothing(lhs), lhs .. " makes a key you press on its own wait")
     end
@@ -89,5 +89,18 @@ describe("feature options", function()
     assert.is_false(features.config({ review = { advance = false } }).review.advance)
     assert.matches("review.advance must be", config_error({ review = { advance = "files" } }))
     assert.matches("review.cross_files must be a boolean", config_error({ review = { cross_files = "yes" } }))
+  end)
+
+  it("lets you leave notes on Claude's changes and send them in one go, by default", function()
+    local review = features.config(nil).review
+
+    assert.equal("cr", review.keymaps.note)
+    assert.equal("<leader>an", review.keymaps.note_range)
+    assert.same({ enabled = true, send = "batch", advance = true, send_keymap = "cR" }, review.notes)
+    assert.equal("enter", features.config({ review = { notes = { send = "enter" } } }).review.notes.send)
+    assert.matches("review.notes.send must be", config_error({ review = { notes = { send = "now" } } }))
+    assert.matches("review.notes.advance must be a boolean", config_error({ review = { notes = { advance = 1 } } }))
+    assert.matches("review.notes.send_keymap must be", config_error({ review = { notes = { send_keymap = "" } } }))
+    assert.matches("review.notes.enabled must be a boolean", config_error({ review = { notes = { enabled = "no" } } }))
   end)
 end)
