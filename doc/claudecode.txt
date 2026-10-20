@@ -92,13 +92,15 @@ counts only when Claude starts: while Claude runs, `:ClaudeCode` just shows
 or hides it. Switch a running session with shift+tab.
 
 The modes need the hooks, so they work only for Claude started from Neovim
-(|claudecode-review-state|). With `review.before_write = false` the hooks
-never ask: Claude asks only as your settings say, in upstream's diff views.
+(|claudecode-review-state|). A Claude you start yourself has no hooks and asks
+only when your Claude settings say so. With `review.before_write = false` the
+hooks never ask either: Claude asks only as your settings say, in upstream's
+diff views.
 
 ==============================================================================
 HUNK REVIEW                                                *claudecode-review*
 
-Claude edits your files right away, as it does in a terminal. The plugin then
+When Claude edits your files right away, as it does in a terminal, the plugin
 draws what changed on top of the code:
 
 - deleted lines appear in red above the change, as virtual lines that are
@@ -168,7 +170,8 @@ command says "nothing waits for review".
 ------------------------------------------------------------------------------
 WHAT GETS REVIEWED                                   *claudecode-review-scope*
 
-Reviewed:
+In the modes that review after write (|claudecode-modes|), these are
+reviewed:
 
 - Edit, Write, MultiEdit and NotebookEdit: always.
 - Bash in a git repository: every file it changed, created or deleted. The
@@ -200,10 +203,10 @@ You can edit a buffer under review.
 - After `kx`, `u` brings Claude's text back as your own edit: it joins the
   base and is no hunk.
 
-When Claude writes a file, the PostToolUse hook tells Neovim to run
-`:checktime`, and open buffers reload. A buffer with unsaved edits does not
-reload: the plugin warns you, and review starts once `:edit!` loads Claude's
-version.
+When Claude writes a file, the PostToolUse hook tells Neovim which files
+changed, and their open buffers reload. A buffer with unsaved edits does not
+reload: the plugin warns you, and when the file has hunks waiting, review
+starts once `:edit!` loads Claude's version.
 
 ------------------------------------------------------------------------------
 REVERTS AND CLAUDE                                   *claudecode-review-notes*
@@ -292,10 +295,6 @@ the encoding from the open buffer, or else from the byte order mark and
 you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
 The file's CRLF endings stay; the final newline follows Claude's text.
 
-For a Claude started from Neovim, Manual mode asks about every edit
-(|claudecode-modes|). A Claude you started yourself has no hooks and asks
-only when your Claude settings say so.
-
 Set `review.before_write = false` to keep upstream's diff views, or set your
 own `diff_opts.provider` (|claudecode-diff-provider|).
 
@@ -308,7 +307,8 @@ works in normal mode and inside the Claude terminal; other terminals still
 get the key (|claudecode-zen.keymap|).
 
 - Above Claude, zen shows how many files wait for review, and the key that
-  lists them: "2 files wait for review · <leader>ak".
+  lists them: "2 files wait for review · <leader>ak", or "1 file waits for
+  review · <leader>ak". With no file waiting the bar is empty.
 - Leaving zen returns you to the tab you entered from.
 - If you switch to another tab while zen is open, the key takes you back into
   zen instead of building a second one.
