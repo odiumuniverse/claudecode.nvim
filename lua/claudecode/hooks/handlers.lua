@@ -54,7 +54,7 @@ local function edit_path(input)
   return type(path) == "string" and path ~= "" and path or nil
 end
 
--- Claude's permission mode picks the review (docs/DESIGN.md, "Modes"): manual asks before every
+-- Claude's permission mode picks the review (docs/DESIGN.md, "How the modes work"): manual asks before every
 -- edit, so the proposal opens in Neovim; accept-edits takes edits without review, and so does plan
 -- mode, where Claude writes only its plan file; the other modes let Claude go on and leave hunks behind.
 local ASK_MODES = { default = true, manual = true }
