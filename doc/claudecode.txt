@@ -170,10 +170,11 @@ command says "nothing waits for review".
 ------------------------------------------------------------------------------
 WHAT GETS REVIEWED                                   *claudecode-review-scope*
 
-In the modes that review after write (|claudecode-modes|), these are
-reviewed:
+Unless Claude is in accept-edits or plan mode (|claudecode-modes|), these
+are reviewed:
 
-- Edit, Write, MultiEdit and NotebookEdit: always.
+- Edit, Write, MultiEdit and NotebookEdit: always. In Manual mode you see the
+  proposal first (|claudecode-review-before-write|).
 - Bash in a git repository: every file it changed, created or deleted. The
   plugin snapshots the work tree before the call with `git stash create`,
   which does not touch your stash list. Files that git checks out with CRLF
@@ -281,7 +282,9 @@ hunk, Claude gets a rejection.
 - `:ClaudeCodeDiffDeny` refuses the whole proposal, whatever hunks you kept,
   and gives the window back to your file at once.
 - The text you accept becomes the base, so review after write does not show
-  it again. Hunks you reverted reach Claude as a note
+  it again. A base that an earlier edit left, with hunks still waiting, stays
+  as it is: you have not reviewed those hunks. Hunks you reverted reach
+  Claude as a note
   (|claudecode-review-notes|); the CLI itself only says that you modified the
   proposed content.
 - The proposal opens even when the file's buffer has unsaved edits.

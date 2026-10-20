@@ -109,9 +109,9 @@ The hunk keys exist only in buffers under review; `<leader>ak` works everywhere.
 
 ### What gets reviewed
 
-In the modes that review after write (see [Modes](#modes)):
+Unless Claude is in accept-edits or plan mode (see [Modes](#modes)):
 
-- `Edit`, `Write`, `MultiEdit` and `NotebookEdit`: always.
+- `Edit`, `Write`, `MultiEdit` and `NotebookEdit`: always. In Manual mode you see the proposal first (see [Review before write](#review-before-write)).
 - `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. Files that git checks out with CRLF endings (`eol=crlf`, `core.autocrlf`) keep them through review and `kx`.
 - An untracked file Bash rewrote: only when the file is open in Neovim and unmodified, because its old text exists nowhere else.
 - Not reviewed: binary files, files over 2 MB, new files Bash creates in paths that `.gitignore` covers, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
