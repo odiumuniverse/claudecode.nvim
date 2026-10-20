@@ -578,6 +578,14 @@ jump = function(bufnr, direction, count)
   put_cursor(bufnr, win, target)
 end
 
+---The file has no hunk left: with `advance = "file"` the next file waiting for review opens.
+---@param bufnr integer
+local function done_with_file(bufnr)
+  if config.advance == "file" and config.goto_file then
+    config.goto_file(bufnr, "next")
+  end
+end
+
 ---Keep or revert the hunk under the cursor from a key, then move on as `advance` says: to the next
 ---hunk, or to the first one after the last; with "file", to the next file once this one is done.
 ---@param bufnr integer
@@ -593,9 +601,7 @@ local function decide(bufnr, action)
   end
   local after = states[bufnr]
   if not after then
-    if config.advance == "file" and config.goto_file then
-      config.goto_file(bufnr, "next")
-    end
+    done_with_file(bufnr)
     return
   end
   local win = window_of(bufnr)
@@ -612,6 +618,18 @@ local function decide(bufnr, action)
     end
   end
   put_cursor(bufnr, win, target)
+end
+
+---Keep or revert the whole file from a key; with `advance = "file"` the next file opens, as after
+---the last hunk.
+---@param bufnr integer
+---@param action fun(bufnr: integer)
+local function decide_all(bufnr, action)
+  local had = states[bufnr] ~= nil
+  action(bufnr)
+  if had and not states[bufnr] then
+    done_with_file(bufnr)
+  end
 end
 
 ---@param bufnr integer
@@ -631,10 +649,10 @@ mappings_for = function(bufnr)
     decide(bufnr, M.revert)
   end)
   add("keep_all", "keep all hunks", function()
-    M.keep_all(bufnr)
+    decide_all(bufnr, M.keep_all)
   end)
   add("revert_all", "revert all hunks", function()
-    M.revert_all(bufnr)
+    decide_all(bufnr, M.revert_all)
   end)
   add("next", "next hunk", function()
     jump(bufnr, "next", vim.v.count1)

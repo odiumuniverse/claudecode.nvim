@@ -519,8 +519,9 @@ review.advance                                     *claudecode-review.advance*
     Type: string or false. Default: `"hunk"`.
     Where the cursor goes after `cs` or `cx`. "hunk": to the next hunk, or
     to the first one after the last; once the file has none left, it stays.
-    "file": the same, and once the file is done the next file waiting for
-    review opens at its first hunk. `false`: the cursor stays where it is.
+    "file": the same, and once the file is done, by its last hunk or by `cS`
+    or `cX`, the next file waiting for review opens at its first hunk.
+    `false`: the cursor stays where it is.
 
 review.cross_files                             *claudecode-review.cross_files*
     Type: boolean. Default: `true`.

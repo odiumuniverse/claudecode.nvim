@@ -78,6 +78,35 @@ describe("review provider", function()
     assert.is_true(vim.api.nvim_buf_is_valid(file_buf))
   end)
 
+  it("keeps ]k and the moves after a decision inside the proposal, while Claude waits", function()
+    local function press(keys)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)
+    end
+    engine.setup({ advance = "file", goto_file = controller.goto_file })
+    -- Next on the list of files waiting for review after write: the proposal must not jump to it.
+    local other = work .. "/b.txt"
+    write_file(other, "1\n")
+    store:snapshot(other)
+    write_file(other, "2\n")
+    controller.refresh_pending()
+    local file = work .. "/a.txt"
+    write_file(file, "one\ntwo\nthree\n")
+    vim.cmd.edit(file)
+    local handle = propose(file, "ONE\ntwo\nTHREE\n")
+    local buf = proposal_buf()
+    vim.api.nvim_win_set_cursor(0, { 3, 0 })
+
+    press("]k")
+    assert.equal(buf, vim.api.nvim_get_current_buf())
+    press("cs")
+    assert.equal(1, vim.api.nvim_win_get_cursor(0)[1])
+    press("cs")
+    vim.wait(100)
+
+    assert.equal("ONE\ntwo\nTHREE\n", written(handle))
+    assert.equal(file, vim.api.nvim_buf_get_name(0))
+  end)
+
   it("accepts Claude's text when you keep every hunk and puts your file back in the window", function()
     local file = work .. "/a.txt"
     write_file(file, "one\ntwo\n")

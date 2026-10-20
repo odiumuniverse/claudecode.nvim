@@ -787,6 +787,30 @@ describe("review controller", function()
       assert.same({ "b.txt", 5 }, { at() })
     end)
 
+    it("opens the next file after cS keeps the whole file, with advance = 'file'", function()
+      engine.setup({ advance = "file", goto_file = controller.goto_file })
+      open(a)
+
+      press("cS")
+
+      assert.same({ "b.txt", 2 }, { at() })
+    end)
+
+    it("goes on to the next file after you revert a whole new file, which goes away", function()
+      engine.setup({ advance = "file", goto_file = controller.goto_file })
+      local new = work .. "/d.txt"
+      store:snapshot(new)
+      write_file(new, "fresh\n")
+      controller.refresh_pending()
+      open(new)
+
+      press("cx")
+      vim.wait(50)
+
+      assert.same({ "a.txt", 2 }, { at() })
+      assert.is_nil(vim.uv.fs_stat(new))
+    end)
+
     it("goes round the list: past the last file comes the first", function()
       engine.setup({ goto_file = controller.goto_file })
       open(c)

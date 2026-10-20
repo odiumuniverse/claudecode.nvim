@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Review moves on by itself.** After `cs` or `cx` the cursor goes to the next hunk, and from the last one back to the first (`review.advance = "hunk"`). With `advance = "file"` the next file waiting for review opens once a file is done; `false` keeps the cursor where it is.
+- **Review moves on by itself.** After `cs` or `cx` the cursor goes to the next hunk, and from the last one back to the first (`review.advance = "hunk"`). With `advance = "file"` the next file waiting for review opens once a file is done, by its last hunk or by `cS` or `cX`; `false` keeps the cursor where it is.
 - **`]k` and `[k` cross files.** Past the last hunk `]k` opens the next file waiting for review at its first hunk, and `[k` before the first one opens the previous file at its last hunk. The list wraps around. `review.cross_files = false` keeps them inside the file.
 - **Progress at a glance.** The hint at a hunk starts with its number in the file, `2/5  cs keep · cx revert`. The statusline shows how many files wait, `review: 4 files`, and nothing once they are done: the LazyVim spec adds it to lualine, and `require("claudecode.review.controller").status()` gives it to any statusline. Zen's counter says the same, on the right and in a calmer color.
 

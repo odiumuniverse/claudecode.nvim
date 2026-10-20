@@ -280,7 +280,8 @@ end
 ---@param direction "next"|"prev"
 ---@return boolean opened
 function M.goto_file(bufnr, direction)
-  if vim.b[bufnr].claudecode_proposal then
+  -- The buffer may be gone already: a resolved proposal or a reverted new file wipes it.
+  if not vim.api.nvim_buf_is_valid(bufnr) or vim.b[bufnr].claudecode_proposal then
     return false
   end
   local current = store_mod.normalize(vim.api.nvim_buf_get_name(bufnr))
