@@ -92,23 +92,27 @@ end
 
 ---Move a base along an edit made without review: only the hunks still waiting for you stay.
 local function carry(store, path, before, current, session_id)
-  local base = store:get(path)
-  if not base or not before or not current then
+  if not before or not current then
     return false
   end
   local text = require("claudecode.review.text")
   local hunks = require("claudecode.review.hunks")
-  local base_lines, before_lines, after_lines =
-    (text.to_lines(base.text)), (text.to_lines(before)), (text.to_lines(current))
-  local lines = hunks.carry(base_lines, before_lines, after_lines)
-  local eol = base.text == "" and current:sub(-1) == "\n" or base.text:sub(-1) == "\n"
-  store:set(path, text.to_text(lines, eol), base.new_file)
+  local joined = false
+  -- The base is read under the lock it is written back under: you may keep a hunk meanwhile.
+  local moved = store:update(path, function(base)
+    local base_lines, before_lines, after_lines =
+      (text.to_lines(base.text)), (text.to_lines(before)), (text.to_lines(current))
+    local lines = hunks.carry(base_lines, before_lines, after_lines)
+    local eol = base.text == "" and current:sub(-1) == "\n" or base.text:sub(-1) == "\n"
+    joined = not same_changes(hunks.compute(base_lines, before_lines), hunks.compute(lines, after_lines))
+    return text.to_text(lines, eol)
+  end)
   -- An edit that joined a hunk still waiting is part of it now, and a revert takes it back: that
   -- session has to hear of it. An edit away from every hunk is nobody's to revert.
-  if not same_changes(hunks.compute(base_lines, before_lines), hunks.compute(lines, after_lines)) then
+  if moved and joined then
     store:add_session(path, session_id)
   end
-  return true
+  return moved
 end
 
 local function context(event, text)

@@ -336,6 +336,26 @@ function Store:set(path, text, new_file)
   end)
 end
 
+---Change the text of the base of `path`, reading it and writing it back under one lock: a change that
+---was computed from an older base would undo what you kept or decided in between. Nothing happens
+---for a file without a base, so a base you just finished with is not made again.
+---@param path string
+---@param change fun(base: ClaudeCodeReviewBase): string|nil New text of the base; nothing leaves it as it is
+---@return boolean changed
+function Store:update(path, change)
+  path = M.normalize(path)
+  local final = self:_base_file(path)
+  return with_lock(final, self.lock_wait_ms, function()
+    local base = self:get(path)
+    local text = base and change(base)
+    if not text then
+      return false
+    end
+    base.text = text
+    return replace_base(final, base)
+  end)
+end
+
 ---@param path string
 function Store:remove(path)
   local final = self:_base_file(M.normalize(path))

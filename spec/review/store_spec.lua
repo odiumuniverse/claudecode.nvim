@@ -188,6 +188,42 @@ describe("review store", function()
       assert.same({ "s1", "s2" }, base.sessions)
     end)
 
+    it("changes the text of a base it reads under the lock, and keeps the sessions", function()
+      store:snapshot(file, "s1")
+      store:snapshot(file, "s2")
+
+      local changed = store:update(file, function(base)
+        assert.equal("old\n", base.text)
+        return base.text .. "more\n"
+      end)
+
+      assert.is_true(changed)
+      local base = store:get(file)
+      assert.equal("old\nmore\n", base.text)
+      assert.same({ "s1", "s2" }, base.sessions)
+    end)
+
+    it("makes no base for a file that has none, such as one you just finished with", function()
+      local called = false
+
+      local changed = store:update(file, function()
+        called = true
+        return "back from the dead\n"
+      end)
+
+      assert.is_false(changed)
+      assert.is_false(called)
+      assert.is_nil(store:get(file))
+    end)
+
+    it("leaves the base as it is when the change returns no text", function()
+      store:snapshot(file, "s1")
+
+      assert.is_false(store:update(file, function() end))
+
+      assert.equal("old\n", store:get(file).text)
+    end)
+
     it("reads a base made before sessions were tracked as having none", function()
       store:snapshot(file)
 
