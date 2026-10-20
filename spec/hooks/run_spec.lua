@@ -233,6 +233,26 @@ describe("hook script", function()
       assert.same({ "s1", "s2" }, store:get(a).sessions)
     end)
 
+    it("keeps the base and every session when hooks of several sessions start together", function()
+      local runs = {}
+      for _, session in ipairs({ "s1", "s2", "s3", "s4" }) do
+        local input = tool("PreToolUse", "Edit", { file_path = a }, { session_id = session, tool_use_id = session })
+        runs[#runs + 1] = vim.system({ vim.v.progpath, "--clean", "--headless", "-l", script, "PreToolUse" }, {
+          stdin = vim.json.encode(input),
+          env = { CLAUDECODE_REVIEW_DIR = dir },
+          text = true,
+        })
+      end
+      for _, run in ipairs(runs) do
+        assert.equal(0, run:wait().code)
+      end
+
+      local base = store:get(a)
+      assert.equal("old a\n", base.text)
+      table.sort(base.sessions)
+      assert.same({ "s1", "s2", "s3", "s4" }, base.sessions)
+    end)
+
     it("tells a session about the reverts of its own edits only", function()
       edits("s1", a)
       edits("s2", b)
