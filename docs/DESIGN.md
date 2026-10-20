@@ -32,7 +32,7 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 ## Where the base comes from
 
 11. **Edit, Write, MultiEdit and NotebookEdit.** The `PreToolUse` hook copies the file before the edit. If the file does not exist, it marks the base as new.
-12. **Bash.** `PreToolUse(Bash)` runs `git stash create` (HEAD on a clean tree), and `PostToolUse(Bash)` asks `git diff --name-only` against that snapshot. The hook copies the old text of every changed file into the state directory right away instead of keeping the sha: `git gc` may delete a commit nothing points to.
+12. **Bash.** `PreToolUse(Bash)` runs `git stash create` (HEAD on a clean tree), and `PostToolUse(Bash)` asks `git diff --name-only` against that snapshot. The hook copies the old text of every changed file into the state directory right away instead of keeping the sha: `git gc` may delete a commit nothing points to. **A call that moves HEAD** (`git switch`, `pull`, `rebase`, `reset`) has git rewrite files, so the snapshot also keeps HEAD. A changed file that matched the old HEAD before the call and matches the new HEAD after it is git's checkout: it gets no base, and a base already waiting moves along it as an accepted edit would. A file clean before and changed after it is Claude's edit on top of the checkout: its base is the new HEAD's text. A file that was dirty before keeps the snapshot as its base, so `reset --hard` cannot quietly throw away your uncommitted work.
 13. **An untracked file that Bash changed.** `PostToolUse(Bash)` compares the size and mtime of untracked files with the snapshot and tells Neovim which ones changed. If such a file is open and its buffer is unmodified, the old buffer text becomes the base. If it is not open, the edit escapes review; the README says so. The hook checks the first 5000 untracked files only.
 14. **Changes outside Claude's tool calls** (yours, other programs, `git pull`) stay out of review.
 15. **The base accumulates until you decide on the hunk.** Edits over several turns add up against the first snapshot. If a file lands in several snapshots, the earliest one wins.
@@ -156,7 +156,7 @@ review.revert_all(bufnr)
 ```
 bases/<sha256 of the path>  -- a JSON line { path, new_file, created_at, sessions }, then the file bytes before Claude's first edit
 bases/<sha256 of the path>.lock -- a directory that exists while a hook or the editor changes that base's header
-bash/<tool_use_id>.json     -- snapshot before Bash: { top, stash, untracked = { [path] = mtime:size } }
+bash/<tool_use_id>.json     -- snapshot before Bash: { top, head, stash, untracked = { [path] = mtime:size } }
 editing/<tool_use_id>.json  -- an edit that started and has not finished, with the file's stamp and the tool
 accepting/<tool_use_id>     -- the file before an edit in accept-edits or plan mode, to carry into its base
 reverts/<session_id>.jsonl  -- the revert records of one Claude session, one ClaudeCodeRevertRecord per line
@@ -187,6 +187,7 @@ The project root is the git repository around Neovim's working directory when Cl
 - **A lock left behind freezes the editor.** A hook killed while it held the lock of a base leaves the lock for 10 seconds. The editor waited up to 2 seconds for it at every `ko` and `kx`: a keep and a revert stood still for 4 seconds in a test. Now it waits 100 ms and goes on without the lock. 20 ms was too short: with three hooks hammering one base, a live hook sometimes held the lock longer and a session was lost, in about 3 runs of 14; 45 runs at 100 ms lost none.
 - **An address that names a host.** `nvim --listen localhost:6666` makes `$NVIM` a name, and libuv connects to addresses only, so the hook waited its 500 ms and gave up without a word. It resolves the name now and tries every address.
 - **Bash snapshots.** `git stash create` takes `index.lock`. If the lock is still taken after three tries, the hook takes no snapshot at all: falling back to HEAD would make your uncommitted work look like Claude's edit. Snapshots of calls that never finished go away after a day.
+- **A branch switch is not an edit.** At first `PostToolUse(Bash)` put every file the call changed under review against the snapshot. Live, Claude ran `git switch -c <branch> origin/<base>`, and 44 files that differ between the branches came up as Claude's edits, while `git status` was clean. Now the hook tells git's checkout from Claude's edits by HEAD (item 12). The price: `sed -i f && git commit -am …` in one call leaves `f` clean before and after, so its edit escapes review. Telling a commit from a checkout by the new commits does not work either, since `rebase` writes new commits too.
 
 ## Plan
 

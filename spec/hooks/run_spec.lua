@@ -353,6 +353,77 @@ describe("hook script", function()
       assert.is_nil(store:get(work .. "/tracked.txt"))
     end)
 
+    describe("when git moves HEAD", function()
+      before_each(function()
+        git(work, "switch", "-q", "-c", "other")
+        write_file(work .. "/tracked.txt", "on other\n")
+        write_file(work .. "/only-other.txt", "only on other\n")
+        git(work, "add", "-A")
+        git(work, "commit", "-qm", "other")
+        git(work, "switch", "-q", "-")
+      end)
+
+      it("takes no base for the files a branch switch checked out, and reloads their buffers", function()
+        local editor = start_editor()
+        local env = { CLAUDECODE_NVIM = editor.addr }
+        run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "git switch other" }), env)
+        git(work, "switch", "-q", "other")
+
+        run_hook("PostToolUse", tool("PostToolUse", "Bash", { command = "git switch other" }), env)
+
+        local received = editor.received()
+        editor.stop()
+        assert.is_nil(store:get(work .. "/tracked.txt"))
+        assert.is_nil(store:get(work .. "/only-other.txt"))
+        table.sort(received.files)
+        assert.same({ work .. "/only-other.txt", work .. "/tracked.txt" }, received.files)
+      end)
+
+      it("moves a base still waiting along a fast-forward, and its hunk stays", function()
+        local file = work .. "/pending.txt"
+        write_file(file, "a\nb\nc\nd\ne\n")
+        git(work, "add", "pending.txt")
+        git(work, "commit", "-qm", "pending")
+        store:snapshot(file)
+        write_file(file, "A\nb\nc\nd\ne\n") -- Claude's edit, committed before you reviewed it
+        git(work, "commit", "-qam", "claude")
+        git(work, "switch", "-q", "-c", "upstream")
+        write_file(file, "A\nb\nc\nd\nE\n")
+        git(work, "commit", "-qam", "upstream")
+        git(work, "switch", "-q", "-")
+        local merge = { command = "git merge --ff-only upstream" }
+        run_hook("PreToolUse", tool("PreToolUse", "Bash", merge))
+        git(work, "merge", "-q", "--ff-only", "upstream")
+
+        run_hook("PostToolUse", tool("PostToolUse", "Bash", merge))
+
+        assert.equal("a\nb\nc\nd\nE\n", store:get(file).text)
+      end)
+
+      it("bases a file Bash edited after a switch on the branch it switched to", function()
+        local cmd = { command = "git switch other && sed -i '' s/other/both/ tracked.txt" }
+        run_hook("PreToolUse", tool("PreToolUse", "Bash", cmd))
+        git(work, "switch", "-q", "other")
+        write_file(work .. "/tracked.txt", "on both\n")
+
+        run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd))
+
+        assert.equal("on other\n", store:get(work .. "/tracked.txt").text)
+        assert.is_nil(store:get(work .. "/only-other.txt"))
+      end)
+
+      it("keeps your uncommitted work that a hard reset threw away under review", function()
+        write_file(work .. "/tracked.txt", "uncommitted\n")
+        local reset = { command = "git reset --hard other" }
+        run_hook("PreToolUse", tool("PreToolUse", "Bash", reset))
+        git(work, "reset", "-q", "--hard", "other")
+
+        run_hook("PostToolUse", tool("PostToolUse", "Bash", reset))
+
+        assert.equal("uncommitted\n", store:get(work .. "/tracked.txt").text)
+      end)
+    end)
+
     it("reports untracked files Bash changed so the editor can take their base from the buffer", function()
       write_file(work .. "/notes.txt", "before\n")
       local editor = start_editor()

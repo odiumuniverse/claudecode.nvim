@@ -213,14 +213,22 @@ local function post_tool_use(store, input, env)
     local snap = store:take_bash(input.tool_use_id)
     if snap then
       local changes = require("claudecode.hooks.git").changes(snap)
+      -- Only a base already waiting for you moves along such a change; its buffer reloads.
+      local function move_along(change)
+        local current, too_big = read_all(change.path)
+        if not too_big then
+          carry(store, change.path, change.text, current, input.session_id)
+        end
+        payload.files[#payload.files + 1] = change.path
+      end
+      -- Git checked these files out when the call moved HEAD: they are not Claude's edits.
+      for _, change in ipairs(changes.checked_out) do
+        move_along(change)
+      end
       if unreviewed(input) then
-        -- Bash's edits need no review either: only bases already waiting for you move along.
+        -- Bash's edits need no review either.
         for _, change in ipairs(changes.tracked) do
-          local current, too_big = read_all(change.path)
-          if not too_big then
-            carry(store, change.path, change.text, current, input.session_id)
-          end
-          payload.files[#payload.files + 1] = change.path
+          move_along(change)
         end
         -- Open buffers of the other files Bash wrote reload too; none of them gets a base.
         vim.list_extend(payload.files, changes.created)

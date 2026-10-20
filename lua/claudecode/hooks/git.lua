@@ -41,6 +41,13 @@ local function stat_key(path)
   return string.format("%d.%d:%d", st.mtime.sec, st.mtime.nsec or 0, st.size)
 end
 
+---@param top string
+---@return string head The commit HEAD points to, "" in a repository without commits
+local function head_of_repo(top)
+  local out = run(top, { "rev-parse", "--verify", "-q", "HEAD" }) or ""
+  return (out:gsub("%s+$", ""))
+end
+
 ---@param cwd string
 ---@return string|nil toplevel
 function M.toplevel(cwd)
@@ -54,13 +61,13 @@ end
 
 ---Record the work tree before a Bash call.
 ---@param cwd string
----@return table|nil snap { top, stash, untracked = { [relpath] = stat_key } }
+---@return table|nil snap { top, head, stash, untracked = { [relpath] = stat_key } }
 function M.snapshot(cwd)
   local top = M.toplevel(cwd)
   if not top then
     return nil
   end
-  local head = (run(top, { "rev-parse", "--verify", "-q", "HEAD" }) or ""):gsub("%s+$", "")
+  local head = head_of_repo(top)
   local stash = EMPTY_TREE
   if head ~= "" then
     -- `stash create` stores the work tree as a dangling commit without touching the stash list;
@@ -88,7 +95,7 @@ function M.snapshot(cwd)
   for i, rel in ipairs(files) do
     untracked[rel] = i <= MAX_UNTRACKED_STAT and (stat_key(top .. "/" .. rel) or "") or ""
   end
-  return { top = top, stash = stash, untracked = untracked }
+  return { top = top, head = head, stash = stash, untracked = untracked }
 end
 
 local SNIFF_BYTES = 8000
@@ -107,11 +114,11 @@ end
 ---so the blob is not the text that was on disk before the call. Ask git what a checkout of the blob
 ---writes: that is the old file. Where git converts nothing, it answers with the blob itself.
 ---@param top string
----@param stash string
+---@param rev string The commit the blob comes from: the snapshot or the new HEAD
 ---@param rel string
 ---@param blob string|nil
 ---@return string|nil
-local function checkout_text(top, stash, rel, blob)
+local function checkout_text(top, rev, rel, blob)
   if not blob or blob:find("\r", 1, true) then
     return blob
   end
@@ -123,20 +130,62 @@ local function checkout_text(top, stash, rel, blob)
   if blob:find("^version https://git%-lfs") then
     return blob
   end
-  return run(top, { "cat-file", "--filters", stash .. ":" .. rel }) or blob
+  return run(top, { "cat-file", "--filters", rev .. ":" .. rel }) or blob
+end
+
+---Paths that differ between two trees, or between a tree and the work tree with one argument.
+---@return table<string, true>|nil
+local function differing(top, ...)
+  local out = run(top, { "diff", "--name-only", "-z", "--no-renames", ... })
+  if not out then
+    return nil
+  end
+  local set = {}
+  for _, rel in ipairs(split_z(out)) do
+    set[rel] = true
+  end
+  return set
+end
+
+---A call that moved HEAD (switch, pull, rebase, reset) had git rewrite files. Which of them matched
+---the old HEAD before the call, and which differ from the new HEAD after it.
+---@param snap table From M.snapshot
+---@return { head: string, dirty_before: table<string, true>, dirty_after: table<string, true> }|nil
+local function head_move(snap)
+  local head = head_of_repo(snap.top)
+  if not snap.head or snap.head == "" or head == "" or head == snap.head then
+    return nil
+  end
+  local dirty_before = differing(snap.top, snap.head, snap.stash)
+  local dirty_after = differing(snap.top, head)
+  if not dirty_before or not dirty_after then
+    return nil
+  end
+  return { head = head, dirty_before = dirty_before, dirty_after = dirty_after }
 end
 
 ---What a Bash call changed since `snap`.
 ---@param snap table From M.snapshot
----@return table changes { tracked = { {path, text|nil} }, created = {path}, untracked_changed = {path} }
+---@return table changes { tracked = { {path, text|nil} }, checked_out = { {path, text|nil} }, created = {path}, untracked_changed = {path} }
 function M.changes(snap)
   local top, stash = snap.top, snap.stash
-  local changes = { tracked = {}, created = {}, untracked_changed = {} }
+  local changes = { tracked = {}, checked_out = {}, created = {}, untracked_changed = {} }
 
+  local move = head_move(snap)
   for _, rel in ipairs(split_z(run(top, { "diff", "--name-only", "-z", "--no-renames", stash }))) do
-    -- Missing from the snapshot tree means the file was added to the index meanwhile: new.
-    local blob = run(top, { "cat-file", "blob", stash .. ":" .. rel })
-    changes.tracked[#changes.tracked + 1] = { path = top .. "/" .. rel, text = checkout_text(top, stash, rel, blob) }
+    local list, from = changes.tracked, stash
+    if move and not move.dirty_before[rel] then
+      if move.dirty_after[rel] then
+        -- Claude edited what git checked out: the base is the text of the new HEAD.
+        from = move.head
+      else
+        -- Git checked the file out, Claude did not touch it.
+        list = changes.checked_out
+      end
+    end
+    -- Missing from the tree means the file was added to the index meanwhile: new.
+    local blob = run(top, { "cat-file", "blob", from .. ":" .. rel })
+    list[#list + 1] = { path = top .. "/" .. rel, text = checkout_text(top, from, rel, blob) }
   end
 
   local before = snap.untracked or {}

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A branch switch no longer floods review.** When Claude ran `git switch`, `pull`, `rebase` or `reset`, every file git checked out came up as Claude's edit, compared with the old branch. Now only Claude's own edits on top of the new HEAD, and your uncommitted work the command threw away, come up for review.
+
 ## 1.0.0 (2026-10-20)
 
 The first release of claudecode.nvim as a product of its own. It is built on [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) at `2390c6e` (2026-06-25); upstream's IDE connection, commands, keymaps and options work as before.
