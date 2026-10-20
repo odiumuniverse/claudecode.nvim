@@ -76,8 +76,8 @@ local function hook(event)
   return { type = "command", command = command, timeout = M.TIMEOUT_S }
 end
 
----Write the settings file. Every editor that writes this file writes the same content, so racing
----writers are harmless.
+---Write the settings file. Every editor that writes this file writes the same content, as long as the
+---code at those paths is the same, so racing writers are harmless.
 local function write_settings()
   local settings = {
     hooks = {

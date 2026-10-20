@@ -115,7 +115,7 @@ The hunk keys exist only in buffers under review; `<leader>ak` works everywhere.
 
 ### How it works
 
-Every Claude session started from Neovim gets `claude --settings <file>` with three hooks: `PreToolUse`, `PostToolUse` and `UserPromptSubmit`. Claude Code adds these to the hooks you already have; it does not replace them. Each hook is a short `nvim --clean -l` script. It copies the file before the edit and tells Neovim about it, waiting half a second at most for Neovim to take the message. A hook never blocks Claude: on any error it logs to `hooks.log` and exits with 0, so at worst one edit escapes review. The settings file carries the paths of your `nvim` and of this copy of the plugin in its name, so a second Neovim with another copy writes a file of its own and leaves yours alone.
+Every Claude session started from Neovim gets `claude --settings <file>` with three hooks: `PreToolUse`, `PostToolUse` and `UserPromptSubmit`. Claude Code adds these to the hooks you already have; it does not replace them. Each hook is a short `nvim --clean -l` script. It copies the file before the edit and tells Neovim about it, waiting half a second at most for Neovim to take the message. A hook never blocks Claude: on any error it logs to `hooks.log` and exits with 0, so at worst one edit escapes review. The name of the settings file is computed from the paths of your `nvim` and of this copy of the plugin, so a second Neovim with another copy writes a file of its own and leaves yours alone.
 
 If you start Claude yourself (`terminal.provider = "none"`), the hooks are not attached and review after write stays off. Review before write still works: it needs only the IDE connection.
 
