@@ -17,7 +17,7 @@ local WORD_PRIORITY = 20
 
 local ns = vim.api.nvim_create_namespace("claudecode_review")
 
-M.DEFAULT_HINT = "ko keep · kx revert"
+M.DEFAULT_HINT = "cs keep · cx revert"
 
 ---@class ClaudeCodeReviewDrawOpts
 ---@field word_diff? boolean  Highlight changed words inside paired lines (default true)

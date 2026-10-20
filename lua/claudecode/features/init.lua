@@ -35,10 +35,12 @@ M.defaults = {
   review = {
     enabled = true,
     keymaps = {
-      keep = "ko",
-      revert = "kx",
-      keep_all = "KO",
-      revert_all = "KX",
+      -- After `c` Neovim waits for a motion anyway, and s, x, S, X are none: no key you press on
+      -- its own waits for these (`ko` once made every `k` wait for 'timeoutlen').
+      keep = "cs",
+      revert = "cx",
+      keep_all = "cS",
+      revert_all = "cX",
       next = "]k",
       prev = "[k",
       last = "]K",
@@ -107,7 +109,7 @@ function M.config(user)
   return config
 end
 
----The hint follows your keys: "ko keep · kx revert" with the defaults.
+---The hint follows your keys: "cs keep · cx revert" with the defaults.
 ---@param review ClaudeCodeReviewConfig
 ---@return string|false
 function M.hint_text(review)

@@ -112,7 +112,7 @@ The plugin then draws what changed on top of the code:
 - inside a changed line, only the changed words stand out
   (|claudecode-review.word_diff|);
 - the hunk under the cursor shows a hint at the end of its first line:
-  "ko keep · kx revert" (|claudecode-review.hint|).
+  "cs keep · cx revert" (|claudecode-review.hint|).
 
 A hunk is a run of changed lines. The plugin does not use the sign column.
 
@@ -130,10 +130,10 @@ when the review ends. Set a key to `false` to leave it unmapped
 (|claudecode-review.keymaps|).
 
     Key   Option                      Action ~
-    ko    review.keymaps.keep         Keep the hunk under the cursor
-    kx    review.keymaps.revert       Revert it; the file is written at once
-    KO    review.keymaps.keep_all     Keep every hunk in the buffer
-    KX    review.keymaps.revert_all   Revert every hunk in the buffer
+    cs    review.keymaps.keep         Keep the hunk under the cursor
+    cx    review.keymaps.revert       Revert it; the file is written at once
+    cS    review.keymaps.keep_all     Keep every hunk in the buffer
+    cX    review.keymaps.revert_all   Revert every hunk in the buffer
     ]k    review.keymaps.next         Next hunk; takes a count
     [k    review.keymaps.prev         Previous hunk; takes a count
     ]K    review.keymaps.last         Last hunk
@@ -149,8 +149,13 @@ wrote it, because Claude wrote again, nothing is reverted. The plugin warns,
 reloads the buffer when it can, and you revert again.
 
 `]k` and `[k` never wrap. A count past the last hunk goes as far as it can.
-They set the jump mark, so <C-o> goes back. `ko` and `kx` outside a hunk say
+They set the jump mark, so <C-o> goes back. `cs` and `cx` outside a hunk say
 "no hunk here".
+
+Why `c`: Neovim waits for a motion after `c` in any case, and `s`, `x`, `S`
+and `X` are no motions, so these keys delay nothing. A key such as `ko` would
+make every `k` wait for 'timeoutlen' in a buffer under review. `cw`, `ciw`
+and `cc` work as always.
 
 ------------------------------------------------------------------------------
 FILES WAITING FOR REVIEW                             *claudecode-review-files*
@@ -208,9 +213,9 @@ You can edit a buffer under review.
 
 - An edit outside a hunk becomes part of the file and of the base. It does
   not become a hunk.
-- An edit inside a hunk changes Claude's proposal. The hunk waits for `ko` or
-  `kx`.
-- After `kx`, `u` brings Claude's text back as your own edit: it joins the
+- An edit inside a hunk changes Claude's proposal. The hunk waits for `cs` or
+  `cx`.
+- After `cx`, `u` brings Claude's text back as your own edit: it joins the
   base and is no hunk.
 
 When Claude writes a file, the PostToolUse hook tells Neovim which files
@@ -281,7 +286,7 @@ hunks and keys as review after write. The window shows "Claude proposes
 changes to {file} · :w accepts the rest", and the buffer sets
 `b:claudecode_proposal`.
 
-You decide hunk by hunk. `ko` keeps a hunk of the proposal, `kx` reverts it
+You decide hunk by hunk. `cs` keeps a hunk of the proposal, `cx` reverts it
 without touching the file on disk. When no hunk is left, the plugin answers
 Claude: the text you kept goes to Claude, who writes it; if you reverted every
 hunk, Claude gets a rejection.
@@ -414,7 +419,7 @@ a message that names the option. Defaults:
         enabled = true,
         before_write = true,
         keymaps = {
-          keep = "ko", revert = "kx", keep_all = "KO", revert_all = "KX",
+          keep = "cs", revert = "cx", keep_all = "cS", revert_all = "cX",
           next = "]k", prev = "[k", last = "]K", first = "[K",
         },
         files_keymap = "<leader>ak",
@@ -452,19 +457,19 @@ review.keymaps                                     *claudecode-review.keymaps*
     Buffer-local while a file is under review (|claudecode-review-keys|).
 
 review.keymaps.keep                           *claudecode-review.keymaps.keep*
-    Type: string or false. Default: `"ko"`.
+    Type: string or false. Default: `"cs"`.
     Keep the hunk under the cursor.
 
 review.keymaps.revert                       *claudecode-review.keymaps.revert*
-    Type: string or false. Default: `"kx"`.
+    Type: string or false. Default: `"cx"`.
     Revert the hunk under the cursor and write the file.
 
 review.keymaps.keep_all                   *claudecode-review.keymaps.keep_all*
-    Type: string or false. Default: `"KO"`.
+    Type: string or false. Default: `"cS"`.
     Keep every hunk in the buffer.
 
 review.keymaps.revert_all               *claudecode-review.keymaps.revert_all*
-    Type: string or false. Default: `"KX"`.
+    Type: string or false. Default: `"cX"`.
     Revert every hunk in the buffer.
 
 review.keymaps.next                           *claudecode-review.keymaps.next*
@@ -491,7 +496,7 @@ review.files_keymap                           *claudecode-review.files_keymap*
 review.hint                                           *claudecode-review.hint*
     Type: boolean or string. Default: `true`.
     The hint at the hunk under the cursor. `true` builds it from your keys,
-    "ko keep · kx revert" with the defaults. A string replaces it, `false`
+    "cs keep · cx revert" with the defaults. A string replaces it, `false`
     hides it.
 
 review.word_diff                                 *claudecode-review.word_diff*

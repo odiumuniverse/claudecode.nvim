@@ -302,7 +302,7 @@ describe("review.render.draw", function()
 end)
 
 describe("review.render hint", function()
-  local hint = "ko keep · kx revert"
+  local hint = "cs keep · cx revert"
 
   ---@return table[]
   local function hints(bufnr)
@@ -392,12 +392,12 @@ describe("review.render hint", function()
     assert.same({}, hints(bufnr))
   end)
 
-  it("defaults to ko keep · kx revert", function()
+  it("defaults to cs keep · cx revert", function()
     local bufnr = helpers.buffer({ "a", "X", "Y", "c", "d", "E" })
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
     render.draw(bufnr, { changed, second }, {})
 
-    assert.equal("ko keep · kx revert", hints(bufnr)[1].details.virt_text[1][1])
+    assert.equal("cs keep · cx revert", hints(bufnr)[1].details.virt_text[1][1])
   end)
 end)

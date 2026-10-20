@@ -297,7 +297,7 @@ describe("review store", function()
       vim.fn.delete(child)
     end)
 
-    -- The editor changes the base the way ko does (set) and the way a hook carries an edit (update), with
+    -- The editor changes the base the way cs does (set) and the way a hook carries an edit (update), with
     -- the wait the hooks have and with the editor's short one: none of them may lose a session.
     local function loses_no_session_while(name, wait_ms, change)
       it("loses no session that hooks record while " .. name, function()

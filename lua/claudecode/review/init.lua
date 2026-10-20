@@ -1,6 +1,6 @@
 ---@brief [[
 --- Review engine: shows what Claude changed in a buffer against a base text and lets the user
---- keep (`ko`) or revert (`kx`) it hunk by hunk. It knows nothing about hooks, state on disk or
+--- keep (`cs`) or revert (`cx`) it hunk by hunk. It knows nothing about hooks, state on disk or
 --- Claude: the caller hands over a buffer and a base and gets callbacks back.
 ---@brief ]]
 ---@module 'claudecode.review'
@@ -13,10 +13,10 @@ local render = require("claudecode.review.render")
 local M = {}
 
 ---@class ClaudeCodeReviewAttachOpts
----@field on_base? fun(base: string[])                -- the base moved: ko, KO, your edit outside a hunk
----@field on_revert? fun(rec: ClaudeCodeRevertRecord) -- kx/KX was applied to the buffer
+---@field on_base? fun(base: string[])                -- the base moved: cs, cS, your edit outside a hunk
+---@field on_revert? fun(rec: ClaudeCodeRevertRecord) -- cx/cX was applied to the buffer
 ---@field on_done? fun(reason: "resolved"|"detached") -- no hunks left, or detach was called
----@field write_on_revert? boolean                    -- default true: kx writes the file at once
+---@field write_on_revert? boolean                    -- default true: cx writes the file at once
 
 ---@class ClaudeCodeRevertRecord
 ---@field path string           -- absolute path of the buffer
@@ -60,15 +60,15 @@ local M = {}
 ---@field augroup integer
 ---@field maps ClaudeCodeReviewSavedMaps
 ---@field stamp ClaudeCodeDiskStamp|nil -- the file as the buffer last knew it
----@field reloaded boolean    -- the buffer was reloaded from disk (checked by kx)
+---@field reloaded boolean    -- the buffer was reloaded from disk (checked by cx)
 
 ---@type ClaudeCodeReviewConfig
 local DEFAULT_CONFIG = {
   keymaps = {
-    keep = "ko",
-    revert = "kx",
-    keep_all = "KO",
-    revert_all = "KX",
+    keep = "cs",
+    revert = "cx",
+    keep_all = "cS",
+    revert_all = "cX",
     next = "]k",
     prev = "[k",
     last = "]K",

@@ -36,15 +36,15 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 13. **An untracked file that Bash changed.** `PostToolUse(Bash)` compares the size and mtime of untracked files with the snapshot and tells Neovim which ones changed. If such a file is open and its buffer is unmodified, the old buffer text becomes the base. If it is not open, the edit escapes review; the README says so. The hook checks the first 5000 untracked files only.
 14. **Changes outside Claude's tool calls** (yours, other programs, `git pull`) stay out of review.
 15. **The base accumulates until you decide on the hunk.** Edits over several turns add up against the first snapshot. If a file lands in several snapshots, the earliest one wins.
-16. **Your edits in a buffer under review** (tracked with `nvim_buf_attach`). An edit outside a hunk goes into the base too and never becomes a hunk. An edit inside a hunk changes Claude's proposal, and the hunk still waits for `ko` or `kx`.
+16. **Your edits in a buffer under review** (tracked with `nvim_buf_attach`). An edit outside a hunk goes into the base too and never becomes a hunk. An edit inside a hunk changes Claude's proposal, and the hunk still waits for `cs` or `cx`.
 
 ## Display and keys
 
-17. **Our own extmark engine;** `vim.text.diff` finds the hunks. Deleted lines appear as red virtual lines above the hunk, added lines get a green background. In paired changed lines only the changed words light up. The hunk under the cursor shows a hint, `ko keep · kx revert`. Like the rest of the UI it is in English; the plugin builds it from your keys, and `review.hint` replaces or hides it. Deleted lines above the first line of the file show up at once: a window at the top of the file scrolls onto them (`topfill`).
+17. **Our own extmark engine;** `vim.text.diff` finds the hunks. Deleted lines appear as red virtual lines above the hunk, added lines get a green background. In paired changed lines only the changed words light up. The hunk under the cursor shows a hint, `cs keep · cx revert`. Like the rest of the UI it is in English; the plugin builds it from your keys, and `review.hint` replaces or hides it. Deleted lines above the first line of the file show up at once: a window at the top of the file scrolls onto them (`topfill`).
 18. **We do not take the sign column.** gitsigns keeps it.
 19. **The list of files** with undecided hunks opens with `<leader>ak` and `:ClaudeCodeReview`: open (Enter puts the cursor on the first hunk), keep all (`<A-o>`), revert all (`<A-x>`). The list uses snacks.picker, then fzf-lua, then `vim.ui.select`, since many LazyVim setups pick fzf-lua. Revert all on a new file deletes the file: it did not exist before Claude.
-20. **Keys:** `ko` keeps the hunk, `kx` reverts it, `KO` and `KX` act on the whole file, `]k` and `[k` go to the next and previous hunk, `]K` and `[K` to the last and first.
-21. **Disk:** `kx` writes the file at once, together with your unsaved edits in that buffer; `ko` only moves the base. The write runs with `noautocmd` so that format-on-save cannot invent new differences, and the plugin then fires `BufWritePost` by hand. The final newline stays as the file had it. If the file changed on disk since it was loaded, `kx` does not overwrite it: it recomputes the hunks and warns. After each of Claude's writes the hook tells Neovim which files changed, and Neovim reloads their buffers.
+20. **Keys:** `cs` keeps the hunk, `cx` reverts it, `cS` and `cX` act on the whole file, `]k` and `[k` go to the next and previous hunk, `]K` and `[K` to the last and first. Every default key starts with a key after which Neovim waits anyway (`c`, `]`, `[`, `<leader>`, a modifier), so no key you press on its own waits for 'timeoutlen'; after `c` only keys that are neither motions nor text objects. A spec checks it (see "Edges the tests found").
+21. **Disk:** `cx` writes the file at once, together with your unsaved edits in that buffer; `cs` only moves the base. The write runs with `noautocmd` so that format-on-save cannot invent new differences, and the plugin then fires `BufWritePost` by hand. The final newline stays as the file had it. If the file changed on disk since it was loaded, `cx` does not overwrite it: it recomputes the hunks and warns. After each of Claude's writes the hook tells Neovim which files changed, and Neovim reloads their buffers.
 22. **Revert summary for Claude.** The hook adds `additionalContext` to whichever comes first: `PostToolUse` of the next edit or Bash call, or `UserPromptSubmit` of your next message. The summary names the file and line and shows Claude's text and the text that came back; then it is cleared. The CLI itself tells the model only a generic sentence (see "What openDiff taught us").
 
     **Each session hears only of its own edits.** Two Claude sessions in one project share the state directory, so the header of a base lists the sessions that edited the file (`sessions`, taken from the `session_id` of the `PreToolUse` and `PostToolUse` input). A revert goes to `reverts/<session_id>.jsonl` of every session on that list, and a hook takes the file of its own session. A base with no list (made before sessions were tracked) sends the revert to the common `reverts.jsonl`, which every session takes too; so does a hook input without a `session_id`. An edit taken without review (accept-edits mode) adds no session, unless it joined a hunk still waiting: a revert of that hunk takes the edit back too, so its session hears of it. Review before write follows the same rule: `openDiff` carries no session id (its parameters are the paths, the text and `tab_name`; the client has only a connection id), so the provider's revert goes to the sessions in the base that `PreToolUse` made. A session file untouched for 7 days is deleted by whichever hook takes reverts next.
@@ -88,9 +88,9 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 We fixed the contract between modules before writing them, because the engine, the store and zen were written in parallel.
 
 ```
-lua/claudecode/review/hunks.lua      pure logic: hunks, word diff, applying ko/kx, carrying your edits
+lua/claudecode/review/hunks.lua      pure logic: hunks, word diff, applying cs/cx, carrying your edits
 lua/claudecode/review/render.lua     extmarks, highlights, the hint
-lua/claudecode/review/init.lua       engine: attach/detach, ko/kx, nvim_buf_attach
+lua/claudecode/review/init.lua       engine: attach/detach, cs/cx, nvim_buf_attach
 lua/claudecode/review/keymaps.lua    the buffer-local keys while a buffer is under review
 lua/claudecode/review/disk.lua       the file behind a buffer: a stamp, a save without format-on-save
 lua/claudecode/review/store.lua      state directory: bases, revert records, edit and Bash notes
@@ -136,10 +136,10 @@ review.keep_all(bufnr)
 review.revert_all(bufnr)
 
 ---@class ClaudeCodeReviewAttachOpts
----@field on_base? fun(base: string[])                -- the base moved: ko, KO, your edit outside a hunk
----@field on_revert? fun(rec: ClaudeCodeRevertRecord) -- kx or KX changed the buffer
+---@field on_base? fun(base: string[])                -- the base moved: cs, cS, your edit outside a hunk
+---@field on_revert? fun(rec: ClaudeCodeRevertRecord) -- cx or cX changed the buffer
 ---@field on_done? fun(reason: "resolved"|"detached") -- no hunks left, or detach was called
----@field write_on_revert? boolean                    -- default true: kx writes the file at once
+---@field write_on_revert? boolean                    -- default true: cx writes the file at once
 
 ---@class ClaudeCodeRevertRecord
 ---@field path string           -- absolute path of the buffer
@@ -173,21 +173,22 @@ The project root is the git repository around Neovim's working directory when Cl
 31. **TDD with busted.** The tests cover:
     - pure logic: choosing the base, accumulating edits, carrying your edits, the revert summary text;
     - the store and the hook scripts: JSON on stdin, a temporary directory;
-    - the provider and the engine in headless Neovim: ko and kx change the buffer and the base, accept returns the right text, and upstream's tests still pass;
+    - the provider and the engine in headless Neovim: cs and cx change the buffer and the base, accept returns the right text, and upstream's tests still pass;
     - the zen layout in headless Neovim.
 
 ## Edges the tests found
 
 - **Encodings.** A base keeps the file bytes, a buffer holds UTF-8. Before comparing, the plugin converts the base with the buffer's `fileencoding`, or without a buffer by the byte order mark and `'fileencodings'`; the byte order mark survives. In review before write the accepted text goes to Claude as UTF-8, and Claude writes UTF-8: a Latin-1 or UTF-16 file becomes UTF-8 after you accept, because the protocol carries only text.
 - **Line endings.** Review before write keeps CRLF. For a file that git checks out with CRLF (`eol=crlf`, `core.autocrlf`), the base comes through git's filters, so a Bash call that did not touch the file creates no hunks.
-- **Empty files and the final newline.** An emptied buffer is an empty file, not `"\n"`. `kx` does not add a final newline to a file that had none.
+- **Empty files and the final newline.** An emptied buffer is an empty file, not `"\n"`. `cx` does not add a final newline to a file that had none.
 - **Hook races.** Between `PreToolUse` and `PostToolUse` the base equals the file; the `editing/<tool_use_id>.json` note keeps it from being dropped. The note holds the file's stamp: if Claude was refused the edit and you later created or changed the file yourself, review treats the file as yours. The plugin forgets a note after 30 minutes.
 - **A hook that hangs up at once loses its message.** At first the hook sent a notification and closed the socket. A Neovim busy with a terminal (the Claude TUI redrawing after you approve a plan) dropped some of them: 95 of 100 notifications arrived while another terminal poured out text, and live, the first edit after a plan was approved never showed up for review. A request whose answer the hook waits for arrived 100 times of 100 under the same load.
 - **A mode that changes between the two hooks of one call,** and accept-edits mode that told Neovim only about files with a base: both are under "How the modes work".
-- **A lock left behind freezes the editor.** A hook killed while it held the lock of a base leaves the lock for 10 seconds. The editor waited up to 2 seconds for it at every `ko` and `kx`: a keep and a revert stood still for 4 seconds in a test. Now it waits 100 ms and goes on without the lock. 20 ms was too short: with three hooks hammering one base, a live hook sometimes held the lock longer and a session was lost, in about 3 runs of 14; 45 runs at 100 ms lost none.
+- **A lock left behind freezes the editor.** A hook killed while it held the lock of a base leaves the lock for 10 seconds. The editor waited up to 2 seconds for it at every keep and revert: a keep and a revert stood still for 4 seconds in a test. Now it waits 100 ms and goes on without the lock. 20 ms was too short: with three hooks hammering one base, a live hook sometimes held the lock longer and a session was lost, in about 3 runs of 14; 45 runs at 100 ms lost none.
 - **An address that names a host.** `nvim --listen localhost:6666` makes `$NVIM` a name, and libuv connects to addresses only, so the hook waited its 500 ms and gave up without a word. It resolves the name now and tries every address.
 - **Bash snapshots.** `git stash create` takes `index.lock`. If the lock is still taken after three tries, the hook takes no snapshot at all: falling back to HEAD would make your uncommitted work look like Claude's edit. Snapshots of calls that never finished go away after a day.
 - **A branch switch is not an edit.** At first `PostToolUse(Bash)` put every file the call changed under review against the snapshot. Live, Claude ran `git switch -c <branch> origin/<base>`, and 44 files that differ between the branches came up as Claude's edits, while `git status` was clean. Now the hook tells git's checkout from Claude's edits by HEAD (item 12). The price: `sed -i f && git commit -am …` in one call leaves `f` clean before and after, so its edit escapes review. Telling a commit from a checkout by the new commits does not work either, since `rebase` writes new commits too.
+- **Keys that make a motion wait.** The first defaults were `ko`, `kx`, `KO` and `KX`. In a buffer under review `k` became the start of a mapping, so every `k` waited for 'timeoutlen' before the cursor moved up, and `K` (LSP hover in LazyVim) waited the same way. `<M-y>` and `<M-n>` were next: they need Option-as-Meta on macOS, and LazyVim maps `<a-n>` in the buffer on LspAttach, which can land after the review's keys. `ca` and `cd` were proposed too, but `a` starts a text object, and `ca` would swallow `caw`. Now `cs`, `cx`, `cS`, `cX`: Neovim waits for a motion after `c` anyway, and these letters are none. A spec checks every default key.
 
 ## Plan
 
@@ -195,7 +196,7 @@ Done on 2026-10-19 and 2026-10-20:
 
 0. Repository, cleanup, sync script, LICENSE, this file, the check in item 26.
 1. Diff provider seam.
-2. Extmark engine: hunks, word diff, ko/kx, the hint.
+2. Extmark engine: hunks, word diff, keep and revert, the hint.
 3. Review after write: hooks, bases, carrying your edits, the list of files, the revert summary.
 4. Review before write: our provider on the same engine.
 5. Zen and `cz`.

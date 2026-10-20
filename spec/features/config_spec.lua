@@ -12,7 +12,7 @@ describe("feature options", function()
     local config = features.config(nil)
 
     assert.is_true(config.review.enabled)
-    assert.equal("ko", config.review.keymaps.keep)
+    assert.equal("cs", config.review.keymaps.keep)
     assert.equal("<leader>ak", config.review.files_keymap)
     assert.is_true(config.zen.enabled)
     assert.equal("<M-z>", config.zen.keymap)
@@ -23,7 +23,37 @@ describe("feature options", function()
 
     assert.equal("<leader>y", config.review.keymaps.keep)
     assert.is_false(config.review.keymaps.revert_all)
-    assert.equal("kx", config.review.keymaps.revert)
+    assert.equal("cx", config.review.keymaps.revert)
+  end)
+
+  it("starts every default key with one that waits for a second key anyway", function()
+    -- `ko` made every `k` wait for 'timeoutlen' in a buffer under review, and `KO` did the same to
+    -- `K`. Neovim waits after these prefixes in any case, so a mapping on them delays nothing.
+    local prefixes = { "<leader>", "<localleader>", "]", "[", "g", "z" }
+    -- After an operator only a key that is neither a motion nor a text object is free: `ca` would
+    -- swallow `caw`, `cw` would swallow the change of a word.
+    local motions = "aiwWbBeEfFtTgGhjklnNHMLvV"
+    local function delays_nothing(lhs)
+      for _, prefix in ipairs(prefixes) do
+        if vim.startswith(lhs, prefix) then
+          return true
+        end
+      end
+      if lhs:match("^<[MACD]%-.>$") then
+        return true
+      end
+      local operator, second = lhs:match("^([cdy])(%a)$")
+      return operator ~= nil and second ~= operator and not motions:find(second, 1, true)
+    end
+
+    local config = features.config(nil)
+    local keys = vim.tbl_values(config.review.keymaps)
+    vim.list_extend(keys, { config.review.files_keymap, config.zen.keymap })
+    for _, lhs in ipairs(keys) do
+      assert(delays_nothing(lhs), lhs .. " makes a key you press on its own wait")
+    end
+    assert.is_false(delays_nothing("ko"))
+    assert.is_false(delays_nothing("ca"))
   end)
 
   it("names the wrong option in the error", function()
@@ -41,7 +71,7 @@ describe("feature options", function()
   end)
 
   it("builds the hint from your keys", function()
-    assert.equal("ko keep · kx revert", features.hint_text(features.config(nil).review))
+    assert.equal("cs keep · cx revert", features.hint_text(features.config(nil).review))
     assert.equal(
       "gy keep",
       features.hint_text(features.config({ review = { keymaps = { keep = "gy", revert = false } } }).review)

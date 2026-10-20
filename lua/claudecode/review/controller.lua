@@ -1,6 +1,6 @@
 ---@brief [[
 --- Glue between the hooks, the state store and the review engine: attaches the engine to
---- every buffer whose file has a base, saves your ko/kx decisions, and keeps the list of
+--- every buffer whose file has a base, saves your cs/cx decisions, and keeps the list of
 --- files still waiting for review.
 ---@brief ]]
 ---@module 'claudecode.review.controller'

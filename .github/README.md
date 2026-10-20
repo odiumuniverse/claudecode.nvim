@@ -15,7 +15,7 @@ The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP pr
 - **Hunk review.** Keep or revert each change Claude makes, the way Cursor does, instead of accepting or rejecting the whole file.
 - **Zen mode.** Run Claude full screen inside Neovim and flip to the code with one key.
 
-![Claude edits cart.py; the edits show up as hunks; kx reverts one, ko keeps the other; Alt+z opens zen and goes back](demo.gif)
+![Claude edits cart.py; the edits show up as hunks; one is reverted, the other kept; Alt+z opens zen and goes back](demo.gif)
 
 With [cswap](https://github.com/realiti4/claude-swap) (claude-swap) it also switches the Claude account Neovim runs: `:ClaudeCode run 1`.
 
@@ -89,22 +89,22 @@ In auto mode Claude edits your files right away, the way it does in the terminal
 - deleted lines appear in red above the change, as virtual lines that are not part of the file;
 - added lines get a green background;
 - inside a changed line, only the changed words are highlighted;
-- the hunk under the cursor shows a hint: `ko keep · kx revert`.
+- the hunk under the cursor shows a hint: `cs keep · cx revert`.
 
 | Key          | What it does                                         |
 | ------------ | ---------------------------------------------------- |
-| `ko`         | Keep the hunk under the cursor                       |
-| `kx`         | Revert it; the file is written at once               |
-| `KO` / `KX`  | Keep or revert every hunk in the file                |
+| `cs`         | Keep the hunk under the cursor                       |
+| `cx`         | Revert it; the file is written at once               |
+| `cS` / `cX`  | Keep or revert every hunk in the file                |
 | `]k` / `[k`  | Next or previous hunk (takes a count)                |
 | `]K` / `[K`  | Last or first hunk                                   |
 | `<leader>ak` | Files waiting for review: open, keep all, revert all |
 
-The hunk keys exist only in buffers under review; `<leader>ak` works everywhere. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
+The hunk keys exist only in buffers under review; `<leader>ak` works everywhere. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
 
 **Claude learns what you reverted.** Claude Code itself never tells the model that you rejected part of an edit. The plugin adds a short note to Claude's context instead: right after Claude's next file edit or Bash call, or with your next message. The note names the file and line, shows Claude's text and the text that came back, and asks Claude not to reapply the change unless you ask. With several Claude sessions in one project, each session hears only about the files it edited; the note about a file two sessions edited reaches both.
 
-**Your own edits stay yours.** Edit the buffer outside a hunk and the change simply becomes part of the file. Edit inside a hunk and you change Claude's proposal; the hunk still waits for `ko` or `kx`. After `kx`, `u` brings Claude's text back as your own edit.
+**Your own edits stay yours.** Edit the buffer outside a hunk and the change simply becomes part of the file. Edit inside a hunk and you change Claude's proposal; the hunk still waits for `cs` or `cx`. After `cx`, `u` brings Claude's text back as your own edit.
 
 **Review survives restarts.** The text of each file before Claude's first edit lives in `stdpath("state")/claudecode/review/`, in a directory only you can read. Hunks pile up across Claude's turns until you decide on them. The state belongs to the git repository around Neovim's working directory (or to the directory itself outside git), so start Neovim anywhere in the same repository to get your reviews back.
 
@@ -113,7 +113,7 @@ The hunk keys exist only in buffers under review; `<leader>ak` works everywhere.
 Unless Claude is in accept-edits or plan mode (see [Modes](#modes)):
 
 - `Edit`, `Write`, `MultiEdit` and `NotebookEdit`: every call. In Manual mode you see the proposal first (see [Review before write](#review-before-write)).
-- `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. Files that git checks out with CRLF endings (`eol=crlf`, `core.autocrlf`) keep them through review and `kx`.
+- `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. Files that git checks out with CRLF endings (`eol=crlf`, `core.autocrlf`) keep them through review and `cx`.
 - A Bash command that moves HEAD (`git switch`, `pull`, `rebase`, `reset`): only your uncommitted work it threw away, and the edits Claude made after the checkout, compared with the new HEAD. The files git simply checked out are not Claude's edits and stay out of review.
 - An untracked file Bash rewrote: only when the file is open in Neovim and unmodified, because its old text exists nowhere else.
 - Files outside the project as well, such as Claude's memory under `~/.claude/`: review follows Claude's edit tools wherever they write.
@@ -178,7 +178,7 @@ opts = {
     enabled = true,
     before_write = true,        -- review Manual-mode proposals with the same engine
     keymaps = {                 -- buffer-local while a file is under review; false disables a key
-      keep = "ko", revert = "kx", keep_all = "KO", revert_all = "KX",
+      keep = "cs", revert = "cx", keep_all = "cS", revert_all = "cX",
       next = "]k", prev = "[k", last = "]K", first = "[K",
     },
     files_keymap = "<leader>ak",

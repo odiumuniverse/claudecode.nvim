@@ -159,7 +159,7 @@ describe("review controller", function()
   end)
 
   -- A hook killed while it held the lock of a base leaves the lock behind for ten seconds. The editor
-  -- must not stand still for that: ko and kx run on its one thread. Waiting out the lock took 4 s here.
+  -- must not stand still for that: cs and cx run on its one thread. Waiting out the lock took 4 s here.
   it("does not wait for the lock a killed hook left on the base when you keep or revert", function()
     local file = work .. "/a.txt"
     write_file(file, "a\nb\nc\nd\ne\n")

@@ -196,7 +196,7 @@ describe("review engine keymaps", function()
 
   after_each(helpers.reset)
 
-  local default_keys = { "ko", "kx", "KO", "KX", "]k", "[k", "]K", "[K" }
+  local default_keys = { "cs", "cx", "cS", "cX", "]k", "[k", "]K", "[K" }
 
   it("maps the default keys in the buffer, with descriptions for which-key", function()
     local bufnr = helpers.buffer({ "a", "X", "c" })
@@ -216,7 +216,7 @@ describe("review engine keymaps", function()
 
     review.attach(bufnr, { "a", "b", "c" }, {})
 
-    assert.same({}, buffer_map(other, "ko"))
+    assert.same({}, buffer_map(other, "cs"))
   end)
 
   it("takes other keys from setup and skips the ones set to false", function()
@@ -226,33 +226,33 @@ describe("review engine keymaps", function()
     review.attach(bufnr, { "a", "b", "c" }, {})
 
     assert.equal(1, buffer_map(bufnr, "gk").buffer)
-    assert.same({}, buffer_map(bufnr, "ko"))
-    assert.same({}, buffer_map(bufnr, "kx"))
-    assert.equal(1, buffer_map(bufnr, "KO").buffer)
+    assert.same({}, buffer_map(bufnr, "cs"))
+    assert.same({}, buffer_map(bufnr, "cx"))
+    assert.equal(1, buffer_map(bufnr, "cS").buffer)
   end)
 
   it("removes its keys on detach and puts back the mapping the buffer had", function()
     local bufnr = helpers.buffer({ "a", "X", "c" })
     local pressed = {}
-    vim.keymap.set("n", "ko", function()
+    vim.keymap.set("n", "cs", function()
       pressed[#pressed + 1] = "mine"
-    end, { buffer = bufnr, desc = "my own ko" })
-    vim.keymap.set("n", "KO", ":echo 'global'<CR>", { desc = "global KO" })
+    end, { buffer = bufnr, desc = "my own cs" })
+    vim.keymap.set("n", "cS", ":echo 'global'<CR>", { desc = "global cS" })
 
     review.attach(bufnr, { "a", "b", "c" }, {})
-    assert.is_truthy(buffer_map(bufnr, "ko").desc:find("review", 1, true))
+    assert.is_truthy(buffer_map(bufnr, "cs").desc:find("review", 1, true))
     review.detach(bufnr)
 
-    local restored = buffer_map(bufnr, "ko")
+    local restored = buffer_map(bufnr, "cs")
     assert.equal(1, restored.buffer)
-    assert.equal("my own ko", restored.desc)
-    press("ko")
+    assert.equal("my own cs", restored.desc)
+    press("cs")
     assert.same({ "mine" }, pressed)
-    assert.same({}, buffer_map(bufnr, "kx"))
-    local global = buffer_map(bufnr, "KO")
+    assert.same({}, buffer_map(bufnr, "cx"))
+    local global = buffer_map(bufnr, "cS")
     assert.equal(0, global.buffer)
-    assert.equal("global KO", global.desc)
-    vim.keymap.del("n", "KO")
+    assert.equal("global cS", global.desc)
+    vim.keymap.del("n", "cS")
   end)
 
   it("removes its keys when the review is resolved", function()
@@ -261,7 +261,7 @@ describe("review engine keymaps", function()
 
     review.keep(bufnr, 1)
 
-    assert.same({}, buffer_map(bufnr, "ko"))
+    assert.same({}, buffer_map(bufnr, "cs"))
   end)
 end)
 
@@ -348,7 +348,7 @@ describe("review engine keep", function()
     review.attach(bufnr, { "a", "b", "c", "d", "e" }, opts)
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
-    press("ko")
+    press("cs")
 
     assert.same({ "a", "X", "c", "d", "e" }, review.base(bufnr))
     assert.same({ { "a", "X", "c", "d", "e" } }, calls.base)
@@ -647,7 +647,7 @@ describe("review engine revert", function()
     local bufnr, path = review_file("a\nX\nc\nd\nY\n", { "a", "b", "c", "d", "e" })
     vim.api.nvim_win_set_cursor(0, { 5, 0 })
 
-    press("kx")
+    press("cx")
 
     assert.same({ "a", "X", "c", "d", "e" }, lines(bufnr))
     assert.equal("a\nX\nc\nd\ne\n", helpers.read_file(path))
@@ -722,7 +722,7 @@ describe("review engine keep_all and revert_all", function()
   it("keeps everything from the key", function()
     local bufnr, _, calls = review_file(text, base)
 
-    press("KO")
+    press("cS")
 
     assert.equal(1, #calls.base)
     assert.same({ "resolved" }, calls.done)
@@ -783,7 +783,7 @@ describe("review engine keep_all and revert_all", function()
   it("reverts everything from the key", function()
     local bufnr, path = review_file(text, base)
 
-    press("KX")
+    press("cX")
 
     assert.same(base, lines(bufnr))
     assert.equal("a\nb\nc\nd\ne\nf\ng\n", helpers.read_file(path))
@@ -1085,7 +1085,7 @@ describe("review engine reload", function()
     assert.same({}, calls.done)
     assert.same({}, calls.base)
     assert.equal(2, #review.hunks(bufnr))
-    assert.equal(1, buffer_map(bufnr, "ko").buffer)
+    assert.equal(1, buffer_map(bufnr, "cs").buffer)
 
     vim.api.nvim_buf_set_lines(bufnr, 0, 1, false, { "A" })
     helpers.flush()
@@ -1268,7 +1268,7 @@ describe("review engine hint and appearance", function()
     local bufnr = helpers.buffer(cur)
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
     review.attach(bufnr, base, {})
-    assert.equal("ko keep · kx revert", hints(bufnr)[1].details.virt_text[1][1])
+    assert.equal("cs keep · cx revert", hints(bufnr)[1].details.virt_text[1][1])
     assert.equal(1, hints(bufnr)[1].row)
 
     vim.api.nvim_win_set_cursor(0, { 4, 0 })
@@ -1349,7 +1349,7 @@ describe("review engine hint and appearance", function()
     assert.equal(2, #deleted[1].details.virt_lines)
   end)
 
-  it("puts a deleted file tail under the last line, and kx on it brings it back", function()
+  it("puts a deleted file tail under the last line, and cx on it brings it back", function()
     local bufnr = helpers.buffer({ "a", "b" })
     review.attach(bufnr, { "a", "b", "c", "d" }, { write_on_revert = false })
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
@@ -1360,7 +1360,7 @@ describe("review engine hint and appearance", function()
     assert.equal(1, deleted[1].row)
     assert.is_falsy(deleted[1].details.virt_lines_above)
 
-    press("kx")
+    press("cx")
     assert.same({ "a", "b", "c", "d" }, lines(bufnr))
   end)
 end)
@@ -1386,10 +1386,10 @@ describe("review engine setup", function()
 
   it("explains what is wrong with an option", function()
     local cases = {
-      { opts = "ko", needle = "opts must be a table" },
+      { opts = "cs", needle = "opts must be a table" },
       { opts = { hint = 1 }, needle = "hint must be a string or false" },
       { opts = { word_diff = "yes" }, needle = "word_diff must be a boolean" },
-      { opts = { keymaps = "ko" }, needle = "keymaps must be a table" },
+      { opts = { keymaps = "cs" }, needle = "keymaps must be a table" },
       { opts = { keymaps = { bogus = "x" } }, needle = "unknown keymap 'bogus'" },
       { opts = { keymaps = { keep = 1 } }, needle = "keymaps.keep must be a non-empty string or false" },
       { opts = { keymaps = { keep = "" } }, needle = "keymaps.keep must be a non-empty string or false" },
@@ -1463,7 +1463,7 @@ describe("review engine edge cases", function()
     assert.equal(
       1,
       vim.api.nvim_buf_call(bufnr, function()
-        return vim.fn.maparg("ko", "n", false, true).buffer
+        return vim.fn.maparg("cs", "n", false, true).buffer
       end)
     )
   end)
@@ -1620,7 +1620,7 @@ describe("review engine on_done", function()
       seen.base = review.base(bufnr)
       seen.hunks = review.hunks(bufnr)
       seen.keymap = vim.api.nvim_buf_call(bufnr, function()
-        return vim.fn.maparg("ko", "n", false, true).buffer
+        return vim.fn.maparg("cs", "n", false, true).buffer
       end)
     end
   end
@@ -1639,7 +1639,7 @@ describe("review engine on_done", function()
     assert.equal(1, seen.keymap)
     assert.is_false(review.is_attached(bufnr))
     assert.same({}, helpers.marks(bufnr))
-    assert.same({}, buffer_map(bufnr, "ko"))
+    assert.same({}, buffer_map(bufnr, "cs"))
   end)
 
   it("still reports the review as attached, with its last hunks, on detach", function()
@@ -1706,12 +1706,12 @@ describe("review engine on_done", function()
 
     assert.is_true(review.is_attached(bufnr))
     assert.same({ "a", "Z", "c" }, review.base(bufnr))
-    assert.equal(1, buffer_map(bufnr, "ko").buffer)
+    assert.equal(1, buffer_map(bufnr, "cs").buffer)
     assert.is_true(#helpers.marks(bufnr) > 0)
 
     review.detach(bufnr)
     assert.same({ "detached" }, second_done)
-    assert.same({}, buffer_map(bufnr, "ko"))
+    assert.same({}, buffer_map(bufnr, "cs"))
   end)
 end)
 
