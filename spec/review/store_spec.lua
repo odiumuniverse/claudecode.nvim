@@ -201,6 +201,81 @@ describe("review store", function()
       assert.same({}, store:get(file).sessions)
     end)
 
+    it("loses no session when several hook processes record theirs at the same moment", function()
+      local procs, files = 8, 40
+      local child = vim.fn.tempname() .. ".lua"
+      write_file(
+        child,
+        table.concat({
+          "local root, state, work, go, ready, id, files = unpack(arg)",
+          'package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path',
+          'local store = require("claudecode.review.store").new(state)',
+          'io.open(ready, "w"):close()',
+          "while not vim.uv.fs_stat(go) do vim.uv.sleep(1) end",
+          'for i = 1, tonumber(files) do store:snapshot(work .. "/f" .. i, id) end',
+        }, "\n")
+      )
+      local root = vim.fn.fnamemodify(package.searchpath("claudecode.review.store", package.path), ":p:h:h:h:h")
+      for i = 1, files do
+        write_file(work .. "/f" .. i, "old\n")
+      end
+      local go = vim.fn.tempname()
+      local ids, running, ready = {}, {}, {}
+      for p = 1, procs do
+        ids[p] = "s" .. p
+        ready[p] = vim.fn.tempname()
+        running[p] = vim.system({
+          vim.v.progpath,
+          "--clean",
+          "--headless",
+          "-l",
+          child,
+          root,
+          dir,
+          work,
+          go,
+          ready[p],
+          ids[p],
+          tostring(files),
+        }, { text = true })
+      end
+      assert.is_true(vim.wait(10000, function()
+        for p = 1, procs do
+          if not vim.uv.fs_stat(ready[p]) then
+            return false
+          end
+        end
+        return true
+      end, 10))
+      write_file(go, "")
+      for p = 1, procs do
+        local res = running[p]:wait()
+        assert.equal(0, res.code, res.stderr)
+      end
+
+      for i = 1, files do
+        local sessions = store:get(work .. "/f" .. i).sessions
+        table.sort(sessions)
+        assert.same(ids, sessions, "file f" .. i)
+      end
+      vim.fn.delete(child)
+    end)
+
+    it("does not wait for a lock that a dead hook left behind, and leaves none of its own", function()
+      store:snapshot(file, "s1")
+      local lock = dir .. "/bases/" .. vim.fn.sha256(store_mod.normalize(file)) .. ".lock"
+      assert(vim.uv.fs_mkdir(lock, 448))
+      local long_ago = os.time() - 60
+      assert(vim.uv.fs_utime(lock, long_ago, long_ago))
+
+      local started = vim.uv.hrtime()
+      store:snapshot(file, "s2")
+
+      assert.is_true((vim.uv.hrtime() - started) / 1e6 < 500)
+      assert.same({ "s1", "s2" }, store:get(file).sessions)
+      assert.is_nil(vim.uv.fs_stat(lock))
+    end)
+
     it("takes only the plain ids from a header it did not write itself", function()
       store:snapshot(file)
       local base_file = dir .. "/bases/" .. vim.fn.sha256(store_mod.normalize(file))

@@ -100,9 +100,54 @@ end
 
 local function ensure_dir(path)
   if vim.fn.isdirectory(path) == 0 then
-    vim.fn.mkdir(path, "p")
+    -- Another hook may make the directory between the check and mkdir: E739.
+    pcall(vim.fn.mkdir, path, "p")
   end
   uv.fs_chmod(path, DIR_MODE)
+end
+
+-- Changing the header of a base means reading it and writing it back: two hooks doing that at the
+-- same moment would lose one change, so each such change takes the lock of its base.
+local LOCK_WAIT_NS = 2e9
+local LOCK_STALE_S = 10
+
+---Run `fn` while holding the lock of the base file `final`. A lock is a directory next to the base:
+---mkdir either makes it or fails. A hook that died holding the lock is not waited for past
+---LOCK_STALE_S, and `fn` runs without the lock after LOCK_WAIT_NS: Claude must never hang on us.
+---@generic T
+---@param final string
+---@param fn fun(): T
+---@return T
+local function with_lock(final, fn)
+  local lock = final .. ".lock"
+  local deadline = uv.hrtime() + LOCK_WAIT_NS
+  local held = false
+  while true do
+    local made, _, name = uv.fs_mkdir(lock, DIR_MODE)
+    if made then
+      held = true
+      break
+    end
+    if name ~= "EEXIST" then
+      break -- no bases directory yet, so nothing to race with
+    end
+    local stat = uv.fs_stat(lock)
+    if stat and stat.mtime.sec < os.time() - LOCK_STALE_S then
+      uv.fs_rmdir(lock)
+    elseif uv.hrtime() >= deadline then
+      break
+    else
+      uv.sleep(2)
+    end
+  end
+  local ok, result = pcall(fn)
+  if held then
+    uv.fs_rmdir(lock)
+  end
+  if not ok then
+    error(result, 0)
+  end
+  return result
 end
 
 ---@param dir string Project state directory
@@ -169,6 +214,17 @@ local function decode_base(data)
   }
 end
 
+---Replace the file of a base in one step.
+---@return boolean
+local function replace_base(final, base)
+  local tmp = tmp_name(final)
+  if not write_all(tmp, encode_base(base)) then
+    uv.fs_unlink(tmp)
+    return false
+  end
+  return uv.fs_rename(tmp, final) == true
+end
+
 ---Create the base for `path` from `text` unless one exists: the earliest snapshot wins.
 ---@param path string
 ---@param text string
@@ -211,21 +267,29 @@ function Store:add_session(path, session_id)
     return false
   end
   local final = self:_base_file(M.normalize(path))
-  local data = read_all(final)
-  local base = data and decode_base(data)
+  local function current()
+    local data = read_all(final)
+    return data and decode_base(data)
+  end
+  -- Every later hook of the same session finds itself written down: no lock for that.
+  local base = current()
   if not base then
     return false
   end
   if vim.list_contains(base.sessions, session_id) then
     return true
   end
-  base.sessions[#base.sessions + 1] = session_id
-  local tmp = tmp_name(final)
-  if not write_all(tmp, encode_base(base)) then
-    uv.fs_unlink(tmp)
-    return false
-  end
-  return uv.fs_rename(tmp, final) == true
+  return with_lock(final, function()
+    base = current() -- it may have changed while we waited
+    if not base then
+      return false
+    end
+    if not vim.list_contains(base.sessions, session_id) then
+      base.sessions[#base.sessions + 1] = session_id
+      return replace_base(final, base)
+    end
+    return true
+  end)
 end
 
 ---Create the base for `path` from the file on disk, or mark it new if it does not exist.
@@ -253,25 +317,24 @@ function Store:set(path, text, new_file)
   ensure_dir(self.dir)
   ensure_dir(self.dir .. "/bases")
   local final = self:_base_file(path)
-  local old = self:get(path)
-  local tmp = tmp_name(final)
-  local base = {
-    path = path,
-    text = text,
-    new_file = new_file == true,
-    created_at = old and old.created_at or os.time(),
-    sessions = old and old.sessions or {},
-  }
-  if write_all(tmp, encode_base(base)) then
-    uv.fs_rename(tmp, final)
-  else
-    uv.fs_unlink(tmp)
-  end
+  with_lock(final, function()
+    local old = self:get(path)
+    replace_base(final, {
+      path = path,
+      text = text,
+      new_file = new_file == true,
+      created_at = old and old.created_at or os.time(),
+      sessions = old and old.sessions or {},
+    })
+  end)
 end
 
 ---@param path string
 function Store:remove(path)
-  uv.fs_unlink(self:_base_file(M.normalize(path)))
+  local final = self:_base_file(M.normalize(path))
+  with_lock(final, function()
+    uv.fs_unlink(final)
+  end)
 end
 
 ---@return ClaudeCodeReviewBase[]
