@@ -59,7 +59,8 @@ REQUIREMENTS                                         *claudecode-requirements*
 MODES                                                       *claudecode-modes*
 
 Claude's permission mode picks the review. Switch it in Claude with
-shift+tab; the next edit follows the new mode.
+shift+tab; the next edit follows the new mode, and an edit already under way
+ends the way it began.
 
 Manual (`default`)
     Claude waits for you. The proposal opens in Neovim, and you keep or

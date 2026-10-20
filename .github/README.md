@@ -64,7 +64,7 @@ Upstream's commands, keymaps and options all work as before; the [upstream READM
 
 ## Modes
 
-Claude's permission mode picks the review. Switch it in Claude with shift+tab; the next edit follows the new mode.
+Claude's permission mode picks the review. Switch it in Claude with shift+tab; the next edit follows the new mode, and an edit already under way ends the way it began.
 
 | Claude's mode                           | What happens to an edit                                                                                                             |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
