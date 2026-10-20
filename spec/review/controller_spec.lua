@@ -138,8 +138,8 @@ describe("review controller", function()
     assert.equal("A\nb\nc\nd\ne\n", store:get(file).text)
   end)
 
-  -- A hook killed while it held the lock of a base (Claude's Esc kills the hooks too) leaves the lock
-  -- behind for ten seconds. The editor must not stand still for that: ko and kx run on its one thread.
+  -- A hook killed while it held the lock of a base leaves the lock behind for ten seconds. The editor
+  -- must not stand still for that: ko and kx run on its one thread. Waiting out the lock took 4 s here.
   it("does not wait for the lock a killed hook left on the base when you keep or revert", function()
     local file = work .. "/a.txt"
     write_file(file, "a\nb\nc\nd\ne\n")
@@ -152,7 +152,7 @@ describe("review controller", function()
     engine.keep(buf, 1)
     engine.revert(buf, 1)
 
-    assert.is_true((vim.uv.hrtime() - started) / 1e6 < 500)
+    assert.is_true((vim.uv.hrtime() - started) / 1e6 < 1000)
     assert.equal("A\nb\nc\nd\ne\n", read_file(file))
     assert.is_nil(store:get(file))
   end)

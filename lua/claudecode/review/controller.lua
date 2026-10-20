@@ -15,8 +15,10 @@ local M = {}
 M.EDITING_MAX_AGE_S = 30 * 60
 
 -- Waiting for a lock blocks the editor's only thread; a hook holds a lock for a moment, so a lock
--- still there after this long was left behind. The change goes on without it.
-M.LOCK_WAIT_MS = 20
+-- still there after this long was left behind. The change goes on without it. 20 ms was too short:
+-- with three hooks hammering one base, a live hook sometimes held the lock longer, and a session
+-- written down in the header was lost.
+M.LOCK_WAIT_MS = 100
 
 local state = {
   store = nil, ---@type ClaudeCodeReviewStore|nil

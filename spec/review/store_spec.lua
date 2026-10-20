@@ -297,51 +297,69 @@ describe("review store", function()
       vim.fn.delete(child)
     end)
 
-    it("loses no session that hooks record while the editor keeps hunks over and over", function()
-      local procs, per_proc = 3, 40
-      local child = vim.fn.tempname() .. ".lua"
-      write_file(
-        child,
-        table.concat({
-          "local root, state, file, id, count = unpack(arg)",
-          'package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path',
-          'local store = require("claudecode.review.store").new(state)',
-          'for i = 1, tonumber(count) do store:add_session(file, id .. "_" .. i) end',
-        }, "\n")
-      )
-      local root = vim.fn.fnamemodify(package.searchpath("claudecode.review.store", package.path), ":p:h:h:h:h")
-      store:snapshot(file, "s0")
-      local finished, expected = 0, { "s0" }
-      for p = 1, procs do
-        for i = 1, per_proc do
-          expected[#expected + 1] = "p" .. p .. "_" .. i
-        end
-        vim.system(
-          { vim.v.progpath, "--clean", "--headless", "-l", child, root, dir, file, "p" .. p, tostring(per_proc) },
-          {
-            text = true,
-          },
-          function(res)
-            assert(res.code == 0, res.stderr)
-            finished = finished + 1
-          end
+    -- The editor changes the base the way ko does (set) and the way a hook carries an edit (update), with
+    -- the wait the hooks have and with the editor's short one: none of them may lose a session.
+    local function loses_no_session_while(name, wait_ms, change)
+      it("loses no session that hooks record while " .. name, function()
+        local procs, per_proc = 3, 40
+        local child = vim.fn.tempname() .. ".lua"
+        write_file(
+          child,
+          table.concat({
+            "local root, state, file, id, count = unpack(arg)",
+            'package.path = root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path',
+            'local store = require("claudecode.review.store").new(state)',
+            'for i = 1, tonumber(count) do store:add_session(file, id .. "_" .. i) end',
+          }, "\n")
         )
-      end
+        local root = vim.fn.fnamemodify(package.searchpath("claudecode.review.store", package.path), ":p:h:h:h:h")
+        store:snapshot(file, "s0")
+        local editor = store_mod.new(dir, { lock_wait_ms = wait_ms })
+        local finished, expected = 0, { "s0" }
+        for p = 1, procs do
+          for i = 1, per_proc do
+            expected[#expected + 1] = "p" .. p .. "_" .. i
+          end
+          vim.system(
+            { vim.v.progpath, "--clean", "--headless", "-l", child, root, dir, file, "p" .. p, tostring(per_proc) },
+            { text = true },
+            function(res)
+              assert(res.code == 0, res.stderr)
+              finished = finished + 1
+            end
+          )
+        end
 
-      local kept = 0
-      while finished < procs do
-        kept = kept + 1
-        store:set(file, "kept " .. kept .. "\n")
-        vim.wait(1)
-      end
+        local changes = 0
+        while finished < procs do
+          changes = changes + 1
+          change(editor, file, changes)
+          vim.wait(1)
+        end
 
-      assert.is_true(kept > 1)
-      local sessions = store:get(file).sessions
-      table.sort(sessions)
-      table.sort(expected)
-      assert.same(expected, sessions)
-      vim.fn.delete(child)
-    end)
+        assert.is_true(changes > 1)
+        local sessions = store:get(file).sessions
+        table.sort(sessions)
+        table.sort(expected)
+        assert.same(expected, sessions)
+        vim.fn.delete(child)
+      end)
+    end
+
+    local function keep(editor, path, n)
+      editor:set(path, "kept " .. n .. "\n")
+    end
+
+    local function carry(editor, path, n)
+      editor:update(path, function()
+        return "carried " .. n .. "\n"
+      end)
+    end
+
+    loses_no_session_while("the editor keeps hunks over and over", 2000, keep)
+    loses_no_session_while("the editor keeps hunks over and over, waiting 100 ms for the lock", 100, keep)
+    loses_no_session_while("an edit without review is carried into the base over and over", 2000, carry)
+    loses_no_session_while("an edit without review is carried over and over, waiting 100 ms for the lock", 100, carry)
 
     it("does not wait for a lock that a dead hook left behind, and leaves none of its own", function()
       store:snapshot(file, "s1")
