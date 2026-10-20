@@ -99,8 +99,9 @@ local function context(event, text)
 end
 
 -- Paths in the summary are relative to Claude's working directory, as Claude names them.
+-- A session hears of the reverts of its own edits, and of those that no session claims.
 local function take_summary(store, input)
-  local records = store:take_reverts()
+  local records = store:take_reverts(input.session_id)
   return require("claudecode.review.summary").render(records, input.cwd)
 end
 
@@ -122,7 +123,7 @@ local function pre_tool_use(store, input, env)
       local stamp = require("claudecode.review.store").stamp(path)
       -- An earlier edit of this file was refused and you changed the file since: its base is out of date.
       store:forget_refused(path, stamp)
-      store:begin_edit(input.tool_use_id, path, store:snapshot(path), stamp, input.tool_name)
+      store:begin_edit(input.tool_use_id, path, store:snapshot(path, input.session_id), stamp, input.tool_name)
       if ASK_MODES[input.permission_mode] and env.before_write then
         return ask()
       end
@@ -137,8 +138,15 @@ local function pre_tool_use(store, input, env)
 end
 
 local function post_tool_use(store, input, env)
-  local payload =
-    { event = "PostToolUse", dir = env.dir, tool_name = input.tool_name, files = {}, untracked_changed = {} }
+  local payload = {
+    event = "PostToolUse",
+    dir = env.dir,
+    tool_name = input.tool_name,
+    -- the editor takes the base of an untracked file Bash changed, and needs to know whose edit it was
+    session_id = type(input.session_id) == "string" and input.session_id or nil,
+    files = {},
+    untracked_changed = {},
+  }
 
   if EDIT_TOOLS[input.tool_name] and unreviewed(input) then
     local path = edit_path(input)
@@ -157,6 +165,8 @@ local function post_tool_use(store, input, env)
       local current, too_big = read_all(path)
       if base and not too_big and base.text == (current or "") and not base.new_file then
         store:remove(path)
+      elseif base then
+        store:add_session(path, input.session_id)
       end
       payload.files[1] = require("claudecode.review.store").normalize(path)
     end
@@ -176,14 +186,14 @@ local function post_tool_use(store, input, env)
         for _, change in ipairs(changes.tracked) do
           if reviewable(change.text) and reviewable(read_all(change.path)) then
             store:forget_refused(change.path)
-            store:snapshot_text(change.path, change.text or "", change.text == nil)
+            store:snapshot_text(change.path, change.text or "", change.text == nil, input.session_id)
             payload.files[#payload.files + 1] = change.path
           end
         end
         for _, path in ipairs(changes.created) do
           if reviewable(read_all(path)) then
             store:forget_refused(path)
-            store:snapshot_text(path, "", true)
+            store:snapshot_text(path, "", true, input.session_id)
             payload.files[#payload.files + 1] = path
           end
         end

@@ -174,7 +174,7 @@ local function reload(buf)
 end
 
 ---Handle a PostToolUse notification from the hook process.
----@param payload { dir: string|nil, tool_name: string|nil, files: string[]|nil, untracked_changed: string[]|nil }
+---@param payload { dir: string|nil, tool_name: string|nil, session_id: string|nil, files: string[]|nil, untracked_changed: string[]|nil }
 function M.on_hook(payload)
   if payload.dir and payload.dir ~= "" then
     M.use_dir(payload.dir)
@@ -191,7 +191,7 @@ function M.on_hook(payload)
       local old = text.encode(text.buffer_text(buf), buf)
       local now = read_file(path)
       if now and old ~= now then
-        state.store:snapshot_text(path, old, false)
+        state.store:snapshot_text(path, old, false, payload.session_id)
         files[#files + 1] = path
       end
     end

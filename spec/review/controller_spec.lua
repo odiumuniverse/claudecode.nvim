@@ -28,8 +28,8 @@ describe("review controller", function()
   end
 
   -- Claude edits a file the way the hooks see it: snapshot, write, notify.
-  local function claude_writes(path, text)
-    store:snapshot(path)
+  local function claude_writes(path, text, session)
+    store:snapshot(path, session)
     write_file(path, text)
     controller.on_hook({ event = "PostToolUse", dir = dir, tool_name = "Write", files = { path } })
   end
@@ -139,6 +139,66 @@ describe("review controller", function()
     assert.equal(1, #reverts)
     assert.equal(file, reverts[1].path)
     assert.same({ "changed" }, reverts[1].claude_lines)
+  end)
+
+  describe("when several Claude sessions work in the project", function()
+    it("tells the session that edited the file about a revert, also after you kept another hunk", function()
+      local file = work .. "/a.txt"
+      write_file(file, "a\nb\nc\nd\ne\n")
+      local buf = open(file)
+      claude_writes(file, "A\nb\nc\nd\nE\n", "sA")
+
+      engine.keep(buf, 1)
+      engine.revert(buf, 1)
+
+      assert.same({}, store:take_reverts("sB"))
+      local reverts = store:take_reverts("sA")
+      assert.equal(1, #reverts)
+      assert.same({ "E" }, reverts[1].claude_lines)
+    end)
+
+    it("tells both sessions when both edited the file", function()
+      local file = work .. "/a.txt"
+      write_file(file, "keep me\n")
+      local buf = open(file)
+      claude_writes(file, "changed\n", "sA")
+      store:snapshot(file, "sB")
+
+      engine.revert(buf, 1)
+
+      assert.equal(1, #store:take_reverts("sA"))
+      assert.equal(1, #store:take_reverts("sB"))
+      assert.same({}, store:take_reverts("sC"))
+    end)
+
+    it("tells the session about a file you reverted from the list without opening it", function()
+      local file = work .. "/a.txt"
+      write_file(file, "keep me\n")
+      claude_writes(file, "changed\n", "sA")
+
+      require("claudecode.review.picker").revert_all(file)
+
+      assert.same({}, store:take_reverts("sB"))
+      assert.equal(1, #store:take_reverts("sA"))
+    end)
+
+    it("writes down the session of an untracked file Bash rewrote", function()
+      local file = work .. "/notes.txt"
+      write_file(file, "before\n")
+      open(file)
+      write_file(file, "after\n")
+
+      controller.on_hook({
+        event = "PostToolUse",
+        dir = dir,
+        tool_name = "Bash",
+        session_id = "sA",
+        files = {},
+        untracked_changed = { file },
+      })
+
+      assert.same({ "sA" }, store:get(file).sessions)
+    end)
   end)
 
   describe("reverting a hunk writes the file with the final newline it had", function()

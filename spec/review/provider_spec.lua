@@ -146,6 +146,24 @@ describe("review provider", function()
     assert.same({ "e" }, reverts[1].base_lines)
   end)
 
+  it("tells the sessions that edited the file about the rest, and no other session", function()
+    -- openDiff carries no session id: the base that PreToolUse made knows who is editing.
+    local file = work .. "/a.txt"
+    write_file(file, "a\nb\nc\nd\ne\n")
+    store:snapshot(file, "sA")
+    propose(file, "A\nb\nc\nd\nE\n")
+    local buf = proposal_buf()
+
+    engine.revert(buf, 2)
+    engine.keep(buf, 1)
+    vim.wait(100)
+
+    assert.same({}, store:take_reverts("sB"))
+    local reverts = store:take_reverts("sA")
+    assert.equal(1, #reverts)
+    assert.same({ "E" }, reverts[1].claude_lines)
+  end)
+
   it("makes the text you accepted the new base, so it is not reviewed twice", function()
     local file = work .. "/a.txt"
     write_file(file, "one\n")

@@ -200,6 +200,110 @@ describe("hook script", function()
     assert.is_nil(store:get(file))
   end)
 
+  describe("with several Claude sessions in the project", function()
+    local a, b
+
+    local function edits(session, file)
+      run_hook("PreToolUse", tool("PreToolUse", "Edit", { file_path = file }, { session_id = session }))
+    end
+
+    local function reverted(file)
+      store:append_revert({ path = file, line = 1, base_lines = { "a" }, claude_lines = { "b" }, time = 1 })
+    end
+
+    ---What the session's next prompt carries, or nil.
+    local function hears(session)
+      local input = { cwd = work, prompt = "go on" }
+      input.session_id = session
+      local _, out = run_hook("UserPromptSubmit", input)
+      return out and out.hookSpecificOutput.additionalContext
+    end
+
+    before_each(function()
+      a, b = work .. "/a.lua", work .. "/b.lua"
+      write_file(a, "old a\n")
+      write_file(b, "old b\n")
+    end)
+
+    it("writes down who edits a file", function()
+      edits("s1", a)
+      edits("s2", a)
+      edits("s2", a)
+
+      assert.same({ "s1", "s2" }, store:get(a).sessions)
+    end)
+
+    it("tells a session about the reverts of its own edits only", function()
+      edits("s1", a)
+      edits("s2", b)
+      reverted(a)
+
+      assert.is_nil(hears("s2"))
+      assert.matches("a%.lua, line 1", hears("s1"))
+      assert.is_nil(hears("s1"))
+    end)
+
+    it("tells both sessions when both edited the file", function()
+      edits("s1", a)
+      edits("s2", a)
+      reverted(a)
+
+      assert.matches("a%.lua", hears("s1"))
+      assert.matches("a%.lua", hears("s2"))
+    end)
+
+    it("tells only the session whose edit follows, right after that edit", function()
+      edits("s1", a)
+      reverted(a)
+
+      local _, other = run_hook("PostToolUse", tool("PostToolUse", "Edit", { file_path = b }, { session_id = "s2" }))
+      local _, own = run_hook("PostToolUse", tool("PostToolUse", "Edit", { file_path = b }, { session_id = "s1" }))
+
+      assert.is_nil(other)
+      assert.matches("your text, reverted", own.hookSpecificOutput.additionalContext)
+    end)
+
+    it("hands a base made before sessions were tracked to whichever session asks first", function()
+      store:snapshot(a)
+      reverted(a)
+
+      assert.matches("a%.lua", hears("s2"))
+      assert.is_nil(hears("s1"))
+    end)
+
+    it("adds the session that finishes an edit to a base it did not make", function()
+      store:snapshot(a)
+      write_file(a, "new a\n")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Edit", { file_path = a }, { session_id = "s3" }))
+
+      assert.same({ "s3" }, store:get(a).sessions)
+    end)
+
+    it("takes a session id that is not a plain file name for no session at all", function()
+      edits("../x", a)
+      reverted(a)
+
+      assert.same({}, store:get(a).sessions)
+      assert.is_nil(vim.uv.fs_stat(dir .. "/reverts"))
+      assert.is_nil(vim.uv.fs_stat(dir .. "/x.jsonl"))
+      assert.matches("a%.lua", hears("../x"))
+    end)
+
+    it("lets a prompt without a session id take only the common file", function()
+      edits("s1", a)
+      store:snapshot(b)
+      reverted(a)
+      reverted(b)
+
+      local heard = hears(nil)
+
+      assert.matches("b%.lua", heard)
+      assert.is_nil(heard:find("a%.lua"))
+      assert.matches("a%.lua", hears("s1"))
+    end)
+  end)
+
   describe("around Bash", function()
     before_each(function()
       git(work, "init", "-q")
@@ -219,6 +323,17 @@ describe("hook script", function()
 
       assert.equal("uncommitted\n", store:get(work .. "/tracked.txt").text)
       assert.is_nil(read_file(dir .. "/bash/toolu_01.json"))
+    end)
+
+    it("writes down the session in the bases of the files Bash changed or created", function()
+      run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "sed" }, { session_id = "s7" }))
+      write_file(work .. "/tracked.txt", "by bash\n")
+      write_file(work .. "/created.txt", "by bash\n")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Bash", { command = "sed" }, { session_id = "s7" }))
+
+      assert.same({ "s7" }, store:get(work .. "/tracked.txt").sessions)
+      assert.same({ "s7" }, store:get(work .. "/created.txt").sessions)
     end)
 
     it("takes over the base of an edit that was refused earlier, once Bash changes the file", function()
@@ -263,6 +378,7 @@ describe("hook script", function()
       editor.stop()
       assert.equal("PostToolUse", received.event)
       assert.same({ work .. "/notes.txt" }, received.untracked_changed)
+      assert.equal("s1", received.session_id)
       assert.is_nil(store:get(work .. "/notes.txt"))
     end)
   end)

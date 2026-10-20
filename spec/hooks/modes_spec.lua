@@ -145,6 +145,20 @@ describe("review by permission mode", function()
       assert.equal("a\nb\nc\nd\nE\n", store:get(file).text)
     end)
 
+    it("keeps the sessions of the base it moves along, and does not add its own", function()
+      local file = work .. "/a.txt"
+      write_file(file, "a\nb\nc\nd\ne\n")
+      store:snapshot(file, "sA")
+      write_file(file, "A\nb\nc\nd\ne\n")
+
+      run_hook("PreToolUse", edit("PreToolUse", "acceptEdits", file))
+      write_file(file, "A\nb\nc\nd\nE\n")
+      run_hook("PostToolUse", edit("PostToolUse", "acceptEdits", file))
+
+      -- the hunk still waiting is sA's: s1 took its own edit without review
+      assert.same({ "sA" }, store:get(file).sessions)
+    end)
+
     it("leaves an edit of a new file still under review inside its one big hunk", function()
       local file = work .. "/new.txt"
       store:snapshot(file)
