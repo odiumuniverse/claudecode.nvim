@@ -51,6 +51,14 @@ function M.setup(opts)
   vim.api.nvim_create_user_command("ClaudeCodeReviewSend", function()
     M.send_all()
   end, { desc = "Claude: send the review notes" })
+  -- Virtual lines do not wrap: a box drawn for a wider window would lose its right edge once the
+  -- Claude split, zen or a :vsplit narrows the window.
+  vim.api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
+    group = vim.api.nvim_create_augroup("ClaudeCodeReviewNotes", { clear = true }),
+    callback = function()
+      M.refit()
+    end,
+  })
 end
 
 local function file_of(dir)
@@ -92,13 +100,15 @@ end
 local function wrap(text, width)
   local out = {}
   for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
-    local cur = ""
+    -- The indentation of code in a note stays; past the box's width it cannot.
+    local indent = line:match("^%s*"):sub(1, math.floor(width / 2))
+    local cur = indent
     for word in line:gmatch("%S+") do
-      local joined = cur == "" and word or (cur .. " " .. word)
+      local joined = cur == indent and (indent .. word) or (cur .. " " .. word)
       if vim.fn.strdisplaywidth(joined) <= width then
         cur = joined
       else
-        if cur ~= "" then
+        if cur ~= indent then
           out[#out + 1] = cur
         end
         while vim.fn.strdisplaywidth(word) > width do
@@ -114,8 +124,8 @@ local function wrap(text, width)
   return out
 end
 
----A saved note as the box it was typed in, dimmed and without the hints: all of its text, so it
----stays where your eyes were. The user found the one gray line it used to be hard to find.
+---A saved note as the box it was typed in, dimmed and without the hints, so it stays where your eyes
+---were. The user found the one gray line it used to be hard to find. As high as the live box at most.
 ---@param text string
 ---@param width integer Text width of the box, as note_box.width gives it
 ---@return table[] virt_lines
@@ -123,7 +133,13 @@ function M.frame(text, width)
   local border, inner = "ClaudeCodeReviewNoteBorder", "ClaudeCodeReviewNote"
   local title = " note "
   local lines = { { { "╭" .. title .. string.rep("─", width - vim.fn.strdisplaywidth(title)) .. "╮", border } } }
-  for _, line in ipairs(wrap(text, width - 2)) do
+  local wrapped = wrap(text, width - 2)
+  local max = note_box.MAX_HEIGHT
+  if #wrapped > max then
+    wrapped = vim.list_slice(wrapped, 1, max - 1)
+    wrapped[#wrapped + 1] = "…"
+  end
+  for _, line in ipairs(wrapped) do
     local pad = string.rep(" ", width - 2 - vim.fn.strdisplaywidth(line))
     lines[#lines + 1] = { { "│ ", border }, { line .. pad, inner }, { " │", border } }
   end
@@ -152,9 +168,14 @@ local function draw(note, bufnr)
     right_gravity = false,
     end_right_gravity = true,
   })
+  -- Virtual lines belong to the buffer, not to a window: fit the narrowest window that shows it.
+  local width
+  for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+    width = math.min(width or math.huge, note_box.width(win))
+  end
   local shown = vim.api.nvim_buf_set_extmark(bufnr, M.ns, last - 1, 0, {
     id = mark and mark.shown or nil,
-    virt_lines = M.frame(note.text, require("claudecode.review.note_box").width(vim.fn.win_findbuf(bufnr)[1])),
+    virt_lines = M.frame(note.text, width or note_box.width(nil)),
   })
   state.marks[note.id] = { buf = bufnr, track = track, shown = shown }
 end
@@ -166,6 +187,17 @@ local function hide(note)
   if mark and mark.shown and vim.api.nvim_buf_is_valid(mark.buf) then
     pcall(vim.api.nvim_buf_del_extmark, mark.buf, M.ns, mark.shown)
     mark.shown = nil
+  end
+end
+
+---Draw every shown note again at the width of its window now.
+function M.refit()
+  for _, note in ipairs(state.notes) do
+    local mark = state.marks[note.id]
+    -- A box hidden for editing stays hidden.
+    if mark and mark.shown and vim.api.nvim_buf_is_valid(mark.buf) then
+      draw(note, mark.buf)
+    end
   end
 end
 

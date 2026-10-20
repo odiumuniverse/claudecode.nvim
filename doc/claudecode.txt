@@ -290,8 +290,10 @@ to make room. Type what you want; the box grows up to 10 lines.
 stays open: <CR> saves there too, and <Esc> drops what you typed.
 
 A saved note stays where you typed it: the same box under its last line,
-dimmed, with all of its text and no hints, and it moves with the code around
-it. `cr` on a noted line opens the note again; save it
+dimmed and without the hints, up to the box's ten lines with "…" for the
+rest, and it moves with the code around it. It fits the narrowest window
+that shows the file, also after a resize. `cr` on a noted line opens the
+note again; save it
 empty to delete it. Notes go to the state directory at once and survive a
 restart of Neovim. A note on lines you revert with `cx` goes away: the text it
 was about is gone.

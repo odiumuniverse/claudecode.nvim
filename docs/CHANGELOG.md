@@ -14,7 +14,7 @@
 
 ### Changed
 
-- **A saved note stays where you typed it.** It used to turn into one gray line, `▎ note: …`, cut at the window's edge, and the box you had typed in was gone. Now the box stays, dimmed and without the key hints, with all of the note's text. The highlight group `ClaudeCodeReviewNoteSign` gave way to `ClaudeCodeReviewNoteBorder`.
+- **A saved note stays where you typed it.** It used to turn into one gray line, `▎ note: …`, cut at the window's edge, and the box you had typed in was gone. Now the box stays, dimmed and without the key hints, up to its ten lines, and fits the window again when a split narrows it. The highlight group `ClaudeCodeReviewNoteSign` gave way to `ClaudeCodeReviewNoteBorder`.
 
 ### Fixed
 

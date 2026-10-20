@@ -213,6 +213,51 @@ describe("review notes", function()
     assert.equal("keep me", shown(buf, 1))
   end)
 
+  it("fits its box to the window again when the window gets narrower", function()
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    press("crwrap the error<CR>")
+    local wide = vim.fn.strdisplaywidth(drawn(buf, 1)[1])
+
+    -- The Claude split opening next to the code, say. Both windows show the file: the box fits the
+    -- narrower one, whichever comes first.
+    -- The first window on the list is the wider one here.
+    vim.cmd("vsplit")
+    vim.api.nvim_win_set_width(0, 50)
+    vim.cmd("wincmd l")
+    local right = vim.api.nvim_get_current_win()
+    local room = vim.api.nvim_win_get_width(right) - vim.fn.getwininfo(right)[1].textoff
+    vim.api.nvim_exec_autocmds("WinResized", {})
+
+    local narrow = vim.fn.strdisplaywidth(drawn(buf, 1)[1])
+    vim.cmd("only")
+    assert.is_true(narrow < wide)
+    assert.is_true(narrow <= room, ("box %d, room %d"):format(narrow, room))
+  end)
+
+  it("shows at most as many lines as the box that typed it, and says there is more", function()
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    local lines = {}
+    for i = 1, 15 do
+      lines[i] = "line " .. i
+    end
+
+    press("cr" .. table.concat(lines, "<C-j>") .. "<CR>")
+
+    local inside = vim.split(shown(buf, 1), "\n")
+    assert.equal(require("claudecode.review.note_box").MAX_HEIGHT, #inside)
+    assert.equal("…", inside[#inside])
+    assert.equal(15, #vim.split(notes.list()[1].text, "\n"))
+  end)
+
+  it("keeps the indentation of code in a note", function()
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+    -- <C-u> takes back the indent 'autoindent' gives the new line.
+    press("crif x then<C-j>  return y<C-j><C-u>end<CR>")
+
+    assert.equal("if x then\n  return y\nend", shown(buf, 1))
+  end)
+
   describe("sending to Claude", function()
     local terminal = require("claudecode.terminal")
     local original, original_bufnr, sent, accepted
