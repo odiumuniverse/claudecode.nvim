@@ -75,7 +75,7 @@ Claude's permission mode picks the review. Switch it in Claude with shift+tab; t
 
 In Manual mode the plugin asks about every edit, even one your Claude settings allow without asking (`permissions.allow`): its `PreToolUse` hook answers `ask` for Claude's edit tools. Bash keeps your own permission rules, and its edits come up as hunks after the call.
 
-`<leader>am` in the LazyVim spec starts Claude in Manual mode (`:ClaudeCode --permission-mode manual`). `<leader>at` starts it in the mode from your Claude settings (`permissions.defaultMode`).
+`<leader>am` in the LazyVim spec starts Claude in Manual mode (`:ClaudeCode --permission-mode manual`). `<leader>at` starts it in the mode from your Claude settings (`permissions.defaultMode`). The flag counts only when Claude starts: while Claude runs, the key just shows or hides it, like `<leader>at`. Switch a running session with shift+tab.
 
 The modes need the hooks, so they work only for Claude started from Neovim.
 

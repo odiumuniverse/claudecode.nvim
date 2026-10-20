@@ -86,7 +86,9 @@ To start Claude in Manual mode: >vim
     :ClaudeCode --permission-mode manual
 <
 The LazyVim spec maps this to `<leader>am`. Without the flag Claude starts in
-the mode from your Claude settings (`permissions.defaultMode`).
+the mode from your Claude settings (`permissions.defaultMode`). The flag
+counts only when Claude starts: while Claude runs, `:ClaudeCode` just shows
+or hides it. Switch a running session with shift+tab.
 
 The modes need the hooks, so they work only for Claude started from Neovim
 (|claudecode-review-state|). With `review.before_write = false` the hooks

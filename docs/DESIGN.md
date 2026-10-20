@@ -25,7 +25,7 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 - **Manual.** `PreToolUse` of Edit, Write, MultiEdit and NotebookEdit answers `permissionDecision: "ask"`. A hook's `ask` beats `permissions.allow`, so Claude asks about every edit, the IDE gets `openDiff`, and our provider shows the proposal. Without the hook an allowed Edit never reaches `openDiff` (see "What openDiff taught us"). The hook asks only while review before write is on: `review.before_write`, or a provider of your own. Bash is never asked about; its edits come up as hunks after the call.
 - **Accept edits.** The hooks take no base. If the file already has one, `PreToolUse` saves the text before the edit in `accepting/<tool_use_id>`, and `PostToolUse` carries the edit into the base (`hunks.carry`): the hunks still waiting for you stay, and an edit that touches one of them joins that hunk. A Bash call in this mode carries its edits only into bases that already exist.
 - **Plan.** The same as accept edits. Claude writes only its plan file in this mode, and the plan has no place in the review list.
-- `:ClaudeCode --permission-mode manual` starts Claude in Manual mode; the LazyVim spec maps it to `<leader>am`.
+- `:ClaudeCode --permission-mode manual` starts Claude in Manual mode; the LazyVim spec maps it to `<leader>am`. While Claude runs, upstream's `:ClaudeCode` only shows or hides the terminal and drops the flag, so a running session switches with shift+tab.
 
 ## Where the base comes from
 
