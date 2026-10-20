@@ -25,6 +25,7 @@ Based on [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) (upst
 
 More documentation:
 
+- [docs/CHANGELOG.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/CHANGELOG.md): what each release brought;
 - [docs/DESIGN.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/DESIGN.md): the design and the reasons behind it;
 - [docs/ARCHITECTURE.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/ARCHITECTURE.md) and [docs/PROTOCOL.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/docs/PROTOCOL.md): upstream's architecture and the IDE protocol;
 - [CONTRIBUTING.md](https://github.com/odiumuniverse/claudecode.nvim/blob/main/CONTRIBUTING.md): upstream's development guide.
