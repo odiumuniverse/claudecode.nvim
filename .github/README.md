@@ -68,12 +68,12 @@ Upstream's commands, keymaps and options all work as before; the [upstream READM
 
 Claude's permission mode picks the review. Switch it in Claude with shift+tab; the next edit follows the new mode, and an edit already under way ends the way it began.
 
-| Claude's mode                           | What happens to an edit                                                                                                             |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Manual (`default`)                      | Claude waits for you. The proposal opens in Neovim, and you keep or revert each hunk before Claude writes the file.                 |
-| Auto, `bypassPermissions` and `dontAsk` | Claude does not ask about edits. What it writes waits for you as hunks in the file.                                                 |
-| Accept edits                            | Claude writes, and the plugin keeps the edit without review. Hunks left from earlier edits stay; an edit that touches one joins it. |
-| Plan                                    | No review. Claude writes only its plan file here.                                                                                   |
+| Claude's mode                           | What happens to an edit                                                                                                                                                                                                  |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Manual (`default`)                      | Claude waits for you. The proposal opens in Neovim, and you keep or revert each hunk before Claude writes the file.                                                                                                      |
+| Auto, `bypassPermissions` and `dontAsk` | Claude does not ask about edits. What it writes waits for you as hunks in the file.                                                                                                                                      |
+| Accept edits                            | Claude writes, and the plugin keeps the edit without review. Hunks left from earlier edits stay; an edit that touches one joins it. So does an edit you allow with "Yes, and switch to accept edits" at Claude's prompt. |
+| Plan                                    | No review. Claude writes only its plan file here.                                                                                                                                                                        |
 
 In Manual mode the plugin asks about every edit, even one your Claude settings allow without asking (`permissions.allow`): its `PreToolUse` hook answers `ask` for Claude's edit tools. Bash keeps your own permission rules, and its edits come up as hunks after the call.
 
@@ -114,6 +114,7 @@ Unless Claude is in accept-edits or plan mode (see [Modes](#modes)):
 - `Edit`, `Write`, `MultiEdit` and `NotebookEdit`: every call. In Manual mode you see the proposal first (see [Review before write](#review-before-write)).
 - `Bash` in a git repository: every file it changed, created or deleted. The plugin snapshots the work tree before the call with `git stash create`, which does not touch your stash list. Files that git checks out with CRLF endings (`eol=crlf`, `core.autocrlf`) keep them through review and `kx`.
 - An untracked file Bash rewrote: only when the file is open in Neovim and unmodified, because its old text exists nowhere else.
+- Files outside the project as well, such as Claude's memory under `~/.claude/`: review follows Claude's edit tools wherever they write.
 - Not reviewed: binary files, files over 2 MB, new files Bash creates in paths that `.gitignore` covers, edits outside a Claude tool call (yours, `git pull`, other programs), and Bash edits outside git repositories.
 - If you refuse an edit and then create or change that file yourself, review treats the file as yours.
 

@@ -148,6 +148,9 @@ local function pre_tool_use(store, input, env)
       -- An earlier edit of this file was refused and you changed the file since: its base is out of date.
       store:forget_refused(path, stamp)
       store:begin_edit(input.tool_use_id, path, store:snapshot(path, input.session_id), stamp, input.tool_name)
+      -- You may still take this edit without review: "Yes, and switch to accept edits" at Claude's
+      -- prompt. PostToolUse then carries it into the base and needs the file as it was.
+      store:save_before(input.tool_use_id, text or "")
       if ASK_MODES[input.permission_mode] and env.before_write then
         return ask()
       end
@@ -172,17 +175,19 @@ local function post_tool_use(store, input, env)
     untracked_changed = {},
   }
 
-  -- The mode can change between the two hooks of one call (shift+tab, "allow all edits" at the
-  -- prompt). PreToolUse decided: it left a copy of the file for an edit without review, or a note for
-  -- one under review. Only an edit that PreToolUse never saw follows the mode of PostToolUse.
+  -- The mode can change between the two hooks of one call (shift+tab, "Yes, and switch to accept
+  -- edits" at Claude's prompt). An edit goes without review if PreToolUse took it so (a copy of the
+  -- file and no note) or if Claude ends the call in accept-edits or plan mode: you took the edit.
   local before, without_review
   if EDIT_TOOLS[input.tool_name] then
+    local noted = store:is_editing(input.tool_use_id)
     before = store:take_before(input.tool_use_id)
-    without_review = before ~= nil or (unreviewed(input) and not store:is_editing(input.tool_use_id))
+    without_review = unreviewed(input) or (before ~= nil and not noted)
   end
 
   if without_review then
     local path = edit_path(input)
+    store:end_edit(input.tool_use_id, path)
     if path then
       local current, too_big = read_all(path)
       if not too_big then

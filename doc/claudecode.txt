@@ -73,7 +73,9 @@ Auto, `bypassPermissions` and `dontAsk`
 
 Accept edits (`acceptEdits`)
     Claude writes, and the plugin keeps the edit without review. Hunks left
-    from earlier edits stay; an edit that touches one of them joins it.
+    from earlier edits stay; an edit that touches one of them joins it. So
+    does an edit you allow with "Yes, and switch to accept edits" at
+    Claude's prompt.
 
 Plan
     No review. Claude writes only its plan file here.
@@ -181,6 +183,8 @@ are reviewed:
   endings (`eol=crlf`, `core.autocrlf`) keep them through review and revert.
 - An untracked file Bash rewrote: only when the file is open in Neovim and
   unmodified, because its old text exists nowhere else.
+- Files outside the project as well, such as Claude's memory under
+  `~/.claude/`: review follows Claude's edit tools wherever they write.
 
 Not reviewed:
 
