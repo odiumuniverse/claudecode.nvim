@@ -49,6 +49,7 @@ describe("zen", function()
   end)
 
   after_each(function()
+    pcall(vim.api.nvim_del_augroup_by_name, "FakeBufferline")
     zen.teardown()
     package.loaded["claudecode.terminal"] = real_terminal
     vim.cmd("silent! tabonly!")
@@ -74,6 +75,27 @@ describe("zen", function()
     -- A terminal sized by its widest window would garble the narrow split: one window only.
     assert.same({}, windows_showing(term_buf, work_tab))
     assert.equal(0, vim.o.showtabline)
+  end)
+
+  it("keeps the tabline hidden while a plugin turns it on, and gives that plugin its choice back", function()
+    -- bufferline.nvim in LazyVim shows the tabline on BufAdd and TabEnter when there is more than one item.
+    local group = vim.api.nvim_create_augroup("FakeBufferline", { clear = true })
+    vim.api.nvim_create_autocmd({ "BufAdd", "TabEnter" }, {
+      group = group,
+      callback = function()
+        vim.o.showtabline = 2
+      end,
+    })
+    fake_terminal.ensure_visible()
+
+    zen.enter()
+    vim.cmd("badd zen_spec_other.txt") -- Claude opens a file while zen is on
+
+    assert.equal(0, vim.o.showtabline)
+
+    zen.leave()
+
+    assert.equal(2, vim.o.showtabline)
   end)
 
   it("starts Claude when it is not running yet", function()

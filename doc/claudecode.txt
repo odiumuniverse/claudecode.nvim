@@ -309,6 +309,9 @@ its own, and bring you back to the code with Claude in its split. The key
 works in normal mode and inside the Claude terminal; other terminals still
 get the key (|claudecode-zen.keymap|).
 
+- Zen hides the tabline, and keeps it hidden when a plugin such as
+  bufferline.nvim shows it again. Leaving zen gives the tabline back as that
+  plugin last set it.
 - Above Claude, zen shows how many files wait for review, and the key that
   lists them: "2 files wait for review · <leader>ak", or "1 file waits for
   review · <leader>ak". With no file waiting the bar is empty.

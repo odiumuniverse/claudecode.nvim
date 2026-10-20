@@ -133,7 +133,7 @@ Set `review.before_write = false` to keep upstream's diff views, or set your own
 
 ## Zen mode
 
-`<M-z>` puts Claude full screen in a tab of its own and brings you back to the code, with Claude in its split. It works in normal mode and inside the Claude terminal; other terminals still get the key. Above Claude, zen shows how many files wait for review. When Claude asks to approve an edit in Manual mode, zen steps aside for the proposal and comes back once you have decided. Leaving zen returns you to the tab you entered from. If you switch to another tab while zen is open, the key brings you back into zen instead of opening a second one.
+`<M-z>` puts Claude full screen in a tab of its own, with no tabline even if bufferline.nvim wants one, and brings you back to the code, with Claude in its split. It works in normal mode and inside the Claude terminal; other terminals still get the key. Above Claude, zen shows how many files wait for review. When Claude asks to approve an edit in Manual mode, zen steps aside for the proposal and comes back once you have decided. Leaving zen returns you to the tab you entered from. If you switch to another tab while zen is open, the key brings you back into zen instead of opening a second one.
 
 `:ClaudeCodeZen` does the same. Its arguments go to `claude` when zen has to start it, as in `:ClaudeCodeZen --resume`; they do nothing while Claude runs.
 

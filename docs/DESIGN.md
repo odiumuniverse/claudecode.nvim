@@ -59,7 +59,7 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 
 ## Zen mode
 
-27. **Zen lives inside Neovim, in a tab of its own with a single Claude window.** The Claude terminal always sits in exactly one window: a terminal takes the width of its widest window, so a full-screen copy in another tab would garble the narrow split (checked in a real UI). Zen hides the tabline while it is on. Leaving zen returns you to the tab you entered from. `bin/cz` opens Neovim straight into zen and passes its arguments to Claude (`cz --resume`).
+27. **Zen lives inside Neovim, in a tab of its own with a single Claude window.** The Claude terminal always sits in exactly one window: a terminal takes the width of its widest window, so a full-screen copy in another tab would garble the narrow split (checked in a real UI). Zen hides the tabline while it is on, and keeps it hidden when a plugin shows it again: bufferline.nvim in LazyVim does so on every `BufAdd` and `TabEnter`, from its own autocmd, which fires no `OptionSet`. When zen closes, the tabline comes back the way that plugin last set it. Leaving zen returns you to the tab you entered from. `bin/cz` opens Neovim straight into zen and passes its arguments to Claude (`cz --resume`).
 28. **Two states:** zen (only Claude) and work (code with Claude on the right). `<M-z>` switches between them, from the terminal and from the code.
 29. **A proposal arrives in zen (Manual mode):** zen switches to the work state on the proposal and comes back once you have decided.
 30. **Zen shows a counter,** "N files wait for review · <leader>ak" ("1 file waits for review" for one, nothing for none), in the winbar above Claude, so that edits waiting for review do not pile up unnoticed.

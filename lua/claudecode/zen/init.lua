@@ -37,6 +37,45 @@ local function term_buf()
   return nil
 end
 
+local TABLINE_GROUP = "ClaudeCodeZenTabline"
+
+---Zen hides the tabline. Plugins such as bufferline.nvim show it again as tabs and buffers come
+---and go, so while zen is open every such change is undone and remembered: on the way out the
+---tabline comes back the way that plugin last wanted it.
+local function keep_tabline_hidden()
+  if state.tab and vim.o.showtabline ~= 0 then
+    state.showtabline = vim.o.showtabline
+    vim.o.showtabline = 0
+  end
+end
+
+local function hide_tabline()
+  if state.showtabline == nil then
+    state.showtabline = vim.o.showtabline
+  end
+  vim.o.showtabline = 0
+  local group = vim.api.nvim_create_augroup(TABLINE_GROUP, { clear = true })
+  -- A plugin that sets the option from its own autocmd fires no OptionSet (autocmds do not nest).
+  -- Ours come after it on the same events, since zen defines them later; the scheduled pass
+  -- catches a plugin that waits for the loop.
+  vim.api.nvim_create_autocmd({ "BufAdd", "TabEnter" }, {
+    group = group,
+    callback = function()
+      keep_tabline_hidden()
+      vim.schedule(keep_tabline_hidden)
+    end,
+  })
+  vim.api.nvim_create_autocmd("OptionSet", { group = group, pattern = "showtabline", callback = keep_tabline_hidden })
+end
+
+local function restore_tabline()
+  pcall(vim.api.nvim_del_augroup_by_name, TABLINE_GROUP)
+  if state.showtabline ~= nil then
+    vim.o.showtabline = state.showtabline
+    state.showtabline = nil
+  end
+end
+
 local function tab_valid(tab)
   return tab ~= nil and vim.api.nvim_tabpage_is_valid(tab)
 end
@@ -132,10 +171,7 @@ function M.enter(cmd_args)
   end
   update_counter()
 
-  if state.showtabline == nil then
-    state.showtabline = vim.o.showtabline
-  end
-  vim.o.showtabline = 0
+  hide_tabline()
   vim.cmd("startinsert")
 end
 
@@ -155,11 +191,7 @@ function M.leave()
     vim.api.nvim_set_current_tabpage(state.work_tab)
   end
   vim.cmd("tabclose " .. vim.api.nvim_tabpage_get_number(zen_tab))
-
-  if state.showtabline ~= nil then
-    vim.o.showtabline = state.showtabline
-    state.showtabline = nil
-  end
+  restore_tabline()
 
   if term_buf() then
     terminal().ensure_visible()
@@ -220,10 +252,7 @@ function M.setup(opts)
     callback = function()
       if state.tab and not tab_valid(state.tab) then
         state.tab, state.win = nil, nil
-        if state.showtabline ~= nil then
-          vim.o.showtabline = state.showtabline
-          state.showtabline = nil
-        end
+        restore_tabline()
       end
     end,
   })
@@ -252,10 +281,8 @@ function M.teardown()
     pcall(vim.keymap.del, "t", state.opts.keymap)
   end
   pcall(vim.api.nvim_del_user_command, "ClaudeCodeZen")
-  if state.showtabline ~= nil then
-    vim.o.showtabline = state.showtabline
-  end
-  state.tab, state.win, state.work_tab, state.showtabline, state.pending = nil, nil, nil, nil, 0
+  restore_tabline()
+  state.tab, state.win, state.work_tab, state.pending = nil, nil, nil, 0
 end
 
 return M
