@@ -402,15 +402,10 @@ local function preview_note(ctx)
   ctx.preview:highlight({ file = note.path })
   local last = math.min(note.last, #lines)
   if last > 0 then
-    local indent = string.rep(" ", vim.fn.strdisplaywidth(lines[last]:match("^%s*")))
-    local virt_lines = {}
-    for i, line in ipairs(vim.split(note.text, "\n", { plain = true })) do
-      virt_lines[i] = {
-        { indent .. (i == 1 and "▎ note: " or "▎       "), "ClaudeCodeReviewNoteSign" },
-        { line, "ClaudeCodeReviewNote" },
-      }
-    end
-    vim.api.nvim_buf_set_extmark(ctx.preview.win.buf, preview_ns, last - 1, 0, { virt_lines = virt_lines })
+    local width = require("claudecode.review.note_box").width(ctx.preview.win.win)
+    vim.api.nvim_buf_set_extmark(ctx.preview.win.buf, preview_ns, last - 1, 0, {
+      virt_lines = notes().frame(note.text, width),
+    })
   end
   ctx.preview:loc()
 end

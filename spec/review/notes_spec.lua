@@ -33,18 +33,38 @@ local function read_file(path)
   return text
 end
 
----The text of the saved notes shown under `row` (0-based).
-local function shown(bufnr, row)
-  local parts = {}
+---The lines a saved note is drawn with under `row` (0-based), and their highlight groups.
+---@return string[] lines, table<string, true> groups
+local function drawn(bufnr, row)
+  local lines, groups = {}, {}
   local marks = vim.api.nvim_buf_get_extmarks(bufnr, notes.ns, { row, 0 }, { row, -1 }, { details = true })
   for _, mark in ipairs(marks) do
     for _, line in ipairs(mark[4].virt_lines or {}) do
+      local text = ""
       for _, chunk in ipairs(line) do
-        parts[#parts + 1] = chunk[1]
+        text = text .. chunk[1]
+        if chunk[1] ~= "" then
+          groups[chunk[2]] = true
+        end
+      end
+      if text ~= "" then
+        lines[#lines + 1] = text
       end
     end
   end
-  return vim.trim(table.concat(parts))
+  return lines, groups
+end
+
+---The text of the saved note shown under `row` (0-based): the lines inside its box.
+local function shown(bufnr, row)
+  local inside = {}
+  for _, line in ipairs((drawn(bufnr, row))) do
+    local text = line:match("^%s*│ (.-)%s*│$")
+    if text then
+      inside[#inside + 1] = text
+    end
+  end
+  return table.concat(inside, "\n")
 end
 
 ---How many empty virtual lines hold the code apart under `row` (0-based) for the box.
@@ -102,7 +122,7 @@ describe("review notes", function()
     assert.equal(config.height + 2, spacer(buf, 1))
   end)
 
-  it("saves the note on Enter, on disk, and shows it as one line under its line", function()
+  it("saves the note on Enter, on disk, and leaves the box in place, dimmed", function()
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
     press("crwrap the error<CR>")
@@ -111,7 +131,15 @@ describe("review notes", function()
     assert.equal(buf, vim.api.nvim_get_current_buf())
     assert.equal("n", vim.api.nvim_get_mode().mode)
     assert.equal(0, spacer(buf, 1))
-    assert.matches("note: wrap the error", shown(buf, 1))
+    local lines, groups = drawn(buf, 1)
+    assert.equal(3, #lines)
+    assert.equal("╭ note ╮", (lines[1]:gsub("─", "")))
+    assert.equal("╰╯", (lines[3]:gsub("─", "")))
+    assert.equal(vim.fn.strdisplaywidth(lines[1]), vim.fn.strdisplaywidth(lines[3]))
+    assert.equal("wrap the error", shown(buf, 1))
+    -- No hints about keys: the box is done with.
+    assert.is_nil(table.concat(lines):find("save", 1, true))
+    assert.same({ ClaudeCodeReviewNote = true, ClaudeCodeReviewNoteBorder = true }, groups)
     local saved = vim.json.decode(read_file(dir .. "/notes.json")).notes
     assert.equal(1, #saved)
     assert.same({ file, 2, 2, "wrap the error" }, { saved[1].path, saved[1].first, saved[1].last, saved[1].text })
@@ -134,7 +162,7 @@ describe("review notes", function()
 
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
     press("cr and more<CR>")
-    assert.matches("note: first and more", shown(buf, 1))
+    assert.equal("first and more", shown(buf, 1))
     assert.equal(1, #notes.list())
 
     vim.api.nvim_win_set_cursor(0, { 2, 0 })
@@ -151,7 +179,38 @@ describe("review notes", function()
 
     local note = notes.list()[1]
     assert.same({ 2, 4 }, { note.first, note.last })
-    assert.matches("note: these three", shown(buf, 3))
+    assert.equal("these three", shown(buf, 3))
+  end)
+
+  it("keeps every line of a long note, wrapped inside the box", function()
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    local long = string.rep("one two three four five six seven eight nine ten ", 3)
+    long = vim.trim(long)
+
+    press("cr" .. long .. "<C-j>and a second line<CR>")
+
+    local inside = vim.split(shown(buf, 1), "\n")
+    assert.is_true(#inside >= 3)
+    assert.equal(long, table.concat(vim.list_slice(inside, 1, #inside - 1), " "))
+    assert.equal("and a second line", inside[#inside])
+    local lines = drawn(buf, 1)
+    for _, line in ipairs(lines) do
+      assert.equal(vim.fn.strdisplaywidth(lines[1]), vim.fn.strdisplaywidth(line))
+    end
+  end)
+
+  it("steps aside for the box that edits it, and comes back after Esc", function()
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    press("crkeep me<CR>")
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+    notes.open(buf, 2, 2)
+    assert.is_not_nil(box())
+    assert.equal("", shown(buf, 1))
+    press("<C-u>changed my mind<Esc>")
+
+    assert.is_nil(box())
+    assert.equal("keep me", shown(buf, 1))
   end)
 
   describe("sending to Claude", function()
@@ -334,7 +393,7 @@ describe("review notes", function()
     vim.cmd.edit(vim.fn.fnameescape(file))
 
     assert.equal(1, #notes.list())
-    assert.matches("note: wrap the error", shown(vim.api.nvim_get_current_buf(), 1))
+    assert.equal("wrap the error", shown(vim.api.nvim_get_current_buf(), 1))
     assert.equal("review: 1 file · 1 note", controller.status())
   end)
 
@@ -344,7 +403,7 @@ describe("review notes", function()
 
     vim.api.nvim_buf_set_lines(buf, 0, 0, false, { "new 1", "new 2" })
 
-    assert.matches("note: here", shown(buf, 3))
+    assert.equal("here", shown(buf, 3))
     vim.api.nvim_win_set_cursor(0, { 4, 0 })
     press("cr<C-u>moved<CR>")
     assert.equal(1, #notes.list())

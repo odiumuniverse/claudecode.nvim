@@ -12,6 +12,10 @@
 - **Reject with a reason in Manual mode.** `cr` in a proposal reverts the hunk with what you type, and Claude reworks the place in the same turn. With other hunks kept, the reason goes with the note about your reverts. With every hunk reverted, the plugin answers "No, and tell Claude what to do differently" in Claude's own permission dialog in the terminal, since a rejection over the IDE connection carries no text; if the dialog is not there as expected, the proposal is rejected plainly and the reason goes to the clipboard.
 - **Hunks and notes in the list of files.** `<leader>ak` shows how many hunks and notes wait in each file, `+12 -3  3 hunks · 1 note`, in columns. A file whose hunks are all decided stays on the list while it has notes and opens at the first one.
 
+### Changed
+
+- **A saved note stays where you typed it.** It used to turn into one gray line, `▎ note: …`, cut at the window's edge, and the box you had typed in was gone. Now the box stays, dimmed and without the key hints, with all of the note's text. The highlight group `ClaudeCodeReviewNoteSign` gave way to `ClaudeCodeReviewNoteBorder`.
+
 ### Fixed
 
 - **A note keeps its line after you save and close its file.** The line was written once, when you saved the note, so lines added above it and saved sent the list, `cR` and Claude to the old line once the file was closed. Now it follows the file on disk.

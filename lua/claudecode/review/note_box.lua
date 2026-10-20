@@ -15,6 +15,7 @@ M.MAX_HEIGHT = 10
 ---@field footer string
 ---@field text? string The note to edit
 ---@field keys table<string, fun(text: string)> Keys that close the box, in insert and normal mode, and what each does with the text
+---@field on_dismiss? fun() The box closed without one of `keys`: you left its window
 
 ---@param n integer
 ---@return table[]
@@ -26,6 +27,18 @@ local function empty_lines(n)
   return lines
 end
 
+---The width of the text in a box under a line of `win`; the border takes one more column on each side.
+---A saved note is drawn as the same box, so both use this.
+---@param win integer|nil
+---@return integer
+function M.width(win)
+  if not (win and vim.api.nvim_win_is_valid(win)) then
+    return 76
+  end
+  local info = vim.fn.getwininfo(win)[1]
+  return math.max(20, math.min(100, info.width - info.textoff - 2))
+end
+
 ---Open the box under `row` of the buffer in `win` and start Insert mode in it.
 ---@param win integer
 ---@param row integer 1-based
@@ -33,8 +46,7 @@ end
 ---@return integer box The box's window
 function M.open(win, row, opts)
   local bufnr = vim.api.nvim_win_get_buf(win)
-  local info = vim.fn.getwininfo(win)[1]
-  local width = math.max(20, math.min(100, info.width - info.textoff - 2))
+  local width = M.width(win)
 
   local note_buf = vim.api.nvim_create_buf(false, true)
   vim.bo[note_buf].bufhidden = "wipe"
@@ -126,7 +138,14 @@ function M.open(win, row, opts)
     group = group,
     buffer = note_buf,
     callback = function()
-      vim.schedule(close)
+      vim.schedule(function()
+        if not closed then
+          close()
+          if opts.on_dismiss then
+            opts.on_dismiss()
+          end
+        end
+      end)
     end,
   })
 

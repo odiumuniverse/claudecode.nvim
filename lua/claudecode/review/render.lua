@@ -35,7 +35,8 @@ local function define_highlights()
     ClaudeCodeReviewHint = "Comment",
     ClaudeCodeReviewCount = "Special",
     ClaudeCodeReviewNote = "Comment",
-    ClaudeCodeReviewNoteSign = "Special",
+    -- The box of a saved note: dimmed, so the code stays the brightest thing on screen.
+    ClaudeCodeReviewNoteBorder = "NonText",
   }
   for name, target in pairs(links) do
     vim.api.nvim_set_hl(0, name, { default = true, link = target })

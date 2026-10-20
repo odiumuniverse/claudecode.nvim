@@ -85,7 +85,53 @@ local function path_of(bufnr)
   return require("claudecode.review.store").normalize(name)
 end
 
----Draw a saved note as one line under its last line, indented like that line.
+---Break `text` into lines of at most `width` display cells, at spaces where it can.
+---@param text string
+---@param width integer
+---@return string[]
+local function wrap(text, width)
+  local out = {}
+  for _, line in ipairs(vim.split(text, "\n", { plain = true })) do
+    local cur = ""
+    for word in line:gmatch("%S+") do
+      local joined = cur == "" and word or (cur .. " " .. word)
+      if vim.fn.strdisplaywidth(joined) <= width then
+        cur = joined
+      else
+        if cur ~= "" then
+          out[#out + 1] = cur
+        end
+        while vim.fn.strdisplaywidth(word) > width do
+          local part = vim.fn.strcharpart(word, 0, width)
+          out[#out + 1] = part
+          word = vim.fn.strcharpart(word, vim.fn.strchars(part))
+        end
+        cur = word
+      end
+    end
+    out[#out + 1] = cur
+  end
+  return out
+end
+
+---A saved note as the box it was typed in, dimmed and without the hints: all of its text, so it
+---stays where your eyes were. The user found the one gray line it used to be hard to find.
+---@param text string
+---@param width integer Text width of the box, as note_box.width gives it
+---@return table[] virt_lines
+function M.frame(text, width)
+  local border, inner = "ClaudeCodeReviewNoteBorder", "ClaudeCodeReviewNote"
+  local title = " note "
+  local lines = { { { "╭" .. title .. string.rep("─", width - vim.fn.strdisplaywidth(title)) .. "╮", border } } }
+  for _, line in ipairs(wrap(text, width - 2)) do
+    local pad = string.rep(" ", width - 2 - vim.fn.strdisplaywidth(line))
+    lines[#lines + 1] = { { "│ ", border }, { line .. pad, inner }, { " │", border } }
+  end
+  lines[#lines + 1] = { { "╰" .. string.rep("─", width) .. "╯", border } }
+  return lines
+end
+
+---Draw a saved note as a dimmed box under its last line.
 ---@param note ClaudeCodeReviewNote
 ---@param bufnr integer
 local function draw(note, bufnr)
@@ -99,22 +145,6 @@ local function draw(note, bufnr)
   end
   local count = vim.api.nvim_buf_line_count(bufnr)
   first, last = math.min(first, count), math.min(last, count)
-  local indent = vim.api.nvim_buf_call(bufnr, function()
-    return vim.fn.indent(last)
-  end)
-  local text = note.text:match("^[^\n]*")
-  local more = note.text:find("\n", 1, true) ~= nil
-  -- One line, cut with an ellipsis where the window ends; the box shows all of it.
-  local win = vim.fn.win_findbuf(bufnr)[1]
-  if win then
-    local info = vim.fn.getwininfo(win)[1]
-    local room = info.width - info.textoff - indent - vim.fn.strdisplaywidth("▎ note: ") - 1
-    if vim.fn.strdisplaywidth(text) > room then
-      text = vim.fn.strcharpart(text, 0, math.max(room - 1, 1))
-      more = true
-    end
-  end
-  text = text .. (more and "…" or "")
   local track = vim.api.nvim_buf_set_extmark(bufnr, track_ns, first - 1, 0, {
     id = mark and mark.track or nil,
     end_row = last - 1,
@@ -124,11 +154,19 @@ local function draw(note, bufnr)
   })
   local shown = vim.api.nvim_buf_set_extmark(bufnr, M.ns, last - 1, 0, {
     id = mark and mark.shown or nil,
-    virt_lines = {
-      { { string.rep(" ", indent) .. "▎ note: ", "ClaudeCodeReviewNoteSign" }, { text, "ClaudeCodeReviewNote" } },
-    },
+    virt_lines = M.frame(note.text, require("claudecode.review.note_box").width(vim.fn.win_findbuf(bufnr)[1])),
   })
   state.marks[note.id] = { buf = bufnr, track = track, shown = shown }
+end
+
+---Take the dimmed box off the screen while the live box edits the note; its lines stay tracked.
+---@param note ClaudeCodeReviewNote
+local function hide(note)
+  local mark = state.marks[note.id]
+  if mark and mark.shown and vim.api.nvim_buf_is_valid(mark.buf) then
+    pcall(vim.api.nvim_buf_del_extmark, mark.buf, M.ns, mark.shown)
+    mark.shown = nil
+  end
 end
 
 ---@param note ClaudeCodeReviewNote
@@ -327,6 +365,15 @@ function M.open(bufnr, first, last, opts)
     save(bufnr, first, last, text, note)
     M.send_all()
   end
+  -- The live box takes the place of the dimmed one while you edit; it comes back if you do not save.
+  local function put_back()
+    if note and state.marks[note.id] and vim.api.nvim_buf_is_valid(bufnr) then
+      draw(note, bufnr)
+    end
+  end
+  if note then
+    hide(note)
+  end
   note_box.open(win, last, {
     ns = M.ns,
     title = " note · " .. name .. ":" .. lines .. " ",
@@ -343,8 +390,9 @@ function M.open(bufnr, first, last, opts)
       ["<S-CR>"] = save_and_send,
       -- For a terminal that sends Shift+Enter as a plain Enter.
       ["<C-s>"] = save_and_send,
-      ["<Esc>"] = function() end,
+      ["<Esc>"] = put_back,
     },
+    on_dismiss = put_back,
   })
 end
 

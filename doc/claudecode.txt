@@ -289,8 +289,9 @@ to make room. Type what you want; the box grows up to 10 lines.
 <C-j> starts a new line in the note. Back in Normal mode (`jk`, say) the box
 stays open: <CR> saves there too, and <Esc> drops what you typed.
 
-A saved note shows as one line under its last line, "▎ note: …", and moves
-with the code around it. `cr` on a noted line opens the note again; save it
+A saved note stays where you typed it: the same box under its last line,
+dimmed, with all of its text and no hints, and it moves with the code around
+it. `cr` on a noted line opens the note again; save it
 empty to delete it. Notes go to the state directory at once and survive a
 restart of Neovim. A note on lines you revert with `cx` goes away: the text it
 was about is gone.
@@ -784,8 +785,8 @@ config win. The review groups are defined again after `:colorscheme`.
                                 statusline component in the LazyVim spec
     ClaudeCodeZenPending        link to Special; the counter in zen
     ClaudeCodeZenKey            link to Comment; the key next to it
-    ClaudeCodeReviewNote        link to Comment; a saved note under its line
-    ClaudeCodeReviewNoteSign    link to Special; the "▎ note:" before it
+    ClaudeCodeReviewNote        link to Comment; the text of a saved note
+    ClaudeCodeReviewNoteBorder  link to NonText; the box around it
 
 ==============================================================================
 DIFF PROVIDER                                       *claudecode-diff-provider*
