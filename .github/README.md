@@ -99,7 +99,7 @@ Claude edits your files right away, the way it does in the terminal. The plugin 
 
 The hunk keys exist only in buffers under review; `<leader>ak` works everywhere. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
 
-**Claude learns what you reverted.** Claude Code itself never tells the model that you rejected part of an edit. The plugin adds a short note to Claude's context instead: right after Claude's next file edit or Bash call, or with your next message. The note names the file and line, shows Claude's text and the text that came back, and asks Claude not to reapply the change unless you ask.
+**Claude learns what you reverted.** Claude Code itself never tells the model that you rejected part of an edit. The plugin adds a short note to Claude's context instead: right after Claude's next file edit or Bash call, or with your next message. The note names the file and line, shows Claude's text and the text that came back, and asks Claude not to reapply the change unless you ask. With several Claude sessions in one project, each session hears only about the files it edited; the note about a file two sessions edited reaches both.
 
 **Your own edits stay yours.** Edit the buffer outside a hunk and the change simply becomes part of the file. Edit inside a hunk and you change Claude's proposal; the hunk still waits for `ko` or `kx`. After `kx`, `u` brings Claude's text back as your own edit.
 

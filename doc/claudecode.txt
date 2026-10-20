@@ -215,6 +215,12 @@ back, and asks Claude not to reapply the change unless you ask. It shows at
 most 20 lines of each text and 8000 characters in all; changes past that limit
 appear as a list of file names.
 
+Every Claude session hears only about the files it edited. Two sessions in one
+project share the state directory, and each file remembers which sessions
+edited it. The note about a file that two sessions edited reaches both of
+them. When a session gets no new note for 7 days, its saved notes are deleted
+the next time any session asks for its own.
+
 ------------------------------------------------------------------------------
 HOOKS AND STATE                                      *claudecode-review-state*
 
@@ -236,9 +242,10 @@ because it needs only the IDE connection.
 
 The state lives in `stdpath("state")/claudecode/review/{hash}/`, where {hash}
 is the SHA-256 of the project root. Only you can read the directory (mode
-0700). It holds the text of each file before Claude's first unreviewed edit,
-the reverts not yet reported to Claude, and `hooks.log` with the last hook
-errors (kept under 64 KB). The directory empties as you decide on the hunks.
+0700). It holds the text of each file before Claude's first unreviewed edit
+and the sessions that edited it, the reverts not yet reported to Claude (one
+file per session), and `hooks.log` with the last hook errors (kept under
+64 KB). The directory empties as you decide on the hunks.
 
 The root is the git repository around Neovim's working directory when Claude
 starts, or the directory itself outside git. Start Neovim anywhere in the same

@@ -44,6 +44,9 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 20. **Keys:** `ko` keeps the hunk, `kx` reverts it, `KO` and `KX` act on the whole file, `]k` and `[k` go to the next and previous hunk, `]K` and `[K` to the last and first.
 21. **Disk:** `kx` writes the file at once, together with your unsaved edits in that buffer; `ko` only moves the base. The write runs with `noautocmd` so that format-on-save cannot invent new differences, and the plugin then fires `BufWritePost` by hand. The final newline stays as the file had it. If the file changed on disk since it was loaded, `kx` does not overwrite it: it recomputes the hunks and warns. After each of Claude's writes the hook tells Neovim which files changed, and Neovim reloads their buffers.
 22. **Revert summary for Claude.** The hook adds `additionalContext` to whichever comes first: `PostToolUse` of the next Edit, Write or Bash, or `UserPromptSubmit` of your next message. The summary names the file and line and shows Claude's text and the text that came back; then it is cleared. The CLI itself tells the model only a generic sentence (see "What openDiff taught us").
+
+    **Each session hears only of its own edits.** Two Claude sessions in one project share the state directory, so the header of a base lists the sessions that edited the file (`sessions`, taken from the `session_id` of the `PreToolUse` and `PostToolUse` input). A revert goes to `reverts/<session_id>.jsonl` of every session on that list, and a hook takes the file of its own session. A base with no list (made before sessions were tracked) sends the revert to the common `reverts.jsonl`, which every session takes too; so does a hook input without a `session_id`. An edit taken without review (accept-edits mode) adds no session: the hunks still waiting are not that session's. Review before write follows the same rule: `openDiff` carries no session id (its parameters are the paths, the text and `tab_name`; the client has only a connection id), so the provider's revert goes to the sessions in the base that `PreToolUse` made. A session file untouched for 7 days is deleted by whichever hook takes reverts next.
+
 23. **State lives on disk,** in `stdpath("state")/claudecode/review/<sha256 of the project root>/`: bases and the revert summary. Hunks are not stored: the plugin computes them from the base and the file every time. A base goes away once its file has no hunks left.
 
 ## Hooks
@@ -132,15 +135,17 @@ review.revert_all(bufnr)
 **State directory** (`stdpath("state")/claudecode/review/<sha256 of the project root>/`, mode 0700):
 
 ```
-bases/<sha256 of the path>  -- a JSON line { path, new_file, created_at }, then the file bytes before Claude's first edit
+bases/<sha256 of the path>  -- a JSON line { path, new_file, created_at, sessions }, then the file bytes before Claude's first edit
+bases/<sha256 of the path>.lock -- a directory that exists while a hook or the editor changes that base's header
 bash/<tool_use_id>.json     -- snapshot before Bash: { top, stash, untracked = { [path] = mtime:size } }
 editing/<tool_use_id>.json  -- an Edit or Write that started and has not finished, with the file's stamp and the tool
 accepting/<tool_use_id>     -- the file before an edit in accept-edits or plan mode, to carry into its base
-reverts.jsonl               -- one ClaudeCodeRevertRecord per line
+reverts/<session_id>.jsonl  -- the revert records of one Claude session, one ClaudeCodeRevertRecord per line
+reverts.jsonl               -- the same for a base that lists no session; every session takes it
 hooks.log                   -- hook errors, at most 64 KB
 ```
 
-A base keeps its header and text in one file, so a single atomic `fs_link` creates it, and only when it does not exist yet (item 15). A base equal to the current file text goes away the first time the plugin sees it. Base paths go through `realpath`, because `/tmp` on macOS is a link to `/private/tmp`. Binary files and files over 2 MB stay out of review.
+A base keeps its header and text in one file, so a single atomic `fs_link` creates it, and only when it does not exist yet (item 15). A change to an existing header (a new session, a moved base) reads the file and writes it back, so it takes the lock of that base first; a lock older than 10 seconds belongs to a dead hook and is broken, and after 2 seconds of waiting the change goes ahead without the lock, because Claude must never hang. A base equal to the current file text goes away the first time the plugin sees it. Base paths go through `realpath`, because `/tmp` on macOS is a link to `/private/tmp`. Binary files and files over 2 MB stay out of review.
 
 The project root is the git repository around Neovim's working directory when Claude starts, or the directory itself outside git, so Neovim started from a subdirectory of the same repository sees the same bases. Hooks get the state directory in `CLAUDECODE_REVIEW_DIR`, Neovim's address in `CLAUDECODE_NVIM`, and `CLAUDECODE_REVIEW_BEFORE_WRITE=1` while Manual mode should ask about edits. A hook sends Neovim one msgpack request (`nvim_exec_lua` → `claudecode.review.bridge.on_hook(payload)`) and waits for the answer for at most 500 ms. The bridge only schedules its work, so a free Neovim answers at once; a Neovim at a hit-enter prompt does not answer, and the hook goes on without it (see "What openDiff taught us"). A hook logs every error to `hooks.log` and exits with 0: review may miss an edit, but Claude never hangs. Paths in the revert summary are relative to Claude's working directory from the hook input.
 
