@@ -49,6 +49,7 @@ describe("help", function()
     local failed = {}
     for _, tag in ipairs({
       "claudecode",
+      "claudecode-modes",
       "claudecode-review",
       "claudecode-review-keys",
       "claudecode-review-before-write",

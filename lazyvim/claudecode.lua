@@ -13,6 +13,8 @@ return {
   keys = {
     { "<leader>a", "", desc = "+ai", mode = { "n", "v" } },
     { "<leader>at", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude" },
+    -- Manual mode reviews every edit before Claude writes it (:help claudecode-modes).
+    { "<leader>am", "<cmd>ClaudeCode --permission-mode manual<cr>", desc = "Claude in Manual mode" },
     { "<leader>af", "<cmd>ClaudeCodeFocus<cr>", desc = "Focus Claude" },
     { "<leader>ar", "<cmd>ClaudeCode --resume<cr>", desc = "Resume Claude" },
     { "<leader>aC", "<cmd>ClaudeCode --continue<cr>", desc = "Continue Claude" },

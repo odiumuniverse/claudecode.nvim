@@ -14,11 +14,18 @@ The native `claude` TUI inside Neovim over the IDE protocol, with Cursor-style h
 
 ## Review: two modes
 
-8. **Review after write, as in Cursor, is the main mode (auto).** Claude edits files at once, and the plugin shows the hunks on top of the code.
+8. **Claude's permission mode picks the review.** Review after write, as in Cursor, is the main path: in auto, `bypassPermissions` and `dontAsk` Claude edits files at once, and the plugin shows the hunks on top of the code. Manual mode (`default`) reviews before write (item 9). Accept edits and plan mode take edits without review. How the hooks tell the modes apart is under "How the modes work" below.
 9. **Review before write, as in VS Code, is Manual mode.** We add a diff provider seam: `diff_opts.provider = { open(ctx), close(ctx, reason) }`. `ctx` carries the paths, the proposed text, `is_new_file`, and the calls `ctx.accept(content)` and `ctx.reject()`. A provider is opt-in: without one, upstream's native and unified views work as before, and we leave their code alone to keep rebases cheap. The plugin calls `close` exactly once per diff, also when `open` fails (`reason = "setup failed"`). Our provider opens the proposal in place of the file and draws it the same way as review after write. Once every hunk is decided, the result goes to Claude; if you reverted every hunk, Claude gets `DIFF_REJECTED`.
 10. **Text you accept through the provider becomes the base at once,** so review after write does not show it again.
 
 The provider gets the diff even when the file's buffer has unsaved edits: its branch comes before the `is_buffer_dirty` check. It fires `ClaudeCodeDiffOpened` with `layout = "provider"`, and `:ClaudeCodeDiffAccept` and `:ClaudeCodeDiffDeny` call its `accept_command` and `reject_command`. Without these handlers the commands accept the whole proposal or reject it; after `reject_command` Claude always gets a rejection.
+
+**How the modes work.** Every hook input carries `permission_mode`, and it changes right after shift+tab. So the hooks read the mode at each call and keep no mode of their own.
+
+- **Manual.** `PreToolUse` of Edit, Write, MultiEdit and NotebookEdit answers `permissionDecision: "ask"`. A hook's `ask` beats `permissions.allow`, so Claude asks about every edit, the IDE gets `openDiff`, and our provider shows the proposal. Without the hook an allowed Edit never reaches `openDiff` (see "What openDiff taught us"). The hook asks only while review before write is on: `review.before_write`, or a provider of your own. Bash is never asked about; its edits come up as hunks after the call.
+- **Accept edits.** The hooks take no base. If the file already has one, `PreToolUse` saves the text before the edit in `accepting/<tool_use_id>`, and `PostToolUse` carries the edit into the base (`hunks.carry`): the hunks still waiting for you stay, and an edit that touches one of them joins that hunk. A Bash call in this mode carries its edits only into bases that already exist.
+- **Plan.** The same as accept edits. Claude writes only its plan file in this mode, and the plan has no place in the review list.
+- `:ClaudeCode --permission-mode manual` starts Claude in Manual mode; the LazyVim spec maps it to `<leader>am`.
 
 ## Where the base comes from
 
@@ -59,7 +66,7 @@ The provider gets the diff even when the file's buffer has unsaved edits: its br
 - **The CLI writes exactly the text we send back** in the `FILE_SAVED` answer: one change of the two ended up on disk.
 - **The model gets only a generic sentence:** _"The file … has been updated successfully. The user modified your proposed content before accepting it."_ The CLI does not say which hunks you reverted. The transcript metadata has `userModified: true` and `structuredPatch`, but the model never sees them. Haiku reread the file on its own and noticed the revert, but we cannot count on that.
 - **The CLI strips exactly one `\n` from the end of the answer.** A 2026-10-20 test with three Writes: the answer `alpha\ndelta\n` gave the file `alpha\ndelta`, `…\n\n` gave `…\n`, and `…\n  \n\n` gave `…\n  \n`. The CLI leaves spaces alone. So `ctx.accept` appends one `\n`, and the file gets exactly the text passed in. Upstream's built-in diff views send the text as is and lose the final newline. A rerun on 2.1.304 with the fix: all three files matched the text byte for byte.
-- **If your settings allow Edit (`permissions.allow`),** Edit runs without asking, and `openDiff` never fires, even in Manual mode. Review before write then covers Write and tools without a permission rule; review after write remains the main path.
+- **If your settings allow Edit (`permissions.allow`),** Edit runs without asking, and `openDiff` never fires, even in Manual mode. Review before write then covers Write and tools without a permission rule; review after write remains the main path. Since then the Manual-mode hook asks about every edit anyway (see "How the modes work").
 
 ## Modules and contracts
 
@@ -128,13 +135,14 @@ review.revert_all(bufnr)
 bases/<sha256 of the path>  -- a JSON line { path, new_file, created_at }, then the file bytes before Claude's first edit
 bash/<tool_use_id>.json     -- snapshot before Bash: { top, stash, untracked = { [path] = mtime:size } }
 editing/<tool_use_id>.json  -- an Edit or Write that started and has not finished, with the file's stamp
+accepting/<tool_use_id>     -- the file before an edit in accept-edits or plan mode, to carry into its base
 reverts.jsonl               -- one ClaudeCodeRevertRecord per line
 hooks.log                   -- hook errors, at most 64 KB
 ```
 
 A base keeps its header and text in one file, so a single atomic `fs_link` creates it, and only when it does not exist yet (item 15). A base equal to the current file text goes away the first time the plugin sees it. Base paths go through `realpath`, because `/tmp` on macOS is a link to `/private/tmp`. Binary files and files over 2 MB stay out of review.
 
-The project root is the git repository around Neovim's working directory when Claude starts, or the directory itself outside git, so Neovim started from a subdirectory of the same repository sees the same bases. Hooks get the state directory in `CLAUDECODE_REVIEW_DIR` and Neovim's address in `CLAUDECODE_NVIM`. A hook sends Neovim only a msgpack notification (`nvim_exec_lua` → `claudecode.review.bridge.on_hook(payload)`) and never waits for an answer, because Neovim may sit at a hit-enter prompt (see "What openDiff taught us"). A hook logs every error to `hooks.log` and exits with 0: review may miss an edit, but Claude never hangs. Paths in the revert summary are relative to Claude's working directory from the hook input.
+The project root is the git repository around Neovim's working directory when Claude starts, or the directory itself outside git, so Neovim started from a subdirectory of the same repository sees the same bases. Hooks get the state directory in `CLAUDECODE_REVIEW_DIR`, Neovim's address in `CLAUDECODE_NVIM`, and `CLAUDECODE_REVIEW_BEFORE_WRITE=1` while Manual mode should ask about edits. A hook sends Neovim only a msgpack notification (`nvim_exec_lua` → `claudecode.review.bridge.on_hook(payload)`) and never waits for an answer, because Neovim may sit at a hit-enter prompt (see "What openDiff taught us"). A hook logs every error to `hooks.log` and exits with 0: review may miss an edit, but Claude never hangs. Paths in the revert summary are relative to Claude's working directory from the hook input.
 
 ## Tests
 
@@ -163,5 +171,7 @@ Done on 2026-10-19 and 2026-10-20:
 4. Review before write: our provider on the same engine.
 5. Zen and `cz`.
 6. LazyVim spec: `lazyvim/claudecode.lua`.
+7. `:help claudecode`.
+8. Modes: the review follows Claude's permission mode.
 
-Next: `:help claudecode`.
+Next: a revert summary for each Claude session, so that two sessions in one project do not take each other's notes.

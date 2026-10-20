@@ -23,7 +23,7 @@ More documentation:
 
 ## Install
 
-With LazyVim, link the ready spec instead of the `ai.claudecode` extra. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>ak` and `<M-z>`:
+With LazyVim, link the ready spec instead of the `ai.claudecode` extra. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>am`, `<leader>ak` and `<M-z>`:
 
 ```sh
 ln -s ~/src/claudecode.nvim/lazyvim/claudecode.lua ~/.config/nvim/lua/plugins/claudecode.lua
@@ -61,6 +61,23 @@ Or from GitHub over SSH, since the repository is private:
 Upstream's commands, keymaps and options all work as before; the [upstream README](https://github.com/coder/claudecode.nvim#readme) describes them. Run `:checkhealth claudecode` to check the IDE connection, the review hooks and zen.
 
 `:help claudecode` documents the options, keys and events of review and zen.
+
+## Modes
+
+Claude's permission mode picks the review. Switch it in Claude with shift+tab; the next edit follows the new mode.
+
+| Claude's mode                           | What happens to an edit                                                                                                             |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Manual (`default`)                      | Claude waits for you. The proposal opens in Neovim, and you keep or revert each hunk before Claude writes the file.                 |
+| Auto, `bypassPermissions` and `dontAsk` | Claude does not ask about edits. What it writes waits for you as hunks in the file.                                                 |
+| Accept edits                            | Claude writes, and the plugin keeps the edit without review. Hunks left from earlier edits stay; an edit that touches one joins it. |
+| Plan                                    | No review. Claude writes only its plan file here.                                                                                   |
+
+In Manual mode the plugin asks about every edit, even one your Claude settings allow without asking (`permissions.allow`): its `PreToolUse` hook answers `ask` for Claude's edit tools. Bash keeps your own permission rules, and its edits come up as hunks after the call.
+
+`<leader>am` in the LazyVim spec starts Claude in Manual mode (`:ClaudeCode --permission-mode manual`). `<leader>at` starts it in the mode from your Claude settings (`permissions.defaultMode`).
+
+The modes need the hooks, so they work only for Claude started from Neovim.
 
 ## Hunk review
 
@@ -108,7 +125,7 @@ In Manual mode Claude asks before each edit. The plugin opens the proposal in pl
 
 Claude sends UTF-8. The plugin compares it with the file in the file's own encoding, so a Latin-1 or UTF-16 file shows only what Claude changed. It reads the encoding from the open buffer, or else from the byte order mark and `'fileencodings'`. The protocol carries text only, so Claude writes UTF-8 after you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
 
-If your Claude settings allow `Edit` without asking (`permissions.allow`), Claude never asks about edits and this mode only shows up for `Write`. Review after write covers the rest.
+For a Claude started from Neovim, Manual mode asks about every edit (see [Modes](#modes)). A Claude you started yourself has no hooks and asks only when your Claude settings say so.
 
 Set `review.before_write = false` to keep upstream's diff views, or set your own `diff_opts.provider` (see below).
 

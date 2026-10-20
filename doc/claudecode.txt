@@ -5,6 +5,7 @@ CONTENTS                                                 *claudecode-contents*
 
     Introduction ................................................ |claudecode|
     Requirements ................................... |claudecode-requirements|
+    Modes ................................................. |claudecode-modes|
     Hunk review .......................................... |claudecode-review|
       Keys .......................................... |claudecode-review-keys|
       Files waiting for review ..................... |claudecode-review-files|
@@ -53,6 +54,43 @@ REQUIREMENTS                                         *claudecode-requirements*
 - `git`, to review the edits Claude makes through Bash.
 - For zen, the Claude terminal inside Neovim: `terminal.provider` set to
   "snacks", "native" or "auto".
+
+==============================================================================
+MODES                                                       *claudecode-modes*
+
+Claude's permission mode picks the review. Switch it in Claude with
+shift+tab; the next edit follows the new mode.
+
+Manual (`default`)
+    Claude waits for you. The proposal opens in Neovim, and you keep or
+    revert each hunk before Claude writes the file
+    (|claudecode-review-before-write|).
+
+Auto, `bypassPermissions` and `dontAsk`
+    Claude does not ask about edits. What it writes waits for you as hunks
+    in the file (|claudecode-review|).
+
+Accept edits (`acceptEdits`)
+    Claude writes, and the plugin keeps the edit without review. Hunks left
+    from earlier edits stay; an edit that touches one of them joins it.
+
+Plan
+    No review. Claude writes only its plan file here.
+
+In Manual mode the plugin asks about every edit, even one your Claude
+settings allow without asking (`permissions.allow`): its PreToolUse hook
+answers "ask" for Edit, Write, MultiEdit and NotebookEdit. Bash keeps your
+own permission rules, and its edits come up as hunks after the call.
+
+To start Claude in Manual mode: >vim
+    :ClaudeCode --permission-mode manual
+<
+The LazyVim spec maps this to `<leader>am`. Without the flag Claude starts in
+the mode from your Claude settings (`permissions.defaultMode`).
+
+The modes need the hooks, so they work only for Claude started from Neovim
+(|claudecode-review-state|). With `review.before_write = false` the hooks
+never ask: Claude asks only as your settings say, in upstream's diff views.
 
 ==============================================================================
 HUNK REVIEW                                                *claudecode-review*
@@ -240,9 +278,9 @@ the encoding from the open buffer, or else from the byte order mark and
 you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
 The file's CRLF endings stay; the final newline follows Claude's text.
 
-If your Claude settings allow `Edit` without asking (`permissions.allow`),
-Claude never asks about edits and this mode only shows up for `Write`. Review
-after write covers the rest.
+For a Claude started from Neovim, Manual mode asks about every edit
+(|claudecode-modes|). A Claude you started yourself has no hooks and asks
+only when your Claude settings say so.
 
 Set `review.before_write = false` to keep upstream's diff views, or set your
 own `diff_opts.provider` (|claudecode-diff-provider|).
@@ -337,7 +375,8 @@ review.before_write                           *claudecode-review.before_write*
     Type: boolean. Default: `true`.
     Review Manual-mode proposals with the same engine
     (|claudecode-review-before-write|). The plugin sets `diff_opts.provider`
-    unless you did. With `false` upstream's diff views stay.
+    unless you did. With `false` upstream's diff views stay, and Manual mode
+    no longer asks about edits your settings allow (|claudecode-modes|).
 
 review.keymaps                                     *claudecode-review.keymaps*
     Type: table. The keys below. Each is a key string or `false`, which
