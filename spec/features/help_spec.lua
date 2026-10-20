@@ -73,6 +73,38 @@ describe("help", function()
     assert.same({}, failed)
   end)
 
+  it("defines every tag that a |link| in the help points to", function()
+    local defined, undefined, seen = {}, {}, {}
+    local lines = vim.fn.readfile(doc_file)
+    for _, line in ipairs(lines) do
+      for tag in line:gmatch("%*([%w:._%-]+)%*") do
+        defined[tag] = true
+      end
+    end
+    for number, line in ipairs(lines) do
+      for tag in line:gmatch("|([%w:._%-]+)|") do
+        if not defined[tag] and not seen[tag] then
+          seen[tag] = true
+          undefined[#undefined + 1] = tag .. " (line " .. number .. ")"
+        end
+      end
+    end
+
+    assert.same({}, undefined)
+    assert.is_true(vim.tbl_count(defined) > 30)
+  end)
+
+  it("keeps every line within 78 columns", function()
+    local long = {}
+    for number, line in ipairs(vim.fn.readfile(doc_file)) do
+      if vim.fn.strdisplaywidth(line) > 78 then
+        long[#long + 1] = "line " .. number
+      end
+    end
+
+    assert.same({}, long)
+  end)
+
   ---Every option of the defaults, tables included, as a dotted path: "review", "review.keymaps",
   ---"review.keymaps.keep", ... Sorted, so a failure reads the same on every run.
   ---@param tbl table
