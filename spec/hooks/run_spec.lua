@@ -403,7 +403,7 @@ describe("hook script", function()
     end)
   end)
 
-  it("notifies the editor after an edit without waiting for it", function()
+  it("tells the editor about an edit", function()
     local file = work .. "/a.lua"
     write_file(file, "x\n")
     local editor = start_editor()
