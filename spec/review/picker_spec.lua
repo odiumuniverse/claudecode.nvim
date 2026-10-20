@@ -1,5 +1,6 @@
 --- Tests for the list of files waiting for review and its keep-all / revert-all actions.
 local controller = require("claudecode.review.controller")
+local notes = require("claudecode.review.notes")
 local picker = require("claudecode.review.picker")
 local store_mod = require("claudecode.review.store")
 
@@ -63,6 +64,87 @@ describe("review picker", function()
     assert.equal(b, items[2].path)
     assert.is_true(items[2].new_file)
     assert.matches("%+TWO", items[1].diff)
+  end)
+
+  describe("with notes", function()
+    local a, c
+
+    before_each(function()
+      a = changed("a.txt", "1\n2\n3\n4\n5\n", "1\nX\n3\n4\nY\n")
+      c = work .. "/c.txt"
+      write_file(c, "c1\nc2\nc3\n")
+      local saved = {
+        { id = 1, path = a, first = 2, last = 2, text = "wrap it", created_at = 0 },
+        { id = 2, path = c, first = 2, last = 3, text = "and this", created_at = 0 },
+      }
+      write_file(dir .. "/notes.json", vim.json.encode({ version = 1, notes = saved }))
+      controller.teardown()
+      controller.setup({ dir = dir })
+      -- As the plugin wires them: a hunk with a note counts as decided.
+      require("claudecode.review").setup({ note = notes.open, noted = notes.noted })
+    end)
+
+    after_each(function()
+      require("claudecode.review").setup({})
+    end)
+
+    it("counts the hunks and notes of each file, and lists a file that has only notes", function()
+      local items = picker.items()
+
+      assert.same({ a, c }, { items[1].path, items[2].path })
+      assert.same({ 2, 1 }, { items[1].hunks, items[1].notes })
+      assert.same({ 0, 1 }, { items[2].hunks, items[2].notes })
+      assert.matches("/a%.txt  %+2 %-2  2 hunks · 1 note$", items[1].label)
+      assert.matches("/c%.txt         1 note$", items[2].label)
+    end)
+
+    it("opens a file that has only notes at its first note", function()
+      picker.open(c)
+
+      assert.equal(c, vim.api.nvim_buf_get_name(0))
+      assert.same({ 2, 0 }, vim.api.nvim_win_get_cursor(0))
+    end)
+
+    ---Pick the note `index` from the list of notes, then `action`.
+    local function choose(index, action)
+      local select = vim.ui.select
+      local labels, actions
+      vim.ui.select = function(items, opts, on_choice)
+        if not labels then
+          labels = vim.tbl_map(opts.format_item, items)
+          on_choice(items[index])
+        else
+          actions = items
+          on_choice(action)
+        end
+      end
+      picker.show_notes("select")
+      vim.ui.select = select
+      return labels, actions
+    end
+
+    it("lists the notes by file and line and deletes one", function()
+      local labels, actions = choose(2, "delete")
+
+      assert.matches("/a%.txt:2%s+wrap it$", labels[1])
+      assert.matches("/c%.txt:2%-3  and this$", labels[2])
+      assert.same({ "open", "delete", "send all" }, actions)
+      assert.same(
+        { "wrap it" },
+        vim.tbl_map(function(note)
+          return note.text
+        end, notes.items())
+      )
+    end)
+
+    it("opens a note in its box, and leaves the cursor on it once you save", function()
+      choose(1, "open")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<End> in an error<CR>", true, false, true), "xt", false)
+
+      assert.equal(a, vim.api.nvim_buf_get_name(0))
+      assert.equal("wrap it in an error", notes.items()[1].text)
+      assert.same({ 2, 0 }, vim.api.nvim_win_get_cursor(0))
+    end)
   end)
 
   it("keeps a whole file without touching it", function()

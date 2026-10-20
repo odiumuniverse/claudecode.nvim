@@ -60,6 +60,7 @@ describe("help", function()
       "claudecode-diff-provider",
       "claudecode-health",
       ":ClaudeCodeReview",
+      ":ClaudeCodeReviewNotes",
       ":ClaudeCodeZen",
     }) do
       local ok = pcall(vim.cmd, "help " .. tag)

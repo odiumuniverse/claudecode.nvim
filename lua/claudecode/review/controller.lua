@@ -342,6 +342,12 @@ function M.setup(opts)
       require("claudecode.review.notes").attach(ev.buf)
     end,
   })
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = state.group,
+    callback = function(ev)
+      require("claudecode.review.notes").written(ev.buf)
+    end,
+  })
   for _, buf in ipairs(vim.api.nvim_list_bufs()) do
     M.attach_if_pending(buf)
   end

@@ -65,6 +65,8 @@ M.defaults = {
       send = "batch",
       advance = true,
       send_keymap = "cR",
+      -- Normal mode; in visual mode the same key leaves a note on the selection (note_range).
+      list_keymap = "<leader>an",
     },
     files_keymap = "<leader>ak",
     advance = "hunk",
@@ -115,6 +117,7 @@ function M.validate(config)
   check(notes.send == "batch" or notes.send == "enter", "review.notes.send must be 'batch' or 'enter'")
   check(type(notes.advance) == "boolean", "review.notes.advance must be a boolean")
   check(is_key(notes.send_keymap), "review.notes.send_keymap must be a key string or false")
+  check(is_key(notes.list_keymap), "review.notes.list_keymap must be a key string or false")
   check(type(review.hint) == "boolean" or type(review.hint) == "string", "review.hint must be a boolean or a string")
   check(type(review.word_diff) == "boolean", "review.word_diff must be a boolean")
   check(type(review.before_write) == "boolean", "review.before_write must be a boolean")
@@ -208,6 +211,16 @@ function M.setup(user, plugin_config)
     vim.api.nvim_create_user_command("ClaudeCodeReview", show, { desc = "Claude: files waiting for review" })
     if config.review.files_keymap then
       vim.keymap.set("n", config.review.files_keymap, show, { desc = "Claude: files waiting for review" })
+    end
+    if notes.enabled then
+      local function show_notes()
+        require("claudecode.review.picker").show_notes(config.review.picker)
+      end
+      pcall(vim.api.nvim_del_user_command, "ClaudeCodeReviewNotes")
+      vim.api.nvim_create_user_command("ClaudeCodeReviewNotes", show_notes, { desc = "Claude: your notes" })
+      if notes.list_keymap then
+        vim.keymap.set("n", notes.list_keymap, show_notes, { desc = "Claude: your notes" })
+      end
     end
   else
     require("claudecode.hooks").disable()

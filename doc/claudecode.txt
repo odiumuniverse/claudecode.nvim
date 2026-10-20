@@ -176,11 +176,19 @@ and `cc` work as always.
 FILES WAITING FOR REVIEW                             *claudecode-review-files*
 
 |:ClaudeCodeReview| and `review.files_keymap` (`<leader>ak`) open a list of
-the files that have hunks you have not decided on. Each entry shows the path,
-"(new)" for a file Claude created, and the lines added and removed. For each
-file you can:
+the files that have hunks you have not decided on, or notes not sent to
+Claude yet (|claudecode-notes|). Each entry shows the path, "(new)" for a
+file Claude created, the lines added and removed, and how many hunks and
+notes wait, in columns:
+>
+    lua/cart.lua      +12 -3  3 hunks · 1 note
+    lua/receipt.lua    +4 -4  1 hunk
+    lua/tax.lua               1 note
+<
+For each file you can:
 
-    open          Go to the file, at its first hunk.
+    open          Go to the file, at its first hunk, or at its first note
+                  when no hunk is left.
     keep all      Keep every hunk in the file.
     revert all    Revert every hunk in the file and tell Claude.
 
@@ -286,6 +294,13 @@ A note counts as a decision on its hunk: after <CR> the cursor moves on to the
 next hunk without a note, `cs` and `cx` move on past noted hunks too, and a
 file whose hunks all have notes is done for `advance = "file"`.
 `review.notes.advance = false` turns this off.
+
+`<leader>an` in Normal mode (|claudecode-review.notes.list_keymap|) or
+|:ClaudeCodeReviewNotes| lists every note, by file and line, before you send
+them. The preview shows the code with the note under it. In snacks.picker
+<CR> opens the note in its box to edit it, and the cursor stays on it after
+you save; <A-d> deletes the note and <C-s> sends them all. fzf-lua takes the
+same keys; `vim.ui.select` asks what to do.
 
 `cR` (|claudecode-review.notes.send_keymap|) or |:ClaudeCodeReviewSend| sends
 every note from every file in one message, from any buffer. The message lists
@@ -457,7 +472,7 @@ several Claude accounts:
 ==============================================================================
 COMMANDS                                                 *claudecode-commands*
 
-Upstream's commands all work as before. Review and zen add three commands,
+Upstream's commands all work as before. Review and zen add four commands,
 and `:ClaudeCode` learns `run`. Two of upstream's also work on proposals
 (|claudecode-review-before-write|).
 
@@ -465,6 +480,11 @@ and `:ClaudeCode` learns `run`. Two of upstream's also work on proposals
 :ClaudeCodeReview       Open the list of files with hunks you have not
                         decided on (|claudecode-review-files|). Defined when
                         `review.enabled` is true.
+
+                                                      *:ClaudeCodeReviewNotes*
+:ClaudeCodeReviewNotes  List the notes not sent to Claude yet: open one to
+                        edit it, delete one, or send them all
+                        (|claudecode-notes|), as `<leader>an` does.
 
                                                        *:ClaudeCodeReviewSend*
 :ClaudeCodeReviewSend   Send every note to Claude in one message
@@ -509,6 +529,7 @@ a message that names the option. Defaults:
           send = "batch",
           advance = true,
           send_keymap = "cR",
+          list_keymap = "<leader>an",
         },
         files_keymap = "<leader>ak",
         advance = "hunk",
@@ -593,7 +614,8 @@ review.notes                                         *claudecode-review.notes*
 
 review.notes.enabled                         *claudecode-review.notes.enabled*
     Type: boolean. Default: `true`.
-    `false` maps neither the note keys nor the send key.
+    `false` maps neither the note keys nor the send and list keys, and
+    leaves |:ClaudeCodeReviewNotes| undefined.
 
 review.notes.send                               *claudecode-review.notes.send*
     Type: string. Default: `"batch"`.
@@ -608,6 +630,12 @@ review.notes.send_keymap                 *claudecode-review.notes.send_keymap*
     Type: string or false. Default: `"cR"`.
     Global normal-mode key that sends every note. Neovim waits for a motion
     after `c` anyway, and `R` is none, so it delays nothing.
+
+review.notes.list_keymap                 *claudecode-review.notes.list_keymap*
+    Type: string or false. Default: `"<leader>an"`.
+    Global normal-mode key for |:ClaudeCodeReviewNotes|. In Visual mode the
+    same key leaves a note on the selection
+    (|claudecode-review.keymaps.note_range|).
 
 review.files_keymap                           *claudecode-review.files_keymap*
     Type: string or false. Default: `"<leader>ak"`.

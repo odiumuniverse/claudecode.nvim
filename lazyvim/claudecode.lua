@@ -31,6 +31,7 @@ return {
       -- The review list and zen also get their keys from the plugin itself;
       -- listing them here lets which-key show them before the plugin loads.
       { "<leader>ak", "<cmd>ClaudeCodeReview<cr>", desc = "Files waiting for review" },
+      { "<leader>an", "<cmd>ClaudeCodeReviewNotes<cr>", desc = "Notes for Claude" },
       { "<M-z>", "<cmd>ClaudeCodeZen<cr>", desc = "Claude zen" },
     },
   },

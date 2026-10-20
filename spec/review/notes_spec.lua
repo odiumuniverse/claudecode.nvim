@@ -350,4 +350,66 @@ describe("review notes", function()
     assert.equal(1, #notes.list())
     assert.equal("moved", notes.list()[1].text)
   end)
+
+  describe("in a list", function()
+    local other
+
+    before_each(function()
+      other = work .. "/b.txt"
+      write_file(other, "b1\nb2\n")
+      store:snapshot(other)
+      write_file(other, "b1\nB2\n")
+      vim.api.nvim_win_set_cursor(0, { 5, 0 })
+      press("crlast<CR>")
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      press("crfirst<CR>")
+      vim.cmd.edit(vim.fn.fnameescape(other))
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      press("crin b<CR>")
+    end)
+
+    local function summary()
+      return vim.tbl_map(function(item)
+        return { vim.fn.fnamemodify(item.path, ":t"), item.first, item.text }
+      end, notes.items())
+    end
+
+    it("lists the notes by file and line", function()
+      assert.same({ { "a.txt", 2, "first" }, { "a.txt", 5, "last" }, { "b.txt", 2, "in b" } }, summary())
+    end)
+
+    it("knows where a note went once its file is saved and closed", function()
+      vim.api.nvim_buf_set_lines(buf, 0, 0, false, { "new 1", "new 2" })
+      vim.api.nvim_buf_call(buf, function()
+        vim.cmd("silent write")
+      end)
+      vim.cmd("bwipeout " .. buf)
+
+      assert.same({ { "a.txt", 4, "first" }, { "a.txt", 7, "last" }, { "b.txt", 2, "in b" } }, summary())
+    end)
+
+    it("removes a note from its open file, from disk and from the count", function()
+      local b = vim.api.nvim_get_current_buf()
+
+      notes.remove(notes.items()[3].id)
+
+      assert.equal("", shown(b, 1))
+      local saved = vim.tbl_map(function(note)
+        return note.text
+      end, vim.json.decode(read_file(dir .. "/notes.json")).notes)
+      table.sort(saved)
+      assert.same({ "first", "last" }, saved)
+      assert.matches("· 2 notes$", controller.status())
+    end)
+
+    it("removes a note of a file that is not open", function()
+      vim.cmd("bwipeout " .. buf)
+
+      notes.remove(notes.items()[1].id)
+      vim.cmd.edit(vim.fn.fnameescape(file))
+
+      assert.equal("", shown(vim.api.nvim_get_current_buf(), 1))
+      assert.same({ { "a.txt", 5, "last" }, { "b.txt", 2, "in b" } }, summary())
+    end)
+  end)
 end)

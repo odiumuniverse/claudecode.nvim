@@ -39,13 +39,52 @@ end
 ---@field rel string Path relative to the cwd
 ---@field added integer Lines Claude added
 ---@field removed integer Lines Claude removed
+---@field hunks integer Hunks waiting for review
+---@field notes integer Notes not sent to Claude yet
 ---@field new_file boolean
----@field diff string Unified diff, base → file
+---@field diff string Unified diff, base → file; empty for a file that has only notes
+---@field label string The line of the list, in columns with the other items
+
+local function plural(count, word)
+  return ("%d %s"):format(count, count == 1 and word or word .. "s")
+end
+
+local function pad(s, width, left)
+  local room = string.rep(" ", width - vim.fn.strdisplaywidth(s))
+  return left and room .. s or s .. room
+end
+
+---Label the items in three columns: the file, its lines, its hunks and notes.
+---@param items ClaudeCodeReviewItem[]
+local function label_all(items)
+  local names, lines = {}, {}
+  local name_width, lines_width = 0, 0
+  for i, item in ipairs(items) do
+    names[i] = item.rel .. (item.new_file and " (new)" or "")
+    lines[i] = item.hunks > 0 and ("+%d -%d"):format(item.added, item.removed) or ""
+    name_width = math.max(name_width, vim.fn.strdisplaywidth(names[i]))
+    lines_width = math.max(lines_width, vim.fn.strdisplaywidth(lines[i]))
+  end
+  for i, item in ipairs(items) do
+    local counts = {}
+    if item.hunks > 0 then
+      counts[#counts + 1] = plural(item.hunks, "hunk")
+    end
+    if item.notes > 0 then
+      counts[#counts + 1] = plural(item.notes, "note")
+    end
+    item.label = pad(names[i], name_width)
+      .. "  "
+      .. pad(lines[i], lines_width, true)
+      .. "  "
+      .. table.concat(counts, " · ")
+  end
+end
 
 ---@return ClaudeCodeReviewItem[]
 function M.items()
   local store = controller().store()
-  local items = {}
+  local items, by_path = {}, {}
   if not store then
     return items
   end
@@ -64,15 +103,41 @@ function M.items()
         rel = vim.fn.fnamemodify(path, ":~:."),
         added = added,
         removed = removed,
+        hunks = #hunks,
+        notes = 0,
         new_file = base.new_file,
         diff = vim.text.diff(base.text, current, { ctxlen = 3 }) or "",
       }
+      by_path[path] = items[#items]
     end
   end
+  -- A file whose hunks are all decided may still have notes waiting to go to Claude.
+  for _, note in ipairs(require("claudecode.review.notes").items()) do
+    local item = by_path[note.path]
+    if not item then
+      item = {
+        path = note.path,
+        rel = vim.fn.fnamemodify(note.path, ":~:."),
+        added = 0,
+        removed = 0,
+        hunks = 0,
+        notes = 0,
+        new_file = false,
+        diff = "",
+      }
+      items[#items + 1] = item
+      by_path[note.path] = item
+    end
+    item.notes = item.notes + 1
+  end
+  table.sort(items, function(a, b)
+    return a.path < b.path
+  end)
+  label_all(items)
   return items
 end
 
----Open the file at its first hunk.
+---Open the file at its first hunk, or at its first note when no hunk is left.
 ---@param path string
 function M.open(path)
   vim.cmd.edit(vim.fn.fnameescape(path))
@@ -81,13 +146,22 @@ function M.open(path)
   if hunks[1] then
     local row = require("claudecode.review.hunks").anchor(hunks[1], vim.api.nvim_buf_line_count(buf))
     vim.api.nvim_win_set_cursor(0, { row, 0 })
+    return
+  end
+  for _, note in ipairs(require("claudecode.review.notes").items()) do
+    if note.path == path then
+      vim.api.nvim_win_set_cursor(0, { math.min(note.first, vim.api.nvim_buf_line_count(buf)), 0 })
+      return
+    end
   end
 end
 
 ---Accept everything Claude changed in the file.
 ---@param path string
 function M.keep_all(path)
-  if controller().in_doubt(path) then
+  -- A file that has only notes has nothing to keep.
+  local store = controller().store()
+  if not (store and store:get(path)) or controller().in_doubt(path) then
     return
   end
   local buf = loaded_buf(path)
@@ -102,7 +176,8 @@ end
 ---Undo everything Claude changed in the file and tell Claude about it.
 ---@param path string
 function M.revert_all(path)
-  if controller().in_doubt(path) then
+  local store = controller().store()
+  if not (store and store:get(path)) or controller().in_doubt(path) then
     return
   end
   local buf = loaded_buf(path)
@@ -118,11 +193,7 @@ function M.revert_all(path)
     )
     return
   end
-  local store = controller().store()
   local base = store:get(path)
-  if not base then
-    return
-  end
   local current = read_file(path) or ""
   local base_lines = text.to_lines(base.text)
   local hunks = require("claudecode.review.hunks").compute(base_lines, (text.to_lines(current)))
@@ -156,8 +227,20 @@ function M.revert_all(path)
 end
 
 local function label(item)
-  local tag = item.new_file and " (new)" or ""
-  return string.format("%s%s  +%d -%d", item.rel, tag, item.added, item.removed)
+  return item.label
+end
+
+---What the preview shows for a file: the diff, then the notes not sent yet.
+---@param item ClaudeCodeReviewItem
+---@return string[]
+local function preview_lines(item)
+  local lines = item.diff ~= "" and vim.split(item.diff, "\n", { plain = true }) or {}
+  for _, note in ipairs(require("claudecode.review.notes").items()) do
+    if note.path == item.path then
+      lines[#lines + 1] = ("# note at line %d: %s"):format(note.first, (note.text:gsub("\n", " ")))
+    end
+  end
+  return lines
 end
 
 local function show_snacks(items)
@@ -172,7 +255,7 @@ local function show_snacks(items)
     format = "text",
     preview = function(ctx)
       ctx.preview:reset()
-      ctx.preview:set_lines(vim.split(ctx.item.review.diff, "\n", { plain = true }))
+      ctx.preview:set_lines(preview_lines(ctx.item.review))
       ctx.preview:highlight({ ft = "diff" })
     end,
     confirm = function(picker, item)
@@ -283,6 +366,171 @@ function M.show(backend)
     show_fzf(items)
   else
     show_select(items)
+  end
+end
+
+local function notes()
+  return require("claudecode.review.notes")
+end
+
+local preview_ns = vim.api.nvim_create_namespace("claudecode_review_notes_preview")
+
+---The notes, each labeled in two columns: where it sits, and the first line of its text.
+---@return ClaudeCodeReviewNoteItem[] items Each with a `label`
+local function note_items()
+  local items = notes().items()
+  local places, width = {}, 0
+  for i, item in ipairs(items) do
+    local range = item.first == item.last and tostring(item.first) or (item.first .. "-" .. item.last)
+    places[i] = vim.fn.fnamemodify(item.path, ":~:.") .. ":" .. range
+    width = math.max(width, vim.fn.strdisplaywidth(places[i]))
+  end
+  for i, item in ipairs(items) do
+    local more = item.text:find("\n", 1, true) and " …" or ""
+    item.label = pad(places[i], width) .. "  " .. item.text:match("^[^\n]*") .. more
+  end
+  return items
+end
+
+---The file of a note in the preview, the note drawn under its lines as in the file itself.
+local function preview_note(ctx)
+  local note = ctx.item.note
+  ctx.preview:reset()
+  local lines = note.bufnr and vim.api.nvim_buf_get_lines(note.bufnr, 0, -1, false)
+    or (vim.fn.filereadable(note.path) == 1 and vim.fn.readfile(note.path) or {})
+  ctx.preview:set_lines(lines)
+  ctx.preview:highlight({ file = note.path })
+  local last = math.min(note.last, #lines)
+  if last > 0 then
+    local indent = string.rep(" ", vim.fn.strdisplaywidth(lines[last]:match("^%s*")))
+    local virt_lines = {}
+    for i, line in ipairs(vim.split(note.text, "\n", { plain = true })) do
+      virt_lines[i] = {
+        { indent .. (i == 1 and "▎ note: " or "▎       "), "ClaudeCodeReviewNoteSign" },
+        { line, "ClaudeCodeReviewNote" },
+      }
+    end
+    vim.api.nvim_buf_set_extmark(ctx.preview.win.buf, preview_ns, last - 1, 0, { virt_lines = virt_lines })
+  end
+  ctx.preview:loc()
+end
+
+local function show_notes_snacks()
+  local Snacks = rawget(_G, "Snacks")
+  Snacks.picker.pick({
+    title = "Claude notes",
+    finder = function()
+      return vim.tbl_map(function(item)
+        return { text = item.label, file = item.path, pos = { item.first, 0 }, note = item }
+      end, note_items())
+    end,
+    format = "text",
+    preview = preview_note,
+    confirm = function(picker, item)
+      picker:close()
+      if item then
+        vim.schedule(function()
+          notes().edit(item.note.id)
+        end)
+      end
+    end,
+    actions = {
+      note_delete = function(picker, item)
+        if not item then
+          return
+        end
+        notes().remove(item.note.id)
+        if notes().count() == 0 then
+          picker:close()
+        else
+          picker:refresh()
+        end
+      end,
+      note_send_all = function(picker)
+        picker:close()
+        vim.schedule(notes().send_all)
+      end,
+    },
+    win = {
+      input = {
+        keys = {
+          ["<a-d>"] = { "note_delete", mode = { "n", "i" }, desc = "delete" },
+          ["<c-s>"] = { "note_send_all", mode = { "n", "i" }, desc = "send all" },
+        },
+        footer = " ⏎ open · alt-d delete · ctrl-s send all ",
+        footer_pos = "center",
+      },
+    },
+  })
+end
+
+local function show_notes_fzf()
+  local by_label, entries = {}, {}
+  for _, item in ipairs(note_items()) do
+    by_label[item.label] = item
+    entries[#entries + 1] = item.label
+  end
+  local function act(fn)
+    return function(selected)
+      local item = selected and by_label[selected[1]]
+      if item then
+        fn(item)
+      end
+    end
+  end
+  require("fzf-lua").fzf_exec(entries, {
+    prompt = "Claude notes> ",
+    actions = {
+      ["default"] = act(function(item)
+        notes().edit(item.id)
+      end),
+      ["alt-d"] = act(function(item)
+        notes().remove(item.id)
+        if notes().count() > 0 then
+          vim.schedule(show_notes_fzf)
+        end
+      end),
+      ["ctrl-s"] = function()
+        notes().send_all()
+      end,
+    },
+  })
+end
+
+local function show_notes_select()
+  local function format_item(item)
+    return item.label
+  end
+  vim.ui.select(note_items(), { prompt = "Claude notes", format_item = format_item }, function(item)
+    if not item then
+      return
+    end
+    vim.ui.select({ "open", "delete", "send all" }, { prompt = item.label }, function(choice)
+      if choice == "open" then
+        notes().edit(item.id)
+      elseif choice == "delete" then
+        notes().remove(item.id)
+      elseif choice == "send all" then
+        notes().send_all()
+      end
+    end)
+  end)
+end
+
+---Show the notes not sent to Claude yet: open one to edit it, delete one, or send them all.
+---@param backend "auto"|"snacks"|"fzf"|"select"|nil
+function M.show_notes(backend)
+  if notes().count() == 0 then
+    vim.notify("claudecode: no notes for Claude")
+    return
+  end
+  local chosen = M.backend(backend)
+  if chosen == "snacks" then
+    show_notes_snacks()
+  elseif chosen == "fzf" then
+    show_notes_fzf()
+  else
+    show_notes_select()
   end
 end
 

@@ -39,7 +39,7 @@ More documentation:
 
 ## Install
 
-With LazyVim, use the ready spec instead of the `ai.claudecode` extra: copy [lazyvim/claudecode.lua](https://github.com/odiumuniverse/claudecode.nvim/blob/main/lazyvim/claudecode.lua) to `~/.config/nvim/lua/plugins/claudecode.lua`. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>am`, `<leader>ak` and `<M-z>`.
+With LazyVim, use the ready spec instead of the `ai.claudecode` extra: copy [lazyvim/claudecode.lua](https://github.com/odiumuniverse/claudecode.nvim/blob/main/lazyvim/claudecode.lua) to `~/.config/nvim/lua/plugins/claudecode.lua`. It keeps the extra's keys, moves Toggle Claude from `<leader>ac` to `<leader>at`, and adds `<leader>am`, `<leader>ak`, `<leader>an` and `<M-z>`.
 
 The spec loads the plugin on `VeryLazy`, not on a key: a file Claude edited before a restart comes back under review only if the plugin is running when you open it.
 
@@ -50,10 +50,11 @@ With plain lazy.nvim:
   "odiumuniverse/claudecode.nvim",
   dependencies = { "folke/snacks.nvim" },
   event = "VeryLazy", -- not only on a key: a file Claude edited before a restart comes back under review
-  cmd = { "ClaudeCode", "ClaudeCodeZen", "ClaudeCodeReview" },
+  cmd = { "ClaudeCode", "ClaudeCodeZen", "ClaudeCodeReview", "ClaudeCodeReviewNotes" },
   keys = {
     { "<leader>at", "<cmd>ClaudeCode<cr>", desc = "Toggle Claude" },
     { "<leader>ak", "<cmd>ClaudeCodeReview<cr>", desc = "Files waiting for review" },
+    { "<leader>an", "<cmd>ClaudeCodeReviewNotes<cr>", desc = "Notes for Claude" },
     { "<M-z>", "<cmd>ClaudeCodeZen<cr>", desc = "Claude zen" },
   },
   opts = {},
@@ -103,12 +104,13 @@ In auto mode Claude edits your files right away, the way it does in the terminal
 | `cr`         | Note for Claude on this line; `<leader>an` on a selection |
 | `cR`         | Send every note to Claude, from any buffer                |
 | `<leader>ak` | Files waiting for review: open, keep all, revert all      |
+| `<leader>an` | Your notes: edit, delete, send all                        |
 
 After `cs` or `cx` the cursor moves on to the next hunk, so a file is reviewed with one key per hunk; `advance = "file"` goes on to the next file too. `]k` past the last hunk opens the next file waiting for review, and `[k` before the first one goes back to the previous file.
 
-The hunk keys exist only in buffers under review; `<leader>ak` works everywhere. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. The list of files uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
+The hunk keys exist only in buffers under review; `<leader>ak` and `<leader>an` work everywhere. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. The list of files shows for each file the lines added and removed and how many hunks and notes wait, `+12 -3  3 hunks · 1 note`, and a file whose hunks are decided stays on it while it has notes. It uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
 
-**Ask Claude to rework a change without leaving Neovim.** `cr` opens a box right under the line with the cursor; the code below moves down instead of hiding, so a long hunk stays in sight. Type what you want and press Enter: the note is saved at once, shows as one gray line under the code, and survives a restart. The cursor moves on to the next hunk. Leave notes in as many files as you like, then press Shift+Enter in the box, or `cR` anywhere, and every note goes to Claude in one message: each place as file:line, the first lines of the code there and your words. The message is typed into the Claude terminal in Neovim; while Claude works, Claude Code queues it. `review.notes.send = "enter"` sends each note on Enter instead. `<C-s>` in the box does what Shift+Enter does, for a terminal that cannot tell them apart.
+**Ask Claude to rework a change without leaving Neovim.** `cr` opens a box right under the line with the cursor; the code below moves down instead of hiding, so a long hunk stays in sight. Type what you want and press Enter: the note is saved at once, shows as one gray line under the code, and survives a restart. The cursor moves on to the next hunk. Leave notes in as many files as you like, then press Shift+Enter in the box, or `cR` anywhere, and every note goes to Claude in one message: each place as file:line, the first lines of the code there and your words. The message is typed into the Claude terminal in Neovim; while Claude works, Claude Code queues it. `review.notes.send = "enter"` sends each note on Enter instead. `<C-s>` in the box does what Shift+Enter does, for a terminal that cannot tell them apart. Before you send, `<leader>an` lists every note by file and line, with the code and the note under it in the preview: Enter opens a note to edit it, `<A-d>` deletes it, `<C-s>` sends them all.
 
 **Claude learns what you reverted.** Claude Code itself never tells the model that you rejected part of an edit. The plugin adds a short note to Claude's context instead: right after Claude's next file edit or Bash call, or with your next message. The note names the file and line, shows Claude's text and the text that came back, and asks Claude not to reapply the change unless you ask. With several Claude sessions in one project, each session hears only about the files it edited; the note about a file two sessions edited reaches both.
 
@@ -196,6 +198,7 @@ opts = {
       send = "batch",           -- "batch": Enter saves, Shift+Enter sends every note; "enter": Enter sends
       advance = true,           -- a note counts as a decision: the cursor moves on as after cs
       send_keymap = "cR",       -- global key that sends every note
+      list_keymap = "<leader>an", -- global normal-mode key for the list of notes
     },
     files_keymap = "<leader>ak",
     advance = "hunk",           -- after cs/cx: "hunk" the next hunk, "file" then the next file, false stay

@@ -256,6 +256,28 @@ function M.drop(bufnr, first, last)
   end
 end
 
+---@param id integer
+---@return boolean forgotten
+local function forget(id)
+  local before = #state.notes
+  state.notes = vim.tbl_filter(function(note)
+    if note.id == id then
+      undraw(note)
+      return false
+    end
+    return true
+  end, state.notes)
+  return #state.notes ~= before
+end
+
+---Delete a note, whether its file is open or not.
+---@param id integer
+function M.remove(id)
+  if forget(id) then
+    persist()
+  end
+end
+
 ---Save the text of a note, a new one or `note`; an empty text deletes it.
 ---@param bufnr integer
 ---@param first integer
@@ -265,10 +287,7 @@ end
 local function save(bufnr, first, last, text, note)
   if note then
     if text == "" then
-      undraw(note)
-      state.notes = vim.tbl_filter(function(n)
-        return n.id ~= note.id
-      end, state.notes)
+      forget(note.id)
     else
       note.text = text
       draw(note, bufnr)
@@ -289,7 +308,9 @@ end
 ---@param bufnr integer
 ---@param first integer
 ---@param last integer
-function M.open(bufnr, first, last)
+---@param opts { advance: boolean|nil }|nil `advance = false` keeps the cursor still after Enter
+function M.open(bufnr, first, last, opts)
+  local advance = config.advance and not (opts and opts.advance == false)
   local win = vim.api.nvim_win_get_buf(0) == bufnr and vim.api.nvim_get_current_win() or vim.fn.win_findbuf(bufnr)[1]
   if not win or not path_of(bufnr) then
     return
@@ -315,7 +336,7 @@ function M.open(bufnr, first, last)
       ["<CR>"] = config.send == "enter" and save_and_send or function(text)
         save(bufnr, first, last, text, note)
         -- A note is a decision on the hunk: on to the next one, as after cs.
-        if config.advance and text ~= "" then
+        if advance and text ~= "" then
           require("claudecode.review").move_on(bufnr, first)
         end
       end,
@@ -339,6 +360,70 @@ local function lines_of(note)
     end
   end
   return note.first, note.last, nil
+end
+
+---Open the file of a note at the note, with its box to edit it. Editing decides nothing, so the
+---cursor stays on the note after Enter.
+---@param id integer
+function M.edit(id)
+  local note
+  for _, n in ipairs(state.notes) do
+    if n.id == id then
+      note = n
+    end
+  end
+  if not note then
+    return
+  end
+  vim.cmd.edit(vim.fn.fnameescape(note.path))
+  local bufnr = vim.api.nvim_get_current_buf()
+  local first, last = lines_of(note)
+  local count = vim.api.nvim_buf_line_count(bufnr)
+  first, last = math.min(first, count), math.min(last, count)
+  vim.api.nvim_win_set_cursor(0, { first, 0 })
+  M.open(bufnr, first, last, { advance = false })
+end
+
+---The buffer is on disk now: its notes keep their lines there, for when the buffer is gone.
+---Unsaved edits that move a note do not count, since they may never reach the file.
+---@param bufnr integer
+function M.written(bufnr)
+  local moved = false
+  for _, note in ipairs(state.notes) do
+    local first, last, from = lines_of(note)
+    if from == bufnr and (first ~= note.first or last ~= note.last) then
+      note.first, note.last = first, last
+      moved = true
+    end
+  end
+  if moved then
+    persist()
+  end
+end
+
+---@class ClaudeCodeReviewNoteItem
+---@field id integer
+---@field path string
+---@field first integer The line the note starts on now
+---@field last integer
+---@field text string
+---@field bufnr integer|nil The loaded buffer of its file
+
+---The notes by file and line, on the lines they sit on now.
+---@return ClaudeCodeReviewNoteItem[]
+function M.items()
+  local items = {}
+  for _, note in ipairs(state.notes) do
+    local first, last, bufnr = lines_of(note)
+    items[#items + 1] = { id = note.id, path = note.path, first = first, last = last, text = note.text, bufnr = bufnr }
+  end
+  table.sort(items, function(a, b)
+    if a.path ~= b.path then
+      return a.path < b.path
+    end
+    return a.first < b.first
+  end)
+  return items
 end
 
 -- At most this many lines of the code a note is about go into the message, so Claude finds the spot.
@@ -383,29 +468,18 @@ end
 ---The message that carries every note to Claude.
 ---@return string
 function M.message()
-  local items = {}
-  for _, note in ipairs(state.notes) do
-    local first, last, bufnr = lines_of(note)
-    items[#items + 1] = { note = note, first = first, last = last, bufnr = bufnr }
-  end
-  table.sort(items, function(a, b)
-    if a.note.path ~= b.note.path then
-      return a.note.path < b.note.path
-    end
-    return a.first < b.first
-  end)
   local parts = { "Notes on your edits from my review in Neovim. Please rework these places:" }
-  for i, item in ipairs(items) do
+  for i, item in ipairs(M.items()) do
     local range = item.first == item.last and tostring(item.first) or (item.first .. "-" .. item.last)
     parts[#parts + 1] = ""
-    parts[#parts + 1] = ("%d. %s:%s"):format(i, display_path(item.note.path), range)
-    for _, line in ipairs(excerpt(item.note.path, item.first, item.last, item.bufnr)) do
+    parts[#parts + 1] = ("%d. %s:%s"):format(i, display_path(item.path), range)
+    for _, line in ipairs(excerpt(item.path, item.first, item.last, item.bufnr)) do
       parts[#parts + 1] = "   > " .. vim.trim(line)
     end
     if item.last - item.first + 1 > EXCERPT_LINES then
       parts[#parts + 1] = "   > …"
     end
-    for _, line in ipairs(vim.split(item.note.text, "\n", { plain = true })) do
+    for _, line in ipairs(vim.split(item.text, "\n", { plain = true })) do
       parts[#parts + 1] = "   " .. line
     end
   end

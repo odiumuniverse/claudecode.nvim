@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **A list of your notes.** `<leader>an` in Normal mode, or `:ClaudeCodeReviewNotes`, lists every note by file and line before you send them, with the code and the note under it in the preview. Enter opens a note in its box to edit it, and the cursor stays on it after you save; `<A-d>` deletes it, `<C-s>` sends them all. `review.notes.list_keymap` sets the key.
+- **Hunks and notes in the list of files.** `<leader>ak` shows how many hunks and notes wait in each file, `+12 -3  3 hunks · 1 note`, in columns. A file whose hunks are all decided stays on the list while it has notes and opens at the first one.
+
 ### Fixed
+
+- **A note keeps its line after you save and close its file.** The line was written once, when you saved the note, so lines added above it and saved sent the list, `cR` and Claude to the old line once the file was closed. Now it follows the file on disk.
 
 - **Bash in a folder of repositories.** When the project folder is not a git repository but holds several, Bash edits in any of them now come up for review. Before, a Bash call that started in such a folder escaped review entirely, and so did one that went `cd ../web` from a neighbor. The plugin snapshots up to 32 repositories one level below the folder, all at once: with 22 that takes about 0.3 s per Bash call.
 - **An untracked file Bash rewrote or deleted** comes up for review even when Neovim does not have it open, as a file Claude created and you kept but have not committed yet does when a formatter rewrites it. Before each Bash call the plugin copies untracked files up to 2 MB, 200 files and 20 MB at most; on APFS a copy is a clone.
