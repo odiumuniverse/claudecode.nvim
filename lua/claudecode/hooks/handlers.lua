@@ -55,12 +55,13 @@ local function edit_path(input)
 end
 
 -- Claude's permission mode picks the review (docs/DESIGN.md, "Modes"): manual asks before every
--- edit, so the proposal opens in Neovim; accept-edits takes edits without review; the other modes
--- let Claude go on and leave hunks behind.
+-- edit, so the proposal opens in Neovim; accept-edits takes edits without review, and so does plan
+-- mode, where Claude writes only its plan file; the other modes let Claude go on and leave hunks behind.
 local ASK_MODES = { default = true, manual = true }
+local UNREVIEWED_MODES = { acceptEdits = true, plan = true }
 
-local function accepting(input)
-  return input.permission_mode == "acceptEdits"
+local function unreviewed(input)
+  return UNREVIEWED_MODES[input.permission_mode] == true
 end
 
 local function ask()
@@ -111,7 +112,7 @@ local function pre_tool_use(store, input, env)
       text, too_big = read_all(path)
     end
     if path and reviewable(text, too_big) then
-      if accepting(input) then
+      if unreviewed(input) then
         -- No review for this edit: a base already waiting for you only moves along with it.
         if store:get(path) then
           store:save_before(input.tool_use_id, text or "")
@@ -139,7 +140,7 @@ local function post_tool_use(store, input, env)
   local payload =
     { event = "PostToolUse", dir = env.dir, tool_name = input.tool_name, files = {}, untracked_changed = {} }
 
-  if EDIT_TOOLS[input.tool_name] and accepting(input) then
+  if EDIT_TOOLS[input.tool_name] and unreviewed(input) then
     local path = edit_path(input)
     if path then
       local current, too_big = read_all(path)
@@ -163,7 +164,7 @@ local function post_tool_use(store, input, env)
     local snap = store:take_bash(input.tool_use_id)
     if snap then
       local changes = require("claudecode.hooks.git").changes(snap)
-      if accepting(input) then
+      if unreviewed(input) then
         -- Bash's edits need no review either: only bases already waiting for you move along.
         for _, change in ipairs(changes.tracked) do
           local current, too_big = read_all(change.path)

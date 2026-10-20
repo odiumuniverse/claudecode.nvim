@@ -96,6 +96,16 @@ describe("review by permission mode", function()
     assert.is_nil(decision(out))
   end)
 
+  it("takes no base in plan mode, so the plan file Claude writes stays out of review", function()
+    local file = work .. "/plan.md"
+
+    run_hook("PreToolUse", edit("PreToolUse", "plan", file, { tool_name = "Write" }))
+    write_file(file, "# Plan\n")
+    run_hook("PostToolUse", edit("PostToolUse", "plan", file, { tool_name = "Write" }))
+
+    assert.is_nil(store:get(file))
+  end)
+
   describe("in accept-edits mode", function()
     it("takes no base, so the edit leaves no hunk", function()
       local file = work .. "/a.txt"
