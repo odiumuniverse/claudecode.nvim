@@ -111,8 +111,10 @@ The plugin then draws what changed on top of the code:
 - added lines get a green background;
 - inside a changed line, only the changed words stand out
   (|claudecode-review.word_diff|);
-- the hunk under the cursor shows a hint at the end of its first line:
-  "cs keep · cx revert" (|claudecode-review.hint|).
+- the hunk under the cursor shows a hint at the end of its first line, with
+  which hunk of how many in this file it is: "2/5  cs keep · cx revert"
+  (|claudecode-review.hint|);
+- the statusline can show how many files wait (|claudecode-review-status|).
 
 A hunk is a run of changed lines. The plugin does not use the sign column.
 
@@ -181,6 +183,16 @@ The list uses snacks.picker, fzf-lua or `vim.ui.select`, whichever
 fzf-lua, <CR> opens the file, <A-o> keeps all of it and <A-x> reverts all of
 it. `vim.ui.select` asks which of the three to do. When no file waits, the
 command says "nothing waits for review".
+
+                                                 *claudecode-review-status*
+For a statusline, `require("claudecode.review.controller").status()` gives
+"review: 2 files", "review: 1 file", or "" when nothing waits, so the
+component disappears. The LazyVim spec in the repository adds it to lualine;
+by hand:
+>lua
+    { function() return require("claudecode.review.controller").status() end,
+      color = "ClaudeCodeReviewCount" }
+<
 
 ------------------------------------------------------------------------------
 WHAT GETS REVIEWED                                   *claudecode-review-scope*
@@ -333,9 +345,10 @@ get the key (|claudecode-zen.keymap|).
 - Zen hides the tabline, and keeps it hidden when a plugin such as
   bufferline.nvim shows it again. Leaving zen gives the tabline back as that
   plugin last set it.
-- Above Claude, zen shows how many files wait for review, and the key that
-  lists them: "2 files wait for review · <leader>ak", or "1 file waits for
-  review · <leader>ak". With no file waiting the bar is empty.
+- Above Claude, on the right, zen shows how many files wait for review in the
+  words of the statusline (|claudecode-review-status|), and the key that
+  lists them: "review: 2 files · <leader>ak". With no file waiting the bar is
+  empty.
 - Leaving zen returns you to the tab you entered from.
 - If you switch to another tab while zen is open, the key takes you back into
   zen instead of building a second one.
@@ -520,7 +533,8 @@ review.hint                                           *claudecode-review.hint*
     Type: boolean or string. Default: `true`.
     The hint at the hunk under the cursor. `true` builds it from your keys,
     "cs keep · cx revert" with the defaults. A string replaces it, `false`
-    hides it.
+    hides it. The number of the hunk, "2/5", comes before it either way and
+    goes with it.
 
 review.word_diff                                 *claudecode-review.word_diff*
     Type: boolean. Default: `true`.
@@ -598,7 +612,10 @@ config win. The review groups are defined again after `:colorscheme`.
                                 in a deleted line
     ClaudeCodeReviewHint        link to Comment; the hint, and the window bar
                                 of a proposal
-    ClaudeCodeZenPending        link to DiagnosticWarn; the counter in zen
+    ClaudeCodeReviewCount       link to Special; "2/5" in the hint, and the
+                                statusline component in the LazyVim spec
+    ClaudeCodeZenPending        link to Special; the counter in zen
+    ClaudeCodeZenKey            link to Comment; the key next to it
 
 ==============================================================================
 DIFF PROVIDER                                       *claudecode-diff-provider*

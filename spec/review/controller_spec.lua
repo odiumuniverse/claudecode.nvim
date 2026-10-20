@@ -726,6 +726,16 @@ describe("review controller", function()
     vim.fn.delete(other, "rf")
   end)
 
+  it("sums up the files waiting for review for a statusline, and says nothing without them", function()
+    assert.equal("", controller.status())
+
+    claude_writes(work .. "/a.txt", "one\n")
+    assert.equal("review: 1 file", controller.status())
+
+    claude_writes(work .. "/b.txt", "two\n")
+    assert.equal("review: 2 files", controller.status())
+  end)
+
   describe("moving between the files waiting for review", function()
     local a, b, c
 

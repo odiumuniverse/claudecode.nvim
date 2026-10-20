@@ -262,6 +262,17 @@ function M.pending()
   return vim.deepcopy(state.pending)
 end
 
+---The files waiting for review as a short text for a statusline: "review: 2 files", or "" when
+---nothing waits, so that a statusline component disappears.
+---@return string
+function M.status()
+  local count = #state.pending
+  if count == 0 then
+    return ""
+  end
+  return ("review: %d %s"):format(count, count == 1 and "file" or "files")
+end
+
 ---Open the file after (or before) the one in `bufnr` among the files waiting for review, at its
 ---first (or last) hunk. The list goes in path order and wraps around. A proposal under review
 ---before write is not on the list and goes nowhere.

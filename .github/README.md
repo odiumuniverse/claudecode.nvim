@@ -89,7 +89,8 @@ In auto mode Claude edits your files right away, the way it does in the terminal
 - deleted lines appear in red above the change, as virtual lines that are not part of the file;
 - added lines get a green background;
 - inside a changed line, only the changed words are highlighted;
-- the hunk under the cursor shows a hint: `cs keep · cx revert`.
+- the hunk under the cursor shows which hunk of how many in the file it is, and the keys: `2/5  cs keep · cx revert`;
+- the statusline shows how many files wait for review, `review: 4 files`, and nothing once they are done. The LazyVim spec adds this to lualine; elsewhere it is `require("claudecode.review.controller").status()`.
 
 | Key          | What it does                                         |
 | ------------ | ---------------------------------------------------- |
@@ -200,7 +201,7 @@ opts = {
 }
 ```
 
-Highlight groups, all defined with `default = true` so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeZenPending`.
+Highlight groups, all defined with `default = true` so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeReviewCount`, `ClaudeCodeZenPending`, `ClaudeCodeZenKey`.
 
 `User` events for your config:
 

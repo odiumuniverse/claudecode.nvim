@@ -33,6 +33,7 @@ local function define_highlights()
     ClaudeCodeReviewAddText = "DiffText",
     ClaudeCodeReviewDelete = "DiffDelete",
     ClaudeCodeReviewHint = "Comment",
+    ClaudeCodeReviewCount = "Special",
   }
   for name, target in pairs(links) do
     vim.api.nvim_set_hl(0, name, { default = true, link = target })
@@ -215,7 +216,8 @@ function M.update_hint(bufnr, hunks, opts)
   end
   local row = hunk_logic.anchor(hunks[index], line_count)
   hint_marks[bufnr] = vim.api.nvim_buf_set_extmark(bufnr, ns, row - 1, 0, {
-    virt_text = { { hint, "ClaudeCodeReviewHint" } },
+    -- Which hunk of how many: the hunks left in this file at a glance.
+    virt_text = { { index .. "/" .. #hunks, "ClaudeCodeReviewCount" }, { "  " .. hint, "ClaudeCodeReviewHint" } },
     virt_text_pos = "eol",
     strict = false,
   })

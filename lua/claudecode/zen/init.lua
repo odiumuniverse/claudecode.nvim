@@ -89,9 +89,10 @@ local function counter_text()
   if state.pending == 0 then
     return ""
   end
-  local what = state.pending == 1 and "1 file waits for review" or (state.pending .. " files wait for review")
-  local key = state.opts.files_key and (" · " .. state.opts.files_key) or ""
-  return "%#ClaudeCodeZenPending# " .. what .. key .. " %*"
+  -- The words of the statusline component (controller.status), on the right, out of Claude's way.
+  local what = ("review: %d %s"):format(state.pending, state.pending == 1 and "file" or "files")
+  local key = state.opts.files_key and ("%#ClaudeCodeZenKey# · " .. state.opts.files_key) or ""
+  return "%=%#ClaudeCodeZenPending#" .. what .. key .. " %*"
 end
 
 local function update_counter()
@@ -228,7 +229,8 @@ function M.setup(opts)
   vim.validate("zen.files_key", opts.files_key, "string", true)
   state.opts = vim.tbl_extend("force", vim.deepcopy(defaults), opts)
 
-  vim.api.nvim_set_hl(0, "ClaudeCodeZenPending", { default = true, link = "DiagnosticWarn" })
+  vim.api.nvim_set_hl(0, "ClaudeCodeZenPending", { default = true, link = "Special" })
+  vim.api.nvim_set_hl(0, "ClaudeCodeZenKey", { default = true, link = "Comment" })
 
   state.group = vim.api.nvim_create_augroup("ClaudeCodeZen", { clear = true })
   vim.api.nvim_create_autocmd("User", {

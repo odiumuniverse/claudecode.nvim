@@ -256,10 +256,11 @@ describe("zen", function()
     zen.enter()
 
     vim.api.nvim_exec_autocmds("User", { pattern = "ClaudeCodeReviewPending", data = { count = 2, files = {} } })
-    assert.matches("2 files wait for review", vim.wo.winbar)
+    -- the same words as the statusline component, out of the way on the right
+    assert.matches("^%%=.*review: 2 files.*<leader>ak", vim.wo.winbar)
 
     vim.api.nvim_exec_autocmds("User", { pattern = "ClaudeCodeReviewPending", data = { count = 1, files = {} } })
-    assert.matches("1 file waits for review", vim.wo.winbar)
+    assert.matches("review: 1 file", vim.wo.winbar)
 
     vim.api.nvim_exec_autocmds("User", { pattern = "ClaudeCodeReviewPending", data = { count = 0, files = {} } })
     assert.equal("", vim.wo.winbar)

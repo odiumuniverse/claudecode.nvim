@@ -341,8 +341,20 @@ describe("review.render hint", function()
     local found = hints(bufnr)
     assert.equal(1, #found)
     assert.equal(1, found[1].row)
-    assert.same({ { hint, "ClaudeCodeReviewHint" } }, found[1].details.virt_text)
+    assert.same(
+      { { "1/2", "ClaudeCodeReviewCount" }, { "  " .. hint, "ClaudeCodeReviewHint" } },
+      found[1].details.virt_text
+    )
     assert.equal("eol", found[1].details.virt_text_pos)
+  end)
+
+  it("counts the hunk under the cursor among the hunks of the file", function()
+    local bufnr = helpers.buffer({ "a", "X", "Y", "c", "d", "E" })
+    vim.api.nvim_win_set_cursor(0, { 6, 0 })
+
+    render.draw(bufnr, { changed, second }, { hint = hint })
+
+    assert.equal("2/2", hints(bufnr)[1].details.virt_text[1][1])
   end)
 
   it("is absent when the cursor is outside every hunk", function()
@@ -398,6 +410,6 @@ describe("review.render hint", function()
 
     render.draw(bufnr, { changed, second }, {})
 
-    assert.equal("cs keep · cx revert", hints(bufnr)[1].details.virt_text[1][1])
+    assert.equal("  cs keep · cx revert", hints(bufnr)[1].details.virt_text[2][1])
   end)
 end)
