@@ -151,6 +151,71 @@ describe("review store", function()
     assert.equal(1, #store:take_reverts())
   end)
 
+  describe("sessions", function()
+    local file
+
+    before_each(function()
+      file = work .. "/a.txt"
+      write_file(file, "old\n")
+    end)
+
+    it("remembers the session that made the base", function()
+      store:snapshot(file, "s1")
+
+      assert.same({ "s1" }, store:get(file).sessions)
+    end)
+
+    it("adds a second session to the base the first made, once, and keeps the earliest text", function()
+      store:snapshot(file, "s1")
+      write_file(file, "new\n")
+
+      assert.is_false(store:snapshot(file, "s2"))
+      store:snapshot(file, "s2")
+
+      local base = store:get(file)
+      assert.same({ "s1", "s2" }, base.sessions)
+      assert.equal("old\n", base.text)
+    end)
+
+    it("keeps the sessions when you keep a hunk and the base moves", function()
+      store:snapshot(file, "s1")
+      store:snapshot(file, "s2")
+
+      store:set(file, "kept\n")
+
+      local base = store:get(file)
+      assert.equal("kept\n", base.text)
+      assert.same({ "s1", "s2" }, base.sessions)
+    end)
+
+    it("reads a base made before sessions were tracked as having none", function()
+      store:snapshot(file)
+
+      assert.same({}, store:get(file).sessions)
+    end)
+
+    it("does not write a session id that is not a plain file name", function()
+      store:snapshot(file, "../x")
+      store:snapshot(file, "a/b")
+
+      assert.same({}, store:get(file).sessions)
+    end)
+
+    it("takes only the plain ids from a header it did not write itself", function()
+      store:snapshot(file)
+      local base_file = dir .. "/bases/" .. vim.fn.sha256(store_mod.normalize(file))
+      local header = vim.json.encode({
+        path = store_mod.normalize(file),
+        new_file = false,
+        created_at = 1,
+        sessions = { "s1", "../x", 7, "s1" },
+      })
+      write_file(base_file, header .. "\nold\n")
+
+      assert.same({ "s1" }, store:get(file).sessions)
+    end)
+  end)
+
   it("hands a Bash snapshot out once", function()
     store:save_bash("toolu_1", { stash = "abc", untracked = { "x.txt" } })
 

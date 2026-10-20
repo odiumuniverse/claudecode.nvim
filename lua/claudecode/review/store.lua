@@ -15,6 +15,7 @@ local M = {}
 ---@field text string File bytes before Claude's first edit
 ---@field new_file boolean The file did not exist before Claude's first edit
 ---@field created_at integer os.time() of the snapshot
+---@field sessions string[] Claude sessions that edited the file; empty for a base made before sessions were tracked
 
 ---@class ClaudeCodeReviewStore
 ---@field dir string
@@ -114,11 +115,40 @@ function Store:_base_file(path)
   return self.dir .. "/bases/" .. vim.fn.sha256(path)
 end
 
+---session_id and tool_use_id come from Claude's hook input: keep them to a plain file name.
+---@param id any
+---@return boolean
+local function valid_id(id)
+  return type(id) == "string" and id:match("^[%w_-]+$") ~= nil
+end
+
+---The ids in `list` that are safe to use as file names, without repeats.
+---@param list any
+---@return string[]
+local function clean_ids(list)
+  local ids, seen = {}, {}
+  if type(list) == "table" then
+    for _, id in ipairs(list) do
+      if valid_id(id) and not seen[id] then
+        seen[id] = true
+        ids[#ids + 1] = id
+      end
+    end
+  end
+  return ids
+end
+
 ---A base file is one JSON header line followed by the raw bytes, so it is created by a single
 ---atomic link and readers never see a header without its text.
 local function encode_base(base)
-  local header = vim.json.encode({ path = base.path, new_file = base.new_file, created_at = base.created_at })
-  return header .. "\n" .. base.text
+  local header = {
+    path = base.path,
+    new_file = base.new_file,
+    created_at = base.created_at,
+    -- an empty list would encode as an object; a base without sessions stays as it always was
+    sessions = base.sessions and #base.sessions > 0 and base.sessions or nil,
+  }
+  return vim.json.encode(header) .. "\n" .. base.text
 end
 
 local function decode_base(data)
@@ -134,6 +164,7 @@ local function decode_base(data)
     path = header.path,
     new_file = header.new_file == true,
     created_at = tonumber(header.created_at) or 0,
+    sessions = clean_ids(header.sessions),
     text = data:sub(nl + 1),
   }
 end
@@ -142,29 +173,68 @@ end
 ---@param path string
 ---@param text string
 ---@param new_file boolean
+---@param session_id string|nil The Claude session that is editing the file
 ---@return boolean created
-function Store:snapshot_text(path, text, new_file)
+function Store:snapshot_text(path, text, new_file, session_id)
   path = M.normalize(path)
   ensure_dir(self.dir)
   ensure_dir(self.dir .. "/bases")
   local final = self:_base_file(path)
   local tmp = tmp_name(final)
-  if not write_all(tmp, encode_base({ path = path, text = text, new_file = new_file, created_at = os.time() })) then
+  local base = {
+    path = path,
+    text = text,
+    new_file = new_file,
+    created_at = os.time(),
+    sessions = clean_ids({ session_id }),
+  }
+  if not write_all(tmp, encode_base(base)) then
     uv.fs_unlink(tmp)
     return false
   end
   -- link fails with EEXIST when another snapshot got there first, unlike rename.
   local linked = uv.fs_link(tmp, final)
   uv.fs_unlink(tmp)
+  if not linked and session_id then
+    self:add_session(path, session_id)
+  end
   return linked == true
+end
+
+---Write down in the header of the base of `path` that `session_id` edited the file. Nothing happens
+---when there is no base.
+---@param path string
+---@param session_id string|nil
+---@return boolean added The session is in the header now
+function Store:add_session(path, session_id)
+  if not valid_id(session_id) then
+    return false
+  end
+  local final = self:_base_file(M.normalize(path))
+  local data = read_all(final)
+  local base = data and decode_base(data)
+  if not base then
+    return false
+  end
+  if vim.list_contains(base.sessions, session_id) then
+    return true
+  end
+  base.sessions[#base.sessions + 1] = session_id
+  local tmp = tmp_name(final)
+  if not write_all(tmp, encode_base(base)) then
+    uv.fs_unlink(tmp)
+    return false
+  end
+  return uv.fs_rename(tmp, final) == true
 end
 
 ---Create the base for `path` from the file on disk, or mark it new if it does not exist.
 ---@param path string
+---@param session_id string|nil The Claude session that is editing the file
 ---@return boolean created
-function Store:snapshot(path)
+function Store:snapshot(path, session_id)
   local text = read_all(path)
-  return self:snapshot_text(path, text or "", text == nil)
+  return self:snapshot_text(path, text or "", text == nil, session_id)
 end
 
 ---@param path string
@@ -185,8 +255,13 @@ function Store:set(path, text, new_file)
   local final = self:_base_file(path)
   local old = self:get(path)
   local tmp = tmp_name(final)
-  local base =
-    { path = path, text = text, new_file = new_file == true, created_at = old and old.created_at or os.time() }
+  local base = {
+    path = path,
+    text = text,
+    new_file = new_file == true,
+    created_at = old and old.created_at or os.time(),
+    sessions = old and old.sessions or {},
+  }
   if write_all(tmp, encode_base(base)) then
     uv.fs_rename(tmp, final)
   else
@@ -259,9 +334,8 @@ function Store:take_reverts()
   return records
 end
 
----tool_use_id comes from Claude's hook input: keep it to a plain file name.
 local function id_file(self, subdir, id)
-  if type(id) ~= "string" or not id:match("^[%w_-]+$") then
+  if not valid_id(id) then
     return nil
   end
   return self.dir .. "/" .. subdir .. "/" .. id .. ".json"
