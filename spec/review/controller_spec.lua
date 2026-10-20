@@ -851,6 +851,19 @@ describe("review controller", function()
       assert.matches("nothing waits for review", said)
     end)
 
+    it("leaves your own global ]k alone, and takes its [k away again on teardown", function()
+      vim.keymap.set("n", "]k", "<Nop>", { desc = "my own ]k" })
+
+      controller.setup({ dir = dir, keymaps = { next = "]k", prev = "[k" } })
+      local mine = vim.fn.maparg("]k", "n", false, true).desc
+      controller.teardown()
+
+      assert.equal("my own ]k", mine)
+      assert.equal("my own ]k", vim.fn.maparg("]k", "n", false, true).desc)
+      assert.same({}, vim.fn.maparg("[k", "n", false, true))
+      vim.keymap.del("n", "]k")
+    end)
+
     it("keeps ]k inside the file with cross_files = false", function()
       engine.setup({ cross_files = false, goto_file = controller.goto_file })
       open(b)

@@ -337,7 +337,9 @@ local function map_moves(keymaps)
   end
   state.moves = {}
   for direction, lhs in pairs(keymaps or {}) do
-    if lhs then
+    -- A global mapping of your own stays: it is yours outside review, ours inside.
+    local yours = vim.fn.maparg(lhs or "", "n", false, true)
+    if lhs and not (yours.lhs and yours.buffer == 0) then
       vim.keymap.set("n", lhs, function()
         if not M.goto_file(vim.api.nvim_get_current_buf(), direction) then
           vim.notify("claudecode: nothing waits for review")
