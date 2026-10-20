@@ -10,13 +10,13 @@
 > [!NOTE]
 > The original [coder/claudecode.nvim](https://github.com/coder/claudecode.nvim) has had no new commits since June 2026. This repository is the up-to-date version: it keeps upstream's IDE connection and adds hunk review, Claude's permission modes, zen mode and account switching. Upstream commands that the review replaces, or that the plugin does on its own, are gone.
 
-The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP protocol that Anthropic's VS Code extension uses. Claude opens files, reads your selection and diagnostics, and shows its edits as diffs. Two features come on top:
+The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP protocol that Anthropic's VS Code extension uses. Claude opens files, reads your selection and diagnostics, and shows its edits as diffs. Three features come on top:
 
 - **Hunk review.** Keep or revert each change Claude makes, the way Cursor does, instead of accepting or rejecting the whole file.
 - **Notes for Claude.** Write what to rework right under the line, in as many files as you like, and send every note in one message.
 - **Zen mode.** Run Claude full screen inside Neovim and flip to the code with one key.
 
-![Claude edits cart.py in three places; the edits show up as hunks; cx reverts one and cs keeps another, each time the cursor moves on; cr leaves a note on the third, cR sends it, Claude reworks the line and cs keeps it; Alt+z opens zen and goes back](demo.gif)
+https://github.com/user-attachments/assets/38136234-b505-4214-966a-de0f8af7af5f
 
 With [cswap](https://github.com/realiti4/claude-swap) (claude-swap) it also switches the Claude account Neovim runs: `:ClaudeCode run 1`.
 

@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (2026-10-21)
+
+Notes you can read over before they go and that go as a diff, review that keeps up with git and with folders of repositories, Claude's notifications in Neovim, and fewer upstream commands that did nothing in this flow.
+
+### Upgrading
+
+- Ten upstream commands are gone (see Removed). A mapping of your own to one of them now fails with "Not an editor command"; the list below names what to use instead.
+- In a buffer under review `c` now waits for its next key without `'timeoutlen'`. A key that is not one of the review keys changes text as before: `cw`, `ciw`, `cc`, `2cw`, `"acw`.
+- Shift+Enter in Normal mode, in a file under review or with a note, sends your notes; where no note waits it is Enter. `review.notes.local_send_keymap = false` turns this off.
+- Claude started from Neovim no longer sends its own desktop notification or bell: its notifications come as `vim.notify`. The plugin's settings file sets `preferredNotifChannel = "notifications_disabled"` for that Claude only; Claude outside Neovim keeps yours.
+- The highlight group `ClaudeCodeReviewNoteSign` is now `ClaudeCodeReviewNoteBorder`, and the lists use `ClaudeCodeReviewAdded` and `ClaudeCodeReviewRemoved`.
 
 ### Removed
 
