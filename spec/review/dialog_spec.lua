@@ -53,4 +53,16 @@ describe("Claude's permission dialog", function()
   it("backs off from a dialog without a No", function()
     assert.is_nil(dialog.next_step(screen({ " ❯ 1. Yes", "   2. Yes, always" })))
   end)
+
+  it("sees the reason in the dialog even when a narrow terminal wraps it", function()
+    local rows = screen({
+      "   1. Yes",
+      " ❯ 3. No, and tell Claude what to do differently",
+      "   make it 7, shipping is",
+      "   cheaper now",
+    }, " Esc to cancel")
+
+    assert.is_true(dialog.shows(rows, "make it 7, shipping is cheaper now"))
+    assert.is_false(dialog.shows(rows, "make it 8, shipping is cheaper now"))
+  end)
 end)

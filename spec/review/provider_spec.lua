@@ -118,6 +118,18 @@ describe("review provider", function()
       assert.equal("DIFF_REJECTED", handle.result.content[1].text)
       assert.matches("say three", vim.fn.getreg('"'))
     end)
+
+    it("reverts every hunk of a selection with one reason on <leader>an", function()
+      local file = work .. "/a.txt"
+      write_file(file, "a\nb\nc\nd\ne\n")
+      local handle = propose(file, "A\nb\nc\nd\nE\n")
+
+      press("ggVG<leader>anboth wrong<CR>")
+      vim.wait(100)
+
+      assert.equal("DIFF_REJECTED", handle.result.content[1].text)
+      assert.equal("line 1: both wrong; line 5: both wrong", vim.fn.getreg('"'))
+    end)
   end)
 
   it("keeps ]k and the moves after a decision inside the proposal, while Claude waits", function()

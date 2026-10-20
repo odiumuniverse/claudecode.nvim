@@ -58,6 +58,16 @@ function M.next_step(lines)
   return "down"
 end
 
+---Has `text` arrived in the dialog? A narrow terminal wraps it, so spaces and line breaks do not count.
+---@param rows string[] The bottom rows of the Claude terminal
+---@param text string
+---@return boolean
+function M.shows(rows, text)
+  local seen = (table.concat(rows):gsub("%s", ""))
+  local wanted = (text:gsub("%s", "")):sub(1, 40)
+  return seen:find(wanted, 1, true) ~= nil
+end
+
 ---@param bufnr integer
 ---@return string[]
 local function screen(bufnr)
@@ -89,7 +99,7 @@ function M.answer_no(bufnr, text, done)
     local rows = screen(bufnr)
     if typed then
       -- Enter answers the dialog only once the text has arrived in it.
-      if table.concat(rows, "\n"):find(text:sub(1, 30), 1, true) then
+      if M.shows(rows, text) then
         vim.fn.chansend(chan, "\r")
         return done(true)
       end
