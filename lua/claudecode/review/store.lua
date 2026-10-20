@@ -19,6 +19,7 @@ local M = {}
 
 ---@class ClaudeCodeReviewStore
 ---@field dir string
+---@field lock_wait_ms integer
 local Store = {}
 Store.__index = Store
 
@@ -108,19 +109,20 @@ end
 
 -- Changing the header of a base means reading it and writing it back: two hooks doing that at the
 -- same moment would lose one change, so each such change takes the lock of its base.
-local LOCK_WAIT_NS = 2e9
+M.LOCK_WAIT_MS = 2000
 local LOCK_STALE_S = 10
 
 ---Run `fn` while holding the lock of the base file `final`. A lock is a directory next to the base:
 ---mkdir either makes it or fails. A hook that died holding the lock is not waited for past
----LOCK_STALE_S, and `fn` runs without the lock after LOCK_WAIT_NS: Claude must never hang on us.
+---LOCK_STALE_S, and `fn` runs without the lock after `wait_ms`: Claude must never hang on us.
 ---@generic T
 ---@param final string
+---@param wait_ms integer
 ---@param fn fun(): T
 ---@return T
-local function with_lock(final, fn)
+local function with_lock(final, wait_ms, fn)
   local lock = final .. ".lock"
-  local deadline = uv.hrtime() + LOCK_WAIT_NS
+  local deadline = uv.hrtime() + wait_ms * 1e6
   local held = false
   while true do
     local made, _, name = uv.fs_mkdir(lock, DIR_MODE)
@@ -150,10 +152,15 @@ local function with_lock(final, fn)
   return result
 end
 
+---@class ClaudeCodeReviewStoreOpts
+---@field lock_wait_ms integer|nil How long a change waits for the lock of a base before it goes on
+---  without. A hook can wait for a lock that was left behind; the editor's one thread cannot.
+
 ---@param dir string Project state directory
+---@param opts ClaudeCodeReviewStoreOpts|nil
 ---@return ClaudeCodeReviewStore
-function M.new(dir)
-  return setmetatable({ dir = dir }, Store)
+function M.new(dir, opts)
+  return setmetatable({ dir = dir, lock_wait_ms = opts and opts.lock_wait_ms or M.LOCK_WAIT_MS }, Store)
 end
 
 function Store:_base_file(path)
@@ -279,7 +286,7 @@ function Store:add_session(path, session_id)
   if vim.list_contains(base.sessions, session_id) then
     return true
   end
-  return with_lock(final, function()
+  return with_lock(final, self.lock_wait_ms, function()
     base = current() -- it may have changed while we waited
     if not base then
       return false
@@ -317,7 +324,7 @@ function Store:set(path, text, new_file)
   ensure_dir(self.dir)
   ensure_dir(self.dir .. "/bases")
   local final = self:_base_file(path)
-  with_lock(final, function()
+  with_lock(final, self.lock_wait_ms, function()
     local old = self:get(path)
     replace_base(final, {
       path = path,
@@ -332,7 +339,7 @@ end
 ---@param path string
 function Store:remove(path)
   local final = self:_base_file(M.normalize(path))
-  with_lock(final, function()
+  with_lock(final, self.lock_wait_ms, function()
     uv.fs_unlink(final)
   end)
 end

@@ -14,6 +14,10 @@ local M = {}
 -- An edit that Claude Code was not allowed to make never reports back: forget its note after this long.
 M.EDITING_MAX_AGE_S = 30 * 60
 
+-- Waiting for a lock blocks the editor's only thread; a hook holds a lock for a moment, so a lock
+-- still there after this long was left behind. The change goes on without it.
+M.LOCK_WAIT_MS = 20
+
 local state = {
   store = nil, ---@type ClaudeCodeReviewStore|nil
   group = nil, ---@type integer|nil
@@ -57,7 +61,7 @@ function M.use_dir(dir)
   if state.store and state.store.dir == dir then
     return
   end
-  state.store = store_mod.new(dir)
+  state.store = store_mod.new(dir, { lock_wait_ms = M.LOCK_WAIT_MS })
 end
 
 ---@return ClaudeCodeReviewStore|nil

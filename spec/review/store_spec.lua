@@ -276,6 +276,21 @@ describe("review store", function()
       assert.is_nil(vim.uv.fs_stat(lock))
     end)
 
+    it("waits for a fresh lock only as long as its store was told to, and leaves the lock alone", function()
+      store:snapshot(file, "s1")
+      local lock = dir .. "/bases/" .. vim.fn.sha256(store_mod.normalize(file)) .. ".lock"
+      assert(vim.uv.fs_mkdir(lock, 448))
+      local impatient = store_mod.new(dir, { lock_wait_ms = 30 })
+
+      local started = vim.uv.hrtime()
+      impatient:set(file, "kept\n")
+
+      assert.is_true((vim.uv.hrtime() - started) / 1e6 < 500)
+      assert.equal("kept\n", store:get(file).text)
+      assert.same({ "s1" }, store:get(file).sessions)
+      assert.is_not_nil(vim.uv.fs_stat(lock))
+    end)
+
     it("takes only the plain ids from a header it did not write itself", function()
       store:snapshot(file)
       local base_file = dir .. "/bases/" .. vim.fn.sha256(store_mod.normalize(file))
