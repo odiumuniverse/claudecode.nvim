@@ -30,8 +30,8 @@ function M.send(addr, payload)
   local message = vim.mpack.encode({ 0, 1, "nvim_exec_lua", { RECEIVER, { payload } } })
 
   local host, port = addr:match("^([^/]+):(%d+)$")
-  local handle = host and uv.new_tcp() or uv.new_pipe(false)
   local done, sent = false, false
+  local handles = {}
 
   -- The first outcome counts: the answer and the end of the connection may come together.
   local function finish(ok)
@@ -41,37 +41,70 @@ function M.send(addr, payload)
     end
   end
 
-  local function on_connect(err)
-    if err then
-      return finish(false)
-    end
-    -- Nothing else comes over this connection: any bytes are the answer.
-    handle:read_start(function(read_err, data)
-      finish(not read_err and data ~= nil)
-    end)
-    handle:write(message, function(write_err)
-      if write_err then
-        finish(false)
+  ---One try on a handle of its own. `connect(handle, on_connect)` starts it; `on_failure` runs when
+  ---the connection cannot be made.
+  local function attempt(connect, on_failure)
+    local handle = host and uv.new_tcp() or uv.new_pipe(false)
+    handles[#handles + 1] = handle
+    local function on_connect(err)
+      if err then
+        return on_failure()
       end
-    end)
+      -- Nothing else comes over this connection: any bytes are the answer.
+      handle:read_start(function(read_err, data)
+        finish(not read_err and data ~= nil)
+      end)
+      handle:write(message, function(write_err)
+        if write_err then
+          finish(false)
+        end
+      end)
+    end
+    local ok, started = pcall(connect, handle, on_connect)
+    if not ok or not started then
+      on_failure()
+    end
   end
 
-  local ok = pcall(function()
-    if host then
-      handle:connect(host, tonumber(port), on_connect)
-    else
-      handle:connect(addr, on_connect)
+  if not host then
+    attempt(function(handle, on_connect)
+      return handle:connect(addr, on_connect)
+    end, finish)
+  else
+    -- libuv connects to an address, not to a name: `nvim --listen localhost:6666` needs the name
+    -- resolved, and `[::1]:6666` its brackets taken off. Every address is tried until one answers.
+    local function try(ips, i)
+      if done then
+        return
+      end
+      if i > #ips then
+        return finish(false)
+      end
+      attempt(function(handle, on_connect)
+        return handle:connect(ips[i], tonumber(port), on_connect)
+      end, function()
+        try(ips, i + 1)
+      end)
     end
-  end)
-  if not ok then
-    finish(false)
+    local resolving = uv.getaddrinfo(host:gsub("^%[(.*)%]$", "%1"), nil, { socktype = "stream" }, function(err, found)
+      local ips = {}
+      for _, entry in ipairs(not err and found or {}) do
+        ips[#ips + 1] = entry.addr
+      end
+      try(ips, 1)
+    end)
+    if not resolving then
+      finish(false)
+    end
   end
 
   vim.wait(M.TIMEOUT_MS, function()
     return done
   end, 5)
-  if not handle:is_closing() then
-    handle:close()
+  for _, handle in ipairs(handles) do
+    if not handle:is_closing() then
+      handle:close()
+    end
   end
   return sent
 end
