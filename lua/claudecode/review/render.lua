@@ -40,6 +40,8 @@ local function define_highlights()
     -- +12 and -3 in the lists of files and notes.
     ClaudeCodeReviewAdded = "Added",
     ClaudeCodeReviewRemoved = "Removed",
+    -- Since when a file waits and on which branch, in the list of files.
+    ClaudeCodeReviewMeta = "Comment",
   }
   for name, target in pairs(links) do
     vim.api.nvim_set_hl(0, name, { default = true, link = target })

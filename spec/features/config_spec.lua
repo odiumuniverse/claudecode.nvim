@@ -71,6 +71,12 @@ describe("feature options", function()
     assert.matches("zen.keymap must be", config_error({ zen = { keymap = "" } }))
   end)
 
+  it("follows Claude into a worktree unless you say no", function()
+    assert.is_true(features.config(nil).worktree.follow)
+    assert.is_false(features.config({ worktree = { follow = false } }).worktree.follow)
+    assert.matches("worktree.follow must be a boolean", config_error({ worktree = { follow = "yes" } }))
+  end)
+
   it("finds cswap on PATH unless you name it", function()
     assert.equal("cswap", features.config(nil).cswap.cmd)
     assert.equal("/opt/cswap", features.config({ cswap = { cmd = "/opt/cswap" } }).cswap.cmd)
@@ -78,10 +84,16 @@ describe("feature options", function()
   end)
 
   it("builds the hint from your keys", function()
-    assert.equal("cs keep · cx revert", features.hint_text(features.config(nil).review))
+    assert.equal("cs keep · cx revert · cr note", features.hint_text(features.config(nil).review))
     assert.equal(
       "gy keep",
-      features.hint_text(features.config({ review = { keymaps = { keep = "gy", revert = false } } }).review)
+      features.hint_text(
+        features.config({ review = { keymaps = { keep = "gy", revert = false, note = false } } }).review
+      )
+    )
+    assert.equal(
+      "cs keep · cx revert",
+      features.hint_text(features.config({ review = { notes = { enabled = false } } }).review)
     )
     assert.is_false(features.hint_text(features.config({ review = { hint = false } }).review))
     assert.equal("custom", features.hint_text(features.config({ review = { hint = "custom" } }).review))

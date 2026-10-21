@@ -167,6 +167,22 @@ describe("hook message to the editor", function()
     assert.is_true((vim.uv.hrtime() - start) / 1e6 < notify.TIMEOUT_MS)
   end)
 
+  -- Neovim at a hit-enter prompt runs no message until you leave the prompt, and drops the message of
+  -- a client that hung up meanwhile.
+  it("keeps the connection open for an editor that answers late, and goes on without waiting", function()
+    listen(notify.TIMEOUT_MS + 700)
+    local start = vim.uv.hrtime()
+
+    assert.is_false(notify.send(addr, { event = "PostToolUse" }))
+    assert.is_true((vim.uv.hrtime() - start) / 1e6 < notify.TIMEOUT_MS + 300)
+    vim.wait(3000, function()
+      return hung_up
+    end, 10)
+
+    assert.is_true(hung_up)
+    assert.is_false(client_closed_early)
+  end)
+
   it("gives up when the editor does not answer in time, so Claude never waits on it", function()
     listen(nil)
     local start = vim.uv.hrtime()

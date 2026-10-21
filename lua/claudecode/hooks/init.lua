@@ -7,6 +7,8 @@
 local M = {}
 
 M.MATCHER = "Edit|Write|MultiEdit|NotebookEdit|Bash"
+-- After a call only: Neovim follows Claude into a worktree and out of it.
+M.POST_MATCHER = M.MATCHER .. "|EnterWorktree|ExitWorktree"
 M.TIMEOUT_S = 30
 
 local state = { active = false, state_root = nil, progpath = nil, script = nil }
@@ -82,7 +84,7 @@ local function write_settings()
   local settings = {
     hooks = {
       PreToolUse = { { matcher = M.MATCHER, hooks = { hook("PreToolUse") } } },
-      PostToolUse = { { matcher = M.MATCHER, hooks = { hook("PostToolUse") } } },
+      PostToolUse = { { matcher = M.POST_MATCHER, hooks = { hook("PostToolUse") } } },
       UserPromptSubmit = { { hooks = { hook("UserPromptSubmit") } } },
       -- "Claude is waiting for your input" and the like come to Neovim as vim.notify.
       Notification = { { hooks = { hook("Notification") } } },

@@ -230,9 +230,12 @@ local function finish(session)
     lines = {}
   end
   local reasons = reasons_of(session)
-  if vim.deep_equal(lines, session.base_lines) and reasons then
+  -- A proposal with no hunk at all (the same text, or a final newline, which no hunk shows) is not
+  -- refused: a rejection would stop Claude's turn for a change you never saw.
+  local nothing_to_review = vim.deep_equal(session.proposed_lines, session.base_lines)
+  if vim.deep_equal(lines, session.base_lines) and not nothing_to_review and reasons then
     reject_with(session, reasons)
-  elseif vim.deep_equal(lines, session.base_lines) then
+  elseif vim.deep_equal(lines, session.base_lines) and not nothing_to_review then
     session.ctx.reject()
   else
     local content = text.to_text(lines, session.eol, session.dos)

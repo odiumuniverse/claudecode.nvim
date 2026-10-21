@@ -119,7 +119,7 @@ In auto mode Claude edits your files right away, the way it does in the terminal
 
 After `cs` or `cx` the cursor moves on to the next hunk, so a file is reviewed with one key per hunk; `advance = "file"` goes on to the next file too. `]k` past the last hunk opens the next file waiting for review, and `[k` before the first one goes back to the previous file.
 
-The hunk keys exist only in buffers under review; `<leader>ak` and `<leader>an` work everywhere, and so do `]k` and `[k`, which in any other file open the next or previous file waiting for review. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. In a buffer under review `c` waits for its next key without a timeout, so `c`, a pause, then `s` still keeps the hunk. The list of files shows for each file the lines added and removed, in green and red, and how many hunks and notes wait, `+12 -3  3 hunks · 1 note`, and a file whose hunks are decided stays on it while it has notes. It uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it.
+The hunk keys exist only in buffers under review; `<leader>ak` and `<leader>an` work everywhere, and so do `]k` and `[k`, which in any other file open the next or previous file waiting for review. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. In a buffer under review `c` waits for its next key without a timeout, so `c`, a pause, then `s` still keeps the hunk. The list of files shows for each file the lines added and removed, in green and red, what waits, when the file came under review and the path last, `+12 -3  3 hunks · 1 note  14:58  lua/cart.lua`, and a file whose hunks are decided stays on it while it has notes. It uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it, and `<Tab>` picks several files for either. In snacks.picker the list sits over the preview, both full width; a layout you set for the source `claudecode_review` wins.
 
 **Ask Claude to rework a change without leaving Neovim.** `cr` opens a box right under the line with the cursor; the code below moves down instead of hiding, so a long hunk stays in sight. Type what you want and press Enter: the note is saved at once and survives a restart, and the box stays where it was, dimmed and without the key hints, so your eyes need not look for it. The cursor moves on to the next hunk. Leave notes in as many files as you like, then press Shift+Enter, in the box or in Normal mode in a file under review or with a note, or `cR` anywhere, and every note goes to Claude in one message and is submitted: each place as file:line, the code there as a diff (what Claude removed with `-`, what it added with `+`) and your words. The message is typed into the Claude terminal in Neovim; while Claude works, Claude Code queues it. Where no note waits, Shift+Enter in Normal mode is Enter. `review.notes.send = "enter"` sends each note on Enter instead. `<C-s>` in the box does what Shift+Enter does, for a terminal that cannot tell them apart. Before you send, `<leader>an` lists every note by file and line with the lines of Claude's hunk there, and the preview shows the code as the review does, the note under it: Enter opens a note to edit it, `<A-d>` deletes it, `<C-s>` sends them all. When Claude's change in a file is gone without review (you threw it away with git or in lazygit, or Claude undid it), its notes go too; after `cs` they stay.
 
@@ -127,7 +127,7 @@ The hunk keys exist only in buffers under review; `<leader>ak` and `<leader>an` 
 
 **Your own edits stay yours.** Edit the buffer outside a hunk and the change simply becomes part of the file. Edit inside a hunk and you change Claude's proposal; the hunk still waits for `cs` or `cx`. After `cx`, `u` brings Claude's text back as your own edit.
 
-**Review survives restarts.** The text of each file before Claude's first edit lives in `stdpath("state")/claudecode/review/`, in a directory only you can read. Hunks pile up across Claude's turns until you decide on them. The state belongs to the git repository around Neovim's working directory (or to the directory itself outside git), so start Neovim anywhere in the same repository to get your reviews back.
+**Review survives restarts.** The text of each file before Claude's first edit lives in `stdpath("state")/claudecode/review/`, in a directory only you can read. Hunks pile up across Claude's turns until you decide on them, or until git moves HEAD: a commit, a branch switch, a rebase or a pull, yours or Claude's, carries the review along, and committing counts as keeping. The state belongs to the git repository around Neovim's working directory (or to the directory itself outside git), so start Neovim anywhere in the same repository to get your reviews back.
 
 ### What gets reviewed
 
@@ -145,7 +145,7 @@ Unless Claude is in accept-edits or plan mode (see [Modes](#modes)):
 
 ### How it works
 
-Every Claude session started from Neovim gets `claude --settings <file>` with four hooks: `PreToolUse`, `PostToolUse`, `UserPromptSubmit` and `Notification`. Claude Code adds these to the hooks you already have; it does not replace them. Each hook is a short `nvim --clean --headless -l` script. It copies the file before the edit and tells Neovim about it, waiting half a second at most for Neovim to take the message. A hook never blocks Claude: on any error it logs to `hooks.log` and exits with 0, so at worst one edit escapes review. The name of the settings file is computed from the paths of your `nvim` and of this copy of the plugin, so a second Neovim with another copy writes a file of its own and leaves yours alone. Claude's notifications, such as "Claude is waiting for your input" and "Claude needs your permission", come to Neovim as `vim.notify`, except while the cursor is in Claude's terminal, where you see them anyway. The file sets `preferredNotifChannel` to `"notifications_disabled"`, so Claude sends nothing to the terminal itself: under some multiplexers or Kitty it would send a desktop notification as Kitty's escape sequence, which the Neovim terminal passes on and the outer terminal can print as text over Claude's prompt.
+Every Claude session started from Neovim gets `claude --settings <file>` with four hooks: `PreToolUse`, `PostToolUse`, `UserPromptSubmit` and `Notification`. Claude Code adds these to the hooks you already have; it does not replace them. Each hook is a short `nvim --clean --headless -l` script. It copies the file before the edit and tells Neovim about it, waiting half a second at most for Neovim to take the message; a Neovim at a hit-enter prompt gets it once you leave the prompt, since a small `head -c 1` process holds the connection until then. A hook never blocks Claude: on any error it logs to `hooks.log` and exits with 0, so at worst one edit escapes review. The name of the settings file is computed from the paths of your `nvim` and of this copy of the plugin, so a second Neovim with another copy writes a file of its own and leaves yours alone. Claude's notifications, such as "Claude is waiting for your input" and "Claude needs your permission", come to Neovim as `vim.notify`, except while the cursor is in Claude's terminal, where you see them anyway. The file sets `preferredNotifChannel` to `"notifications_disabled"`, so Claude sends nothing to the terminal itself: under some multiplexers or Kitty it would send a desktop notification as Kitty's escape sequence, which the Neovim terminal passes on and the outer terminal can print as text over Claude's prompt.
 
 If you start Claude yourself (`terminal.provider = "none"`), the hooks are not attached and review after write stays off. Review before write still works: it needs only the IDE connection.
 
@@ -174,6 +174,10 @@ cz --resume   # pick a session to resume
 ```
 
 Zen needs Claude inside Neovim (`terminal.provider` set to `snacks`, `native` or `auto`).
+
+## Worktrees
+
+Claude can work in a git worktree: started with `claude --worktree`, or moved there with its EnterWorktree tool. Review goes with it, and so does Neovim: once a Claude session started from Neovim works in a linked worktree, Neovim changes its directory there, and each window that shows a file of the main checkout shows the worktree's copy, at the same line. A buffer with unsaved edits stays where it is, and so does a file of another worktree. When Claude leaves the worktree, or its terminal closes, Neovim goes back, and so do those windows, unless you changed the directory yourself meanwhile. `worktree.follow = false` turns this off. A worktree outside the project that Claude reaches with `cd` and no EnterWorktree is still reviewed: every Bash call snapshots the worktrees of the project's repositories too.
 
 ## Accounts (cswap)
 
@@ -229,10 +233,13 @@ opts = {
   cswap = {
     cmd = "cswap",              -- the cswap executable for :ClaudeCode run: a name on PATH or a full path
   },
+  worktree = {
+    follow = true,              -- Neovim follows Claude into a worktree and out of it
+  },
 }
 ```
 
-Highlight groups, all defined with `default = true` so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeReviewCount`, `ClaudeCodeReviewNote`, `ClaudeCodeReviewNoteBorder`, `ClaudeCodeZenPending`, `ClaudeCodeZenKey`.
+Highlight groups, all defined with `default = true` so your colorscheme applies: `ClaudeCodeReviewAdd`, `ClaudeCodeReviewAddText`, `ClaudeCodeReviewDelete`, `ClaudeCodeReviewDeleteText`, `ClaudeCodeReviewHint`, `ClaudeCodeReviewCount`, `ClaudeCodeReviewNote`, `ClaudeCodeReviewNoteBorder`, `ClaudeCodeReviewAdded`, `ClaudeCodeReviewRemoved`, `ClaudeCodeReviewMeta`, `ClaudeCodeZenPending`, `ClaudeCodeZenKey`.
 
 `User` events for your config:
 

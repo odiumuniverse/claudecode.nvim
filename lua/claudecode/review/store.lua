@@ -16,6 +16,8 @@ local M = {}
 ---@field new_file boolean The file did not exist before Claude's first edit
 ---@field created_at integer os.time() of the snapshot
 ---@field sessions string[] Claude sessions that edited the file; empty for a base made before sessions were tracked
+---@field top string|nil The git work tree of the file; nil outside git and for a base made before HEAD was tracked
+---@field head string|nil The commit HEAD pointed to when the base last matched it (DESIGN p. 15)
 
 ---@class ClaudeCodeReviewStore
 ---@field dir string
@@ -199,6 +201,8 @@ local function encode_base(base)
     created_at = base.created_at,
     -- an empty list would encode as an object; a base without sessions stays as it always was
     sessions = base.sessions and #base.sessions > 0 and base.sessions or nil,
+    top = base.top,
+    head = base.head,
   }
   return vim.json.encode(header) .. "\n" .. base.text
 end
@@ -217,6 +221,8 @@ local function decode_base(data)
     new_file = header.new_file == true,
     created_at = tonumber(header.created_at) or 0,
     sessions = clean_ids(header.sessions),
+    top = type(header.top) == "string" and header.top or nil,
+    head = type(header.head) == "string" and header.head or nil,
     text = data:sub(nl + 1),
   }
 end
@@ -244,12 +250,17 @@ function Store:snapshot_text(path, text, new_file, session_id)
   ensure_dir(self.dir .. "/bases")
   local final = self:_base_file(path)
   local tmp = tmp_name(final)
+  -- The base matches the HEAD of now: a commit or a checkout after it moves the base along.
+  local top = require("claudecode.review.repo").top_of(path)
+  local head = top and require("claudecode.review.repo").head(top)
   local base = {
     path = path,
     text = text,
     new_file = new_file,
     created_at = os.time(),
     sessions = clean_ids({ session_id }),
+    top = top,
+    head = head and head.head or nil,
   }
   if not write_all(tmp, encode_base(base)) then
     uv.fs_unlink(tmp)
@@ -332,7 +343,24 @@ function Store:set(path, text, new_file)
       new_file = new_file == true,
       created_at = old and old.created_at or os.time(),
       sessions = old and old.sessions or {},
+      top = old and old.top,
+      head = old and old.head,
     })
+  end)
+end
+
+---Write down that the base of `path` matches the commit `head` now: the hooks moved it along a
+---checkout of Claude's, or took it right after one.
+---@param path string
+---@param head string
+---@return boolean changed
+function Store:set_head(path, head)
+  return self:update(path, function(base)
+    if base.head == head then
+      return nil
+    end
+    base.head = head
+    return base.text
   end)
 end
 

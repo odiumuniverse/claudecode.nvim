@@ -166,11 +166,24 @@ local function pre_tool_use(store, input, env)
   end
 end
 
+---Where Claude works after the call: the worktree EnterWorktree went into, else the cwd of the input.
+---@param input table
+---@return string|nil
+local function cwd_after(input)
+  local response = type(input.tool_response) == "table" and input.tool_response or {}
+  if input.tool_name == "EnterWorktree" and type(response.worktreePath) == "string" then
+    return response.worktreePath
+  end
+  return type(input.cwd) == "string" and input.cwd or nil
+end
+
 local function post_tool_use(store, input, env)
   local payload = {
     event = "PostToolUse",
     dir = env.dir,
     tool_name = input.tool_name,
+    -- Neovim follows Claude into a worktree and out of it.
+    cwd = cwd_after(input),
     -- the editor takes the base of an untracked file Bash changed, and needs to know whose edit it was
     session_id = type(input.session_id) == "string" and input.session_id or nil,
     files = {},
@@ -259,6 +272,13 @@ local function post_tool_use(store, input, env)
       end
       for _, file in ipairs(payload.files) do
         store:end_edit(nil, file)
+      end
+      -- A base this call moved along its checkout, or took over its reset, matches the new HEAD. The
+      -- other bases of the repository are left to the editor, which follows HEAD (DESIGN p. 15).
+      for _, change in ipairs(vim.list_extend(vim.list_slice(changes.checked_out), changes.tracked)) do
+        if change.head then
+          store:set_head(change.path, change.head)
+        end
       end
     end
   end

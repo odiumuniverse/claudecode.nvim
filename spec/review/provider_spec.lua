@@ -78,6 +78,26 @@ describe("review provider", function()
     assert.is_true(vim.api.nvim_buf_is_valid(file_buf))
   end)
 
+  it("takes a proposal with nothing to review at once: the same text, or only a final newline", function()
+    local same, newline = work .. "/same.txt", work .. "/newline.txt"
+    write_file(same, "one\ntwo\n")
+    write_file(newline, "one\ntwo")
+
+    -- Claude waits on one proposal at a time.
+    local function answered(path)
+      local handle = propose(path, "one\ntwo\n", "tab-" .. vim.fs.basename(path))
+      vim.wait(500, function()
+        return handle.result ~= nil
+      end, 10)
+      return handle
+    end
+
+    -- A rejection would stop Claude's turn for a change you never saw.
+    assert.equal("one\ntwo\n", written(answered(same)))
+    assert.equal("one\ntwo\n", written(answered(newline)))
+    assert.is_nil(proposal_buf())
+  end)
+
   describe("with a reason", function()
     local function press(keys)
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)

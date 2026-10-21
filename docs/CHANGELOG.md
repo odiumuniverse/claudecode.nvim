@@ -2,10 +2,32 @@
 
 ## Unreleased
 
+Review that keeps up with git and with worktrees, Neovim that follows Claude into a worktree, and a list of files that shows what matters first.
+
+### Upgrading
+
+- A file under review now follows git's HEAD: once you commit it, it leaves the list as after `cs`, and after a partial commit only the hunks you did not commit wait. Bases made by an earlier version are taken to match HEAD as it is when this one first sees them.
+- When Claude works in a worktree, Neovim changes its directory there and shows the worktree's copies of the files you look at, and goes back once Claude leaves. `worktree.follow = false` turns this off.
+- The list of files puts the path last: `+12 -3  3 hunks · 1 note  14:58  lua/cart.lua`. "(new)" after the path became "new file" in the column of what waits.
+- The hint names the note key: `2/5  cs keep · cx revert · cr note`. With `review.hint = true` and notes off it stays as it was.
+- In snacks.picker the lists of files and notes sit over their preview, both full width. A layout you set for the sources `claudecode_review` and `claudecode_review_notes` in snacks.picker wins.
+
+### Added
+
+- **Neovim follows Claude into a worktree.** Once a Claude session started from Neovim works in a linked worktree (EnterWorktree, `claude --worktree`), Neovim runs `:cd` there, and each window that shows a file of the main checkout shows the worktree's copy, at the same line. A buffer with unsaved edits stays, and so do a file the worktree does not have and a file of another worktree. When Claude leaves the worktree, or its terminal closes, Neovim goes back, and so do the windows it moved, unless you changed the directory yourself meanwhile. The review hooks now run after EnterWorktree and ExitWorktree too.
+- **Several files at once in the list.** In snacks.picker and fzf-lua `<Tab>` picks files, and `<A-o>` keeps and `<A-x>` reverts each of them; reverting more than one file asks first. The snacks list names its keys at the bottom.
+- **When a file came under review, and where.** Each line of the list shows the time the file came under review today, or the date before that, and, when the files lie in more than one work tree, the branch of each. "deleted" marks a file Claude removed. The highlight group is `ClaudeCodeReviewMeta`.
+
 ### Fixed
 
+- **Files you committed stayed on the list for good.** A base moved only along Claude's own Bash calls, so after your commit, branch switch, rebase or pull it kept the text from before Claude's edit, and the list showed the whole difference between that and the file now: in one project 66 files of a finished task, one of them `+5714`. Now a base moves along any change of HEAD, the way it moves along Claude's checkout, and Neovim reads HEAD from the git directory, running git only once it moved. The files of a removed worktree leave the list as well.
 - **Bash in a worktree outside the project escaped review.** Claude Code puts its shell back into the project after a `cd` that leaves it, so `cd ~/project-worktrees/api-feat && make generate` ran with the hooks standing in the project, and the snapshot never saw the worktree. Now every Bash call also snapshots the worktrees of the project's repositories, those the command names first.
 - **A worktree inside the repository came up as a file.** `git ls-files --others` names `.claude/worktrees/x/` as a directory, and the hook took a base for it. Now the hook leaves such directories out and snapshots the worktree as one of its own.
+- **The counts fell off the list.** A long path came first and pushed `-12  3 hunks · 1 note` past the edge of snacks.picker's list, leaving `+461 -`. Now the counts come first, and the path last shortens to the room left: the directory gives way first, from the left and at a slash, then the file name, from the left, so its end and extension stay. snacks.picker's own shortening kept a long name whole and lost its end at the edge.
+- **A message to Neovim at a hit-enter prompt was lost.** Neovim at "Press ENTER" runs no message until you leave the prompt, and the hook hung up after half a second, which dropped it: the buffers Claude changed did not reload, and Neovim did not follow Claude into a worktree. Now the hook hands its connection to a small `head -c 1` process that holds it until Neovim answers, and goes on at once as before.
+- **A proposal with nothing to review was rejected.** In Manual mode a proposal with no hunk, the same text or one that changes only the final newline, came back rejected, and Claude stopped its turn for a change you never saw. Now it goes back accepted at once.
+- **Reverting a deleted file whose folder is gone** raised a Lua error from the list. Now the folder comes back with the file.
+- **The list found a buffer by a pattern.** `bufnr()` takes a name for a pattern, so `app/[id]/page.tsx` could stand for another buffer; now the list finds a buffer by its resolved path, as the rest of the review does.
 
 ## 1.2.0 (2026-10-21)
 

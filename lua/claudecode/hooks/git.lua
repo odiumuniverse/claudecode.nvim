@@ -359,7 +359,9 @@ local function changes_of(snap, head, diff_out, untracked_out)
     end
     -- Missing from the tree means the file was added to the index meanwhile: new.
     local blob = run(top, { "cat-file", "blob", from .. ":" .. rel })
-    list[#list + 1] = { path = top .. "/" .. rel, text = checkout_text(top, from, rel, blob) }
+    -- After a move the base of this file is dealt with here, and matches the new HEAD.
+    list[#list + 1] =
+      { path = top .. "/" .. rel, text = checkout_text(top, from, rel, blob), head = move and move.head }
   end
 
   local before = snap.untracked or {}
@@ -414,9 +416,10 @@ function M.changes_all(snaps)
   return all
 end
 
----What a Bash call changed since `snap`.
+---What a Bash call changed since `snap`. A change in a repository whose HEAD the call moved carries
+---the new HEAD as `head`.
 ---@param snap table From M.snapshot
----@return table changes { tracked = { {path, text|nil} }, checked_out = { {path, text|nil} }, created = {path}, untracked_changed = {path} }
+---@return table changes { tracked = { {path, text|nil, head|nil} }, checked_out = { {path, text|nil, head|nil} }, created = {path}, untracked_changed = {path} }
 function M.changes(snap)
   return M.changes_all({ snap })
 end

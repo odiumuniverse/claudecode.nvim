@@ -4,6 +4,7 @@
 ---@brief ]]
 ---@module 'claudecode.review.picker'
 
+local repo = require("claudecode.review.repo")
 local text = require("claudecode.review.text")
 
 local M = {}
@@ -27,11 +28,7 @@ local function read_file(path)
 end
 
 local function loaded_buf(path)
-  local buf = vim.fn.bufnr(path)
-  if buf ~= -1 and vim.api.nvim_buf_is_loaded(buf) then
-    return buf
-  end
-  return nil
+  return controller().buffer_of(path)
 end
 
 ---@class ClaudeCodeReviewItem
@@ -42,9 +39,13 @@ end
 ---@field hunks integer Hunks waiting for review
 ---@field notes integer Notes not sent to Claude yet
 ---@field new_file boolean
+---@field deleted boolean The file is gone from disk, and its base is not a new file
+---@field created_at integer|nil When the base was taken; nil for a file that has only notes
+---@field top string|nil The git work tree of the file
+---@field branch string The branch checked out there, a short commit when detached; "" outside git
 ---@field diff string Unified diff, base → file; empty for a file that has only notes
 ---@field label string The line of the list, in columns with the other items
----@field row ClaudeCodeReviewRow The same line in pieces, with their colors
+---@field row ClaudeCodeReviewRow The same line in pieces, with their colors; the last piece is the path
 
 ---@alias ClaudeCodeReviewRow { [1]: string, [2]: string|nil }[] Pieces of a line and their highlight groups
 
@@ -109,28 +110,66 @@ local function changes(added, removed, width, shown)
   return row
 end
 
----Label the items in three columns: the file, its lines, its hunks and notes.
+---What waits in a file: "3 hunks · 1 note", or "new file" and "deleted" for a whole file.
+---@param item ClaudeCodeReviewItem
+---@return string
+local function what_of(item)
+  local parts = {}
+  if item.new_file then
+    parts[1] = "new file"
+  elseif item.deleted then
+    parts[1] = "deleted"
+  elseif item.hunks > 0 then
+    parts[1] = plural(item.hunks, "hunk")
+  end
+  if item.notes > 0 then
+    parts[#parts + 1] = plural(item.notes, "note")
+  end
+  return table.concat(parts, " · ")
+end
+
+---When a file came under review: the time today, the day before that, so old files show at a glance.
+---@param created_at integer|nil
+---@return string
+local function age_of(created_at)
+  if not created_at then
+    return ""
+  end
+  if os.date("%Y%m%d", created_at) == os.date("%Y%m%d") then
+    return os.date("%H:%M", created_at) --[[@as string]]
+  end
+  return os.date("%b %d", created_at) --[[@as string]]
+end
+
+---Label the items in columns: the lines Claude changed, what waits, since when, the branch when the
+---files lie in more than one work tree, and the path last. A long path used to come first and pushed
+---the counts past the edge of the list.
 ---@param items ClaudeCodeReviewItem[]
 local function label_all(items)
-  local names, lines = {}, {}
-  local name_width, lines_width = 0, 0
+  local cols = { lines = {}, what = {}, age = {} }
+  local widths = { lines = 0, what = 0, age = 0, branch = 0 }
+  local tops = {}
   for i, item in ipairs(items) do
-    names[i] = item.rel .. (item.new_file and " (new)" or "")
-    lines[i] = item.hunks > 0 and ("+%d -%d"):format(item.added, item.removed) or ""
-    name_width = math.max(name_width, vim.fn.strdisplaywidth(names[i]))
-    lines_width = math.max(lines_width, vim.fn.strdisplaywidth(lines[i]))
+    cols.lines[i] = item.hunks > 0 and ("+%d -%d"):format(item.added, item.removed) or ""
+    cols.what[i] = what_of(item)
+    cols.age[i] = age_of(item.created_at)
+    for name, col in pairs(cols) do
+      widths[name] = math.max(widths[name], vim.fn.strdisplaywidth(col[i]))
+    end
+    widths.branch = math.max(widths.branch, vim.fn.strdisplaywidth(item.branch))
+    if item.top then
+      tops[item.top] = true
+    end
   end
+  local branches = vim.tbl_count(tops) > 1
   for i, item in ipairs(items) do
-    local counts = {}
-    if item.hunks > 0 then
-      counts[#counts + 1] = plural(item.hunks, "hunk")
+    item.row = changes(item.added, item.removed, widths.lines, item.hunks > 0)
+    item.row[#item.row + 1] = { "  " .. pad(cols.what[i], widths.what) .. "  " }
+    item.row[#item.row + 1] = { pad(cols.age[i], widths.age) .. "  ", "ClaudeCodeReviewMeta" }
+    if branches then
+      item.row[#item.row + 1] = { pad(item.branch, widths.branch) .. "  ", "ClaudeCodeReviewMeta" }
     end
-    if item.notes > 0 then
-      counts[#counts + 1] = plural(item.notes, "note")
-    end
-    item.row = { { pad(names[i], name_width) .. "  " } }
-    vim.list_extend(item.row, changes(item.added, item.removed, lines_width, item.hunks > 0))
-    item.row[#item.row + 1] = { "  " .. table.concat(counts, " · ") }
+    item.row[#item.row + 1] = { item.rel }
     item.label = plain(item.row)
   end
 end
@@ -142,11 +181,20 @@ function M.items()
   if not store then
     return items
   end
+  local branches = {}
+  local function branch_of(top)
+    if top and not branches[top] then
+      local head = repo.head(top)
+      branches[top] = head and (head.branch or head.head:sub(1, 7)) or ""
+    end
+    return top and branches[top] or ""
+  end
   for _, path in ipairs(controller().refresh_pending()) do
     local base = store:get(path)
     if base then
-      local current = read_file(path) or ""
-      local hunks = require("claudecode.review.hunks").compute((text.to_lines(base.text)), (text.to_lines(current)))
+      local current = read_file(path)
+      local hunks =
+        require("claudecode.review.hunks").compute((text.to_lines(base.text)), (text.to_lines(current or "")))
       local added, removed = 0, 0
       for _, hunk in ipairs(hunks) do
         added = added + hunk.cur_count
@@ -160,7 +208,11 @@ function M.items()
         hunks = #hunks,
         notes = 0,
         new_file = base.new_file,
-        diff = vim.text.diff(base.text, current, { ctxlen = 3 }) or "",
+        deleted = current == nil and not base.new_file,
+        created_at = base.created_at,
+        top = base.top,
+        branch = branch_of(base.top),
+        diff = vim.text.diff(base.text, current or "", { ctxlen = 3 }) or "",
       }
       by_path[path] = items[#items]
     end
@@ -169,6 +221,7 @@ function M.items()
   for _, note in ipairs(require("claudecode.review.notes").items()) do
     local item = by_path[note.path]
     if not item then
+      local top = repo.top_of(note.path)
       item = {
         path = note.path,
         rel = vim.fn.fnamemodify(note.path, ":~:."),
@@ -177,6 +230,9 @@ function M.items()
         hunks = 0,
         notes = 0,
         new_file = false,
+        deleted = false,
+        top = top,
+        branch = branch_of(top),
         diff = "",
       }
       items[#items + 1] = item
@@ -210,9 +266,9 @@ function M.open(path)
   end
 end
 
----Accept everything Claude changed in the file.
+---Accept everything Claude changed in the file; the list is refreshed by the caller.
 ---@param path string
-function M.keep_all(path)
+local function keep_one(path)
   -- A file that has only notes has nothing to keep.
   local store = controller().store()
   if not (store and store:get(path)) or controller().in_doubt(path) then
@@ -222,14 +278,29 @@ function M.keep_all(path)
   if buf and engine().is_attached(buf) then
     engine().keep_all(buf)
   else
-    controller().store():remove(path)
+    store:remove(path)
+  end
+end
+
+---Accept everything Claude changed in these files.
+---@param paths string[]
+function M.keep_files(paths)
+  for _, path in ipairs(paths) do
+    keep_one(path)
   end
   controller().refresh_pending()
 end
 
----Undo everything Claude changed in the file and tell Claude about it.
+---Accept everything Claude changed in the file.
 ---@param path string
-function M.revert_all(path)
+function M.keep_all(path)
+  M.keep_files({ path })
+end
+
+---Undo everything Claude changed in the file and tell Claude about it; the list is refreshed by the
+---caller.
+---@param path string
+local function revert_one(path)
   local store = controller().store()
   if not (store and store:get(path)) or controller().in_doubt(path) then
     return
@@ -237,14 +308,11 @@ function M.revert_all(path)
   local buf = loaded_buf(path)
   if buf and engine().is_attached(buf) then
     engine().revert_all(buf)
-    controller().refresh_pending()
     return
   end
+  local rel = vim.fn.fnamemodify(path, ":~:.")
   if buf and vim.bo[buf].modified then
-    vim.notify(
-      "claudecode: " .. vim.fn.fnamemodify(path, ":~:.") .. " has unsaved edits; save or drop them first",
-      vim.log.levels.WARN
-    )
+    vim.notify("claudecode: " .. rel .. " has unsaved edits; save or drop them first", vim.log.levels.WARN)
     return
   end
   local base = store:get(path)
@@ -267,7 +335,13 @@ function M.revert_all(path)
       pcall(vim.api.nvim_buf_delete, buf, { force = true })
     end
   else
-    local f = assert(io.open(path, "wb"))
+    -- Claude may have removed the file's directory with it.
+    vim.fn.mkdir(vim.fs.dirname(path), "p")
+    local f, err = io.open(path, "wb")
+    if not f then
+      vim.notify("claudecode: cannot restore " .. rel .. ": " .. tostring(err), vim.log.levels.WARN)
+      return
+    end
     f:write(base.text)
     f:close()
     if buf then
@@ -277,7 +351,28 @@ function M.revert_all(path)
     end
   end
   store:remove(path)
+end
+
+---Undo everything Claude changed in these files and tell Claude about it. More than one file is
+---reverted only once you say so: the files are written at once.
+---@param paths string[]
+function M.revert_files(paths)
+  if #paths > 1 then
+    local question = ("Revert %d files to their text before Claude?"):format(#paths)
+    if vim.fn.confirm(question, "&Revert\n&Cancel", 2) ~= 1 then
+      return
+    end
+  end
+  for _, path in ipairs(paths) do
+    revert_one(path)
+  end
   controller().refresh_pending()
+end
+
+---Undo everything Claude changed in the file and tell Claude about it.
+---@param path string
+function M.revert_all(path)
+  M.revert_files({ path })
 end
 
 local function label(item)
@@ -297,6 +392,88 @@ local function preview_lines(item)
   return lines
 end
 
+---The paths of the files picked in snacks.picker: the selected ones, else the one under the cursor.
+---@param picker table
+---@param item table|nil
+---@return string[]
+local function picked(picker, item)
+  local selected = picker.selected and picker:selected({ fallback = true }) or {}
+  if #selected == 0 and item then
+    selected = { item }
+  end
+  return vim.tbl_map(function(it)
+    return it.review.path
+  end, selected)
+end
+
+---The last `width` display cells of `s`.
+---@param s string
+---@param width integer
+---@return string
+local function tail(s, width)
+  local out, used = "", 0
+  for i = vim.fn.strchars(s) - 1, 0, -1 do
+    local char = vim.fn.strcharpart(s, i, 1)
+    used = used + vim.fn.strdisplaywidth(char)
+    if used > width then
+      break
+    end
+    out = char .. out
+  end
+  return out
+end
+
+---A path in `width` cells: the directory gives way first, from the left and at a slash, then the file
+---name, from the left, so that its end and extension stay in sight.
+---@param rel string
+---@param width integer
+---@return string dir With its trailing slash; "" when it did not fit
+---@return string name
+local function fit_path(rel, width)
+  local dir, name = rel:match("^(.*/)([^/]*)$")
+  dir, name = dir or "", name or rel
+  local name_width = vim.fn.strdisplaywidth(name)
+  if vim.fn.strdisplaywidth(dir) + name_width <= width then
+    return dir, name
+  end
+  if name_width + 2 <= width then
+    local kept = tail(dir, width - name_width - 1)
+    local slash = kept:find("/", 1, true)
+    if slash and slash < #kept then
+      kept = kept:sub(slash)
+    end
+    return "…" .. kept, name
+  end
+  return "", "…" .. tail(name, math.max(width - 1, 0))
+end
+
+---How many cells snacks.picker keeps in front of each line, for the selection mark. Its list hands
+---the room left to a resolving piece without them, so a path that filled it was cut at the edge.
+---@param picker table
+---@return integer
+local function selection_column(picker)
+  local ok, width = pcall(function()
+    local opts = picker.opts
+    if #picker.list.selected > 0 or opts.formatters.selected.show_always then
+      return math.max(vim.api.nvim_strwidth(opts.icons.ui.selected), vim.api.nvim_strwidth(opts.icons.ui.unselected))
+    end
+    return 1
+  end)
+  return ok and width or 2
+end
+
+---The list stacked over the preview, both full width: the lines of a list and the diff in the preview
+---lost their ends side by side. A layout you set in snacks.picker for `source` wins.
+---@param source string
+---@return table|nil layout
+local function stacked(source)
+  local Snacks = rawget(_G, "Snacks")
+  if vim.tbl_get(Snacks or {}, "config", "picker", "sources", source, "layout") ~= nil then
+    return nil
+  end
+  return { preset = "vertical", layout = { width = 0.8, min_width = 100 } }
+end
+
 local function show_snacks(items)
   local Snacks = rawget(_G, "Snacks")
   local picker_items = {}
@@ -304,10 +481,30 @@ local function show_snacks(items)
     picker_items[i] = { idx = i, text = label(item), file = item.path, review = item }
   end
   Snacks.picker.pick({
+    source = "claudecode_review",
     title = "Claude review",
+    layout = stacked("claudecode_review"),
     items = picker_items,
-    format = function(item)
-      return item.review.row
+    format = function(item, picker)
+      local review = item.review
+      local row = vim.list_slice(review.row, 1, #review.row - 1)
+      -- The icon of the file, as in snacks.picker's own lists.
+      local ok, icon, icon_hl = pcall(function()
+        return Snacks.util.icon(review.path, "file", { fallback = picker.opts.icons.files })
+      end)
+      if ok and icon then
+        row[#row + 1] = { Snacks.picker.util.align(icon, 2), icon_hl, virtual = true }
+      end
+      -- The path last, in the room left: snacks.picker's own shortening kept a long name whole and
+      -- cut it off at the edge, extension and all.
+      row[#row + 1] = {
+        "",
+        resolve = function(max_width)
+          local dir, name = fit_path(review.rel, max_width - selection_column(picker))
+          return { { dir, "SnacksPickerDir" }, { name, "SnacksPickerFile" } }
+        end,
+      }
+      return row
     end,
     preview = function(ctx)
       ctx.preview:reset()
@@ -324,16 +521,14 @@ local function show_snacks(items)
     end,
     actions = {
       review_keep_all = function(picker, item)
+        local paths = picked(picker, item)
         picker:close()
-        if item then
-          M.keep_all(item.review.path)
-        end
+        M.keep_files(paths)
       end,
       review_revert_all = function(picker, item)
+        local paths = picked(picker, item)
         picker:close()
-        if item then
-          M.revert_all(item.review.path)
-        end
+        M.revert_files(paths)
       end,
     },
     win = {
@@ -342,6 +537,8 @@ local function show_snacks(items)
           ["<a-o>"] = { "review_keep_all", mode = { "n", "i" }, desc = "keep all" },
           ["<a-x>"] = { "review_revert_all", mode = { "n", "i" }, desc = "revert all" },
         },
+        footer = " ⏎ open · tab pick · alt-o keep · alt-x revert ",
+        footer_pos = "center",
       },
     },
   })
@@ -354,21 +551,31 @@ local function show_fzf(items)
     by_label[label(item)] = item
     entries[#entries + 1] = ansi(item.row)
   end
+  ---@param fn fun(paths: string[])
   local function act(fn)
     return function(selected)
-      local item = selected and selected[1] and by_label[unansi(selected[1])]
-      if item then
-        fn(item.path)
+      local paths = {}
+      for _, entry in ipairs(selected or {}) do
+        local item = by_label[unansi(entry)]
+        if item then
+          paths[#paths + 1] = item.path
+        end
+      end
+      if #paths > 0 then
+        fn(paths)
       end
     end
   end
   require("fzf-lua").fzf_exec(entries, {
     prompt = "Claude review> ",
-    fzf_opts = { ["--ansi"] = true },
+    -- Tab picks several files for keep all and revert all.
+    fzf_opts = { ["--ansi"] = true, ["--multi"] = true },
     actions = {
-      ["default"] = act(M.open),
-      ["alt-o"] = act(M.keep_all),
-      ["alt-x"] = act(M.revert_all),
+      ["default"] = act(function(paths)
+        M.open(paths[1])
+      end),
+      ["alt-o"] = act(M.keep_files),
+      ["alt-x"] = act(M.revert_files),
     },
   })
 end
@@ -490,7 +697,9 @@ end
 local function show_notes_snacks()
   local Snacks = rawget(_G, "Snacks")
   Snacks.picker.pick({
+    source = "claudecode_review_notes",
     title = "Claude notes",
+    layout = stacked("claudecode_review_notes"),
     finder = function()
       return vim.tbl_map(function(item)
         return { text = item.label, file = item.path, pos = { item.first, 0 }, note = item }

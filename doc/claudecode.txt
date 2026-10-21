@@ -15,6 +15,7 @@ CONTENTS                                                 *claudecode-contents*
       Reverts and Claude ........................... |claudecode-review-notes|
       Hooks and state .............................. |claudecode-review-state|
     Review before write ..................... |claudecode-review-before-write|
+    Worktrees .......................................... |claudecode-worktree|
     Zen mode ................................................ |claudecode-zen|
     Accounts (cswap) ...................................... |claudecode-cswap|
     Commands ........................................... |claudecode-commands|
@@ -113,8 +114,8 @@ The plugin then draws what changed on top of the code:
 - inside a changed line, only the changed words stand out
   (|claudecode-review.word_diff|);
 - the hunk under the cursor shows a hint at the end of its first line, with
-  which hunk of how many in this file it is: "2/5  cs keep · cx revert"
-  (|claudecode-review.hint|);
+  which hunk of how many in this file it is: "2/5  cs keep · cx revert ·
+  cr note" (|claudecode-review.hint|);
 - the statusline can show how many files wait (|claudecode-review-status|).
 
 A hunk is a run of changed lines. The plugin does not use the sign column.
@@ -182,14 +183,20 @@ FILES WAITING FOR REVIEW                             *claudecode-review-files*
 
 |:ClaudeCodeReview| and `review.files_keymap` (`<leader>ak`) open a list of
 the files that have hunks you have not decided on, or notes not sent to
-Claude yet (|claudecode-notes|). Each entry shows the path, "(new)" for a
-file Claude created, the lines added and removed, and how many hunks and
-notes wait, in columns:
+Claude yet (|claudecode-notes|). Each entry shows, in columns, the lines
+added and removed, what waits ("new file" for a file Claude created,
+"deleted" for one it removed), when the file came under review (the time
+today, the date before that), and the path last, so that a long path pushes
+nothing out of sight:
 >
-    lua/cart.lua      +12 -3  3 hunks · 1 note
-    lua/receipt.lua    +4 -4  1 hunk
-    lua/tax.lua               1 note
+    +12 -3  3 hunks · 1 note  14:58   lua/cart.lua
+     +4 -4  1 hunk            14:59   lua/receipt.lua
+     +9 -0  new file          Oct 20  lua/tax.lua
+            1 note                    lua/util.lua
 <
+When the files lie in more than one work tree, a main checkout and a
+worktree say, a column with the branch of each comes before the path.
+
 For each file you can:
 
     open          Go to the file, at its first hunk, or at its first note
@@ -200,8 +207,18 @@ For each file you can:
 The list uses snacks.picker, fzf-lua or `vim.ui.select`, whichever
 `review.picker` picks (|claudecode-review.picker|). In snacks.picker and
 fzf-lua, <CR> opens the file, <A-o> keeps all of it and <A-x> reverts all of
-it. `vim.ui.select` asks which of the three to do. When no file waits, the
+it. <Tab> picks several files, and <A-o> and <A-x> then act on each of them;
+reverting more than one file asks first, since it writes the files.
+`vim.ui.select` asks which of the three to do. When no file waits, the
 command says "nothing waits for review".
+
+In snacks.picker the list sits over its preview, both full width, so the
+lines and the diff keep their ends. A layout you set for the source
+`claudecode_review` wins, `claudecode_review_notes` for the list of notes:
+>lua
+    -- in your snacks.nvim opts
+    picker = { sources = { claudecode_review = { layout = "default" } } }
+<
 
                                                  *claudecode-review-status*
 For a statusline, `require("claudecode.review.controller").status()` gives
@@ -231,12 +248,12 @@ are reviewed:
   fmt` from the folder or `cd ../web` from a neighbor is reviewed too. The
   plugin snapshots them all at once; with 22 repositories that takes about
   0.3 s per Bash call.
-- Bash in a worktree: the one Claude works in, and every worktree of the
-  repositories above, also one outside the project that Claude reaches with
-  `cd`. Claude Code puts its shell back into the project after such a call,
-  so the hooks never stand in that worktree. A worktree inside the
-  repository, as `claude --worktree` makes them in `.claude/worktrees/`, is
-  reviewed as a worktree of its own.
+- Bash in a worktree (|claudecode-worktree|): the one Claude works in, and
+  every worktree of the repositories above, also one outside the project
+  that Claude reaches with `cd`. Claude Code puts its shell back into the
+  project after such a call, so the hooks never stand in that worktree.
+  A worktree inside the repository, as `claude --worktree` makes them in
+  `.claude/worktrees/`, is reviewed as a worktree of its own.
 - A Bash command that moves HEAD (`git switch`, `pull`, `rebase`, `reset`):
   only your uncommitted work it threw away, and the edits Claude made after
   the checkout, compared with the new HEAD. The files git simply checked out
@@ -260,6 +277,16 @@ Not reviewed:
 
 If you refuse an edit and then create or change that file yourself, review
 treats the file as yours.
+
+                                                    *claudecode-review-head*
+A file under review follows git's HEAD. When HEAD moves outside Claude's
+Bash calls, by your commit, branch switch, rebase or pull in lazygit say, or
+by a commit Claude makes, the text a file is compared with moves along the
+change between the two commits, as it does along Claude's own checkout.
+Committing counts as keeping: a file you commit whole leaves the list, and
+after a partial commit only the hunks you did not commit wait. The files of
+a worktree that was removed leave the list as well. Neovim reads HEAD from
+the files of the git directory and runs git only once HEAD has moved.
 
 ------------------------------------------------------------------------------
 YOUR EDITS                                           *claudecode-review-edits*
@@ -363,8 +390,9 @@ HOOKS AND STATE                                      *claudecode-review-state*
 
 Every Claude session the plugin starts gets `claude --settings {file}` with
 four hooks: PreToolUse and PostToolUse for Edit, Write, MultiEdit,
-NotebookEdit and Bash, UserPromptSubmit, and Notification. Claude Code adds
-them to the hooks you already have. It does not replace them. The plugin
+NotebookEdit and Bash (PostToolUse also for EnterWorktree and ExitWorktree),
+UserPromptSubmit, and Notification. Claude Code adds them to the hooks you
+already have. It does not replace them. The plugin
 rewrites the settings file at every launch:
 `stdpath("state")/claudecode/hooks-settings-{id}.json`. The hooks in it run
 this Neovim's binary on this copy of the plugin, and {id} comes from both
@@ -374,8 +402,11 @@ shows the name.
 
 Each hook is a short `nvim --clean --headless -l` script. It copies the file
 before the edit and tells Neovim about it, waiting half a second at most
-for Neovim to take the message. A hook never blocks Claude: on any error it
-writes to `hooks.log` and exits with 0, so at worst one edit escapes review.
+for Neovim to take the message. A Neovim that does not answer by then, at a
+hit-enter prompt say, gets the message once you leave the prompt: the hook
+hands its connection to a small `head -c 1` process, which holds it until
+Neovim answers or quits. A hook never blocks Claude: on any error it writes
+to `hooks.log` and exits with 0, so at worst one edit escapes review.
 
                                                *claudecode-notifications*
 Claude's notifications, such as "Claude is waiting for your input" and
@@ -415,7 +446,9 @@ changes to {file} · :w accepts the rest", and the buffer sets
 You decide hunk by hunk. `cs` keeps a hunk of the proposal, `cx` reverts it
 without touching the file on disk. When no hunk is left, the plugin answers
 Claude: the text you kept goes to Claude, who writes it; if you reverted every
-hunk, Claude gets a rejection.
+hunk, Claude gets a rejection. A proposal with no hunk at all, the same text
+or one that changes only the final newline, goes to Claude at once as taken:
+a rejection would stop Claude's turn for a change you never saw.
 
 `cr` reverts a hunk with a reason: a box opens under the line, and Enter
 reverts the hunk and keeps what you typed. `<leader>an` on a selection does
@@ -493,6 +526,29 @@ Leaving zen after `cz` builds a tab for the code, since there was none.
 
 Zen needs Claude inside Neovim. With `terminal.provider` set to "external" or
 "none", it warns about that.
+
+==============================================================================
+WORKTREES                                                *claudecode-worktree*
+
+Claude can work in a git worktree: started with `claude --worktree`, or
+moved there with its EnterWorktree tool. Review goes with it: edits in the
+worktree come up like any other, and the list shows the files by their
+paths.
+
+With `worktree.follow` on, Neovim goes along. Once a Claude session started
+from Neovim works in a linked worktree, Neovim changes its directory there
+(`:cd`), and each window that shows a file of the main checkout shows the
+worktree's copy of it, at the same line. A buffer with unsaved edits stays
+where it is, and so does a file the worktree does not have, or a file of
+another worktree, where another Claude session may work. When Claude leaves
+the worktree (ExitWorktree) or its terminal closes, Neovim goes back to the
+directory it had, and those windows to the files they showed, unless you
+opened another file in them meanwhile. If you changed the directory
+yourself, Neovim stays where you went.
+
+A worktree outside the project, in a sibling folder say, Claude can also
+reach with `cd` and no EnterWorktree. Neovim then stays where it is, and
+review still takes the edits Bash makes there (|claudecode-review-scope|).
 
 ==============================================================================
 ACCOUNTS (CSWAP)                                           *claudecode-cswap*
@@ -738,9 +794,9 @@ review.cross_files                             *claudecode-review.cross_files*
 review.hint                                           *claudecode-review.hint*
     Type: boolean or string. Default: `true`.
     The hint at the hunk under the cursor. `true` builds it from your keys,
-    "cs keep · cx revert" with the defaults. A string replaces it, `false`
-    hides it. The number of the hunk, "2/5", comes before it either way and
-    goes with it.
+    "cs keep · cx revert · cr note" with the defaults; the note is left out
+    when notes are off. A string replaces it, `false` hides it. The number
+    of the hunk, "2/5", comes before it either way and goes with it.
 
 review.word_diff                                 *claudecode-review.word_diff*
     Type: boolean. Default: `true`.
@@ -765,6 +821,12 @@ cswap.cmd                                               *claudecode-cswap.cmd*
     Type: string. Default: `"cswap"`.
     The cswap executable for |:ClaudeCode-run|: a name on your PATH or a
     full path.
+
+worktree.follow                                   *claudecode-worktree.follow*
+    Type: boolean. Default: `true`.
+    Neovim follows Claude into a worktree and out of it
+    (|claudecode-worktree|). It learns where Claude works from the review
+    hooks, so it does nothing with `review.enabled = false`.
 
 ==============================================================================
 EVENTS                                                     *claudecode-events*
@@ -824,6 +886,11 @@ config win. The review groups are defined again after `:colorscheme`.
     ClaudeCodeZenKey            link to Comment; the key next to it
     ClaudeCodeReviewNote        link to Comment; the text of a saved note
     ClaudeCodeReviewNoteBorder  link to NonText; the box around it
+    ClaudeCodeReviewAdded       link to Added; "+12" in the lists of files
+                                and notes
+    ClaudeCodeReviewRemoved     link to Removed; "-3" there
+    ClaudeCodeReviewMeta        link to Comment; when a file came under
+                                review and its branch, in the list of files
 
 ==============================================================================
 DIFF PROVIDER                                       *claudecode-diff-provider*

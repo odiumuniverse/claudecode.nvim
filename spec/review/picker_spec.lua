@@ -126,8 +126,9 @@ describe("review picker", function()
       assert.same({ a, c }, { items[1].path, items[2].path })
       assert.same({ 2, 1 }, { items[1].hunks, items[1].notes })
       assert.same({ 0, 1 }, { items[2].hunks, items[2].notes })
-      assert.matches("/a%.txt  %+2 %-2  2 hunks · 1 note$", items[1].label)
-      assert.matches("/c%.txt         1 note$", items[2].label)
+      -- The counts come first: a long path pushed them past the edge of the list.
+      assert.matches("^%+2 %-2  2 hunks · 1 note  %d%d:%d%d  .*/a%.txt$", items[1].label)
+      assert.matches("^%s+1 note%s+/.+/c%.txt$", items[2].label)
     end)
 
     it("opens a file that has only notes at its first note", function()
@@ -186,6 +187,142 @@ describe("review picker", function()
       assert.equal("wrap it in an error", notes.items()[1].text)
       assert.same({ 2, 0 }, vim.api.nvim_win_get_cursor(0))
     end)
+  end)
+
+  it("says which files are new and which are deleted, and since when each waits", function()
+    changed("b.txt", nil, "new\n")
+    local d = changed("d.txt", "gone\n", "x\n")
+    vim.fn.delete(d)
+    local e = changed("e.txt", "old\n", "older\n")
+    local before = os.time() - 3 * 24 * 3600
+    store:update(e, function(base)
+      base.created_at = before
+      return base.text
+    end)
+
+    local items = picker.items()
+
+    assert.matches("^%+1 %-0  new file  %d%d:%d%d  .*/b%.txt$", items[1].label)
+    assert.matches("^%+0 %-1  deleted   %d%d:%d%d  .*/d%.txt$", items[2].label)
+    assert.matches("  " .. vim.pesc(os.date("%b %d", before)) .. "  .*/e%.txt$", items[3].label)
+  end)
+
+  it("names the branch of each file when the list spans more than one work tree", function()
+    local function git(cwd, ...)
+      local res = vim.system({ "git", "-C", cwd, ... }, { text = true }):wait()
+      assert(res.code == 0, res.stderr)
+    end
+    git(work, "init", "-q", "-b", "trunk")
+    git(work, "config", "user.email", "t@example.com")
+    git(work, "config", "user.name", "t")
+    write_file(work .. "/a.txt", "a\n")
+    git(work, "add", "a.txt")
+    git(work, "commit", "-qm", "init")
+    local a = changed("a.txt", nil, "A\n")
+    assert.matches("%d  .*/a%.txt$", picker.items()[1].label)
+
+    git(work, "worktree", "add", "-q", work .. "/wt", "-b", "feat")
+    local b = changed("wt/a.txt", nil, "B\n")
+
+    local labels = vim.tbl_map(function(item)
+      return item.label
+    end, picker.items())
+    assert.same({ a, b }, { picker.items()[1].path, picker.items()[2].path })
+    assert.matches("  trunk  .*/a%.txt$", labels[1])
+    assert.matches("  feat   .*/wt/a%.txt$", labels[2])
+  end)
+
+  describe("with several files picked", function()
+    local a, b
+
+    before_each(function()
+      a = changed("a.txt", "a\n", "A\n")
+      b = changed("b.txt", "b\n", "B\n")
+    end)
+
+    ---The actions of the list in fake snacks.picker, with `picked` selected.
+    local function snacks_actions(picked)
+      local snacks = rawget(_G, "Snacks")
+      local opts
+      _G.Snacks = {
+        picker = {
+          pick = function(o)
+            opts = o
+          end,
+        },
+      }
+      picker.show("snacks")
+      _G.Snacks = snacks
+      local by_path = {}
+      for _, item in ipairs(opts.items) do
+        by_path[item.review.path] = item
+      end
+      local fake = {
+        close = function() end,
+        selected = function()
+          return vim.tbl_map(function(path)
+            return by_path[path]
+          end, picked)
+        end,
+      }
+      return opts.actions, fake, by_path[picked[1]]
+    end
+
+    it("keeps them all at once", function()
+      local actions, fake, current = snacks_actions({ a, b })
+
+      actions.review_keep_all(fake, current)
+
+      assert.same({}, store:list())
+      assert.equal("A\n", read_file(a))
+    end)
+
+    it("reverts them all once you say so, and nothing when you do not", function()
+      local confirm = vim.fn.confirm
+      local answer, asked = 2, nil
+      vim.fn.confirm = function(msg)
+        asked = msg
+        return answer
+      end
+      local actions, fake, current = snacks_actions({ a, b })
+
+      actions.review_revert_all(fake, current)
+      assert.equal("A\n", read_file(a))
+      answer = 1
+      actions.review_revert_all(fake, current)
+      vim.fn.confirm = confirm
+
+      assert.matches("2 files", asked)
+      assert.same({ "a\n", "b\n" }, { read_file(a), read_file(b) })
+      assert.same({}, store:list())
+    end)
+
+    it("keeps every file fzf-lua hands over", function()
+      local fzf = package.loaded["fzf-lua"]
+      local entries, opts
+      package.loaded["fzf-lua"] = {
+        fzf_exec = function(e, o)
+          entries, opts = e, o
+        end,
+      }
+      picker.show("fzf")
+      package.loaded["fzf-lua"] = fzf
+
+      assert.is_true(opts.fzf_opts["--multi"])
+      opts.actions["alt-o"]({ entries[1], entries[2] })
+      assert.same({}, store:list())
+    end)
+  end)
+
+  it("brings back a deleted file whose directory is gone too", function()
+    vim.fn.mkdir(work .. "/sub", "p")
+    local f = changed("sub/f.txt", "f\n", "F\n")
+    vim.fn.delete(work .. "/sub", "rf")
+
+    picker.revert_all(f)
+
+    assert.equal("f\n", read_file(f))
+    assert.is_nil(store:get(f))
   end)
 
   it("keeps a whole file without touching it", function()
@@ -268,7 +405,7 @@ describe("review picker", function()
     vim.ui.select = function(items, opts, on_choice)
       prompts[#prompts + 1] = opts.prompt
       if #prompts == 1 then
-        assert.matches("a%.txt  %+1 %-1", opts.format_item(items[1]))
+        assert.matches("^%+1 %-1  1 hunk  .*/a%.txt$", opts.format_item(items[1]))
         on_choice(items[1])
       else
         on_choice("revert all")
@@ -291,6 +428,79 @@ describe("review picker", function()
     assert.is_true(colored(segments, "-1", "ClaudeCodeReviewRemoved"))
     assert.matches("\27%[[%d;]+m%+2\27%[0m", entry)
     assert.matches("\27%[[%d;]+m%-1\27%[0m", entry)
+  end)
+
+  it("fits a long path into the list of snacks.picker, keeping the end of the file name", function()
+    vim.fn.mkdir(work .. "/docs/llm/adr", "p")
+    changed("docs/llm/adr/0026-discovery-http-optional-rpc-leaf-and-a-very-long-name.md", nil, "x\n")
+    local snacks = rawget(_G, "Snacks")
+    local opts
+    _G.Snacks = {
+      picker = {
+        pick = function(o)
+          opts = o
+        end,
+      },
+    }
+    picker.show("snacks")
+    _G.Snacks = snacks
+    local pieces = opts.format(opts.items[1], {})
+    local path = pieces[#pieces]
+    ---The path as snacks.picker draws it in `width` cells, after the other pieces.
+    local function drawn(width)
+      return table.concat(vim.tbl_map(function(piece)
+        return piece[1]
+      end, path.resolve(width)))
+    end
+
+    -- snacks.picker hands over the room after the other pieces, but not the column it keeps in front
+    -- for the selection mark.
+    for _, width in ipairs({ 60, 40, 20, 8 }) do
+      local text = drawn(width)
+      assert.is_true(vim.fn.strdisplaywidth(text) <= width - 2, width .. ": " .. text)
+      assert.matches("%.md$", text)
+    end
+    assert.equal(
+      vim.fn.fnamemodify(work, ":~:.") .. "/docs/llm/adr/0026-discovery-http-optional-rpc-leaf-and-a-very-long-name.md",
+      drawn(300)
+    )
+    assert.matches("^…/docs/llm/adr/0026%-", drawn(80))
+    assert.matches("^…/adr/0026%-", drawn(70))
+    assert.matches("^…", drawn(20))
+  end)
+
+  it("stacks the list over the preview, unless you set a layout for it in snacks.picker", function()
+    local a = changed("a.txt", "a\n", "A\n")
+    write_file(
+      dir .. "/notes.json",
+      vim.json.encode({
+        version = 1,
+        notes = { { id = 1, path = a, first = 1, last = 1, text = "why", created_at = 0 } },
+      })
+    )
+    controller.teardown()
+    controller.setup({ dir = dir })
+    local snacks = rawget(_G, "Snacks")
+    local seen = {}
+    _G.Snacks = {
+      picker = {
+        pick = function(o)
+          seen[#seen + 1] = o
+        end,
+      },
+    }
+
+    picker.show("snacks")
+    picker.show_notes("snacks")
+    -- The lines and the diff both want the width; a layout of your own for the source wins.
+    _G.Snacks.config = { picker = { sources = { claudecode_review = { layout = { preset = "ivy" } } } } }
+    picker.show("snacks")
+    _G.Snacks = snacks
+
+    assert.same({ "claudecode_review", "claudecode_review_notes" }, { seen[1].source, seen[2].source })
+    assert.equal("vertical", seen[1].layout.preset)
+    assert.equal("vertical", seen[2].layout.preset)
+    assert.is_nil(seen[3].layout)
   end)
 
   it("prefers snacks.picker, then fzf-lua, then vim.ui.select", function()

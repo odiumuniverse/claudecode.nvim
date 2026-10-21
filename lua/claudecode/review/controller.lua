@@ -6,8 +6,12 @@
 ---@module 'claudecode.review.controller'
 
 local engine = require("claudecode.review")
+local hunk_logic = require("claudecode.review.hunks")
+local repo = require("claudecode.review.repo")
 local store_mod = require("claudecode.review.store")
 local text = require("claudecode.review.text")
+
+local uv = vim.uv or vim.loop
 
 local M = {}
 
@@ -24,6 +28,8 @@ local state = {
   store = nil, ---@type ClaudeCodeReviewStore|nil
   group = nil, ---@type integer|nil
   pending = {}, ---@type string[]
+  -- "top:head" pairs git could not read the objects for: no second try until HEAD moves again.
+  unreadable = {}, ---@type table<string, true>
 }
 
 local function read_file(path)
@@ -54,6 +60,14 @@ end
 
 local function same_lines(a, b, dos)
   return vim.deep_equal((text.to_lines(a, dos)), (text.to_lines(b, dos)))
+end
+
+---The loaded buffer of a file. Found by its resolved path, not by bufnr(), which takes a name for a
+---pattern: `app/[id]/page.tsx` can match another buffer.
+---@param path string Resolved, as the store keeps it
+---@return integer|nil
+function M.buffer_of(path)
+  return loaded_buf(path)
 end
 
 ---Point the controller at a state directory. A Claude session started from another cwd
@@ -190,7 +204,7 @@ local function reload(buf)
 end
 
 ---Handle a PostToolUse notification from the hook process.
----@param payload { dir: string|nil, tool_name: string|nil, session_id: string|nil, files: string[]|nil, untracked_changed: string[]|nil }
+---@param payload { dir: string|nil, tool_name: string|nil, session_id: string|nil, cwd: string|nil, files: string[]|nil, untracked_changed: string[]|nil }
 function M.on_hook(payload)
   if payload.dir and payload.dir ~= "" then
     M.use_dir(payload.dir)
@@ -198,6 +212,8 @@ function M.on_hook(payload)
   if not state.store then
     return
   end
+  -- Into a worktree first, so that the files below reload where you look at them.
+  require("claudecode.features.worktree").follow(payload.cwd)
   local files = vim.deepcopy(payload.files or {})
 
   -- An untracked file has no snapshot in git: its open buffer still holds the old text (DESIGN p. 13).
@@ -235,16 +251,176 @@ function M.on_hook(payload)
   M.refresh_pending()
 end
 
+---Read objects named `<rev>` or `<rev>:<path>` through one `git cat-file --batch`.
+---@param top string
+---@param specs string[]
+---@return table<integer, string|false>|nil objects By index in `specs`: the contents, false when git has no
+---  such object; nil when git failed
+local function cat_objects(top, specs)
+  local ok, res = pcall(function()
+    return vim
+      .system({ "git", "-C", top, "cat-file", "--batch" }, {
+        stdin = table.concat(specs, "\n") .. "\n",
+        text = false,
+        env = { GIT_OPTIONAL_LOCKS = "0" },
+      })
+      :wait(5000)
+  end)
+  if not ok or res.code ~= 0 or not res.stdout then
+    return nil
+  end
+  local out, pos, objects = res.stdout, 1, {}
+  for i = 1, #specs do
+    local eol = out:find("\n", pos, true)
+    if not eol then
+      return nil
+    end
+    local size = tonumber(out:sub(pos, eol - 1):match("^%x+ %a+ (%d+)$"))
+    if size then
+      objects[i] = out:sub(eol + 1, eol + size)
+      pos = eol + size + 2
+    else
+      objects[i] = false -- "<spec> missing"
+      pos = eol + 1
+    end
+  end
+  return objects
+end
+
+---Move a base along a change between two commits, as the hooks move one along an edit made without
+---review: the hunks still waiting stay. Blobs carry no CR where a checkout writes CRLF.
+---@param base_text string
+---@param old string The file in the commit the base matched
+---@param new string The file in the commit HEAD points to now
+---@return string
+local function carried(base_text, old, new)
+  local dos = base_text:find("\r\n", 1, true) ~= nil
+  local lines =
+    hunk_logic.carry((text.to_lines(base_text, dos)), (text.to_lines(old, true)), (text.to_lines(new, true)))
+  local eol = base_text == "" and new:sub(-1) == "\n" or base_text:sub(-1) == "\n"
+  return text.to_text(lines, eol, dos)
+end
+
+---Move the bases of the work tree `top` from the commits they matched to `head`.
+---@param store ClaudeCodeReviewStore
+---@param top string
+---@param head string
+---@param bases ClaudeCodeReviewBase[]
+---@param changed string[] Paths whose base moved or went away are added here
+---@return boolean ok False when git could not read the objects
+local function move_to_head(store, top, head, bases, changed)
+  local specs, at = {}, {}
+  local function ask(spec)
+    specs[#specs + 1] = spec
+    return #specs
+  end
+  for i, base in ipairs(bases) do
+    local rel = base.path:sub(#top + 2)
+    at[i] = {
+      commit = base.head and ask(base.head .. "^{commit}"),
+      old = base.head and ask(base.head .. ":" .. rel),
+      new = ask(head .. ":" .. rel),
+    }
+  end
+  local objects = cat_objects(top, specs)
+  if not objects then
+    return false
+  end
+  for i, base in ipairs(bases) do
+    -- A commit git no longer has (or none: the repository had no commit yet) cannot say what changed.
+    local known = base.head ~= nil and objects[at[i].commit] ~= false
+    local old = known and objects[at[i].old] or ""
+    local new = objects[at[i].new] or nil
+    local current = read_file(base.path)
+    local gone = (current == nil and base.new_file) or (current ~= nil and same_lines(base.text, current, true))
+    if not gone then
+      -- Committed with the rest of HEAD, or checked out over: nothing of Claude's change waits there.
+      -- A file that equals HEAD is committed even where carrying a change next to a hunk leaves it out.
+      local moved = known and carried(base.text, old, new or "") or base.text
+      local committed = current ~= nil and new ~= nil and same_lines(new, current, true)
+      if committed or (current == nil and new == nil) or (current ~= nil and same_lines(moved, current, true)) then
+        store:remove(base.path)
+      else
+        store:update(base.path, function(b)
+          b.head = head
+          return known and carried(b.text, old, new or "") or b.text
+        end)
+      end
+    end
+    -- A change that is gone without review goes below, with its notes, as after a discard.
+    changed[#changed + 1] = base.path
+  end
+  return true
+end
+
+---Bases follow git's HEAD (DESIGN p. 15). Once HEAD of a work tree has moved since a base matched it
+---(a commit, a branch switch, a rebase or a pull, yours in lazygit or Claude's), the base moves along
+---the change between the two commits, as it does along Claude's own checkout, and a file that then
+---equals its base is kept, as committed. The bases of a work tree that is gone, a removed worktree,
+---go with it. HEAD is read from the files of the git directory: git runs only when it moved.
+---@param store ClaudeCodeReviewStore
+---@param bases ClaudeCodeReviewBase[]
+---@param editing table<string, true> Paths of the edits under way: their turn comes after the edit
+---@return string[] changed Paths whose base moved or went away
+local function follow_heads(store, bases, editing)
+  local by_top, changed = {}, {}
+  for _, base in ipairs(bases) do
+    if not editing[base.path] then
+      local top = base.top
+      if not top then
+        -- A base older than this rule: it matches the HEAD of now as far as anyone can tell.
+        top = repo.top_of(base.path)
+        local now = top and repo.head(top)
+        if now then
+          store:update(base.path, function(b)
+            b.top, b.head = top, now.head
+            return b.text
+          end)
+        end
+      elseif vim.startswith(base.path, top .. "/") and not base.path:find("\n", 1, true) then
+        -- `git cat-file --batch` reads one name per line.
+        by_top[top] = by_top[top] or {}
+        table.insert(by_top[top], base)
+      end
+    end
+  end
+  for top, group in pairs(by_top) do
+    if not uv.fs_stat(top) then
+      for _, base in ipairs(group) do
+        store:remove(base.path)
+        require("claudecode.review.notes").drop_file(base.path)
+        changed[#changed + 1] = base.path
+      end
+    else
+      local now = repo.head(top)
+      local moved = vim.tbl_filter(function(base)
+        return now ~= nil and base.head ~= now.head
+      end, group)
+      local key = now and (top .. ":" .. now.head)
+      if #moved > 0 and not state.unreadable[key] and not move_to_head(store, top, now.head, moved, changed) then
+        state.unreadable[key] = true
+      end
+    end
+  end
+  return changed
+end
+
 ---Files whose base still differs from the file on disk. Drops the bases that no longer do,
 ---and tells listeners (zen counter, picker) when the list changes.
 ---@return string[] paths
 function M.refresh_pending()
   local pending = {}
+  local moved = {}
   if state.store then
     -- PreToolUse takes the base before Claude writes: it equals the file until then (or the file
     -- is not there yet), and the user may well be refreshing the list while Claude waits for permission.
     local editing = forget_refused(state.store)
-    for _, base in ipairs(state.store:list()) do
+    local bases = state.store:list()
+    moved = follow_heads(state.store, bases, editing)
+    if #moved > 0 then
+      bases = state.store:list()
+    end
+    for _, base in ipairs(bases) do
       local current = read_file(base.path)
       local unchanged = (current == nil and base.new_file) or (current ~= nil and same_lines(base.text, current, false))
       -- A file in doubt is not Claude's yet, and perhaps never: neither listed nor forgotten.
@@ -262,7 +438,14 @@ function M.refresh_pending()
   table.sort(pending)
   state.pending = pending
   M.announce()
-  return pending
+  -- An open file whose base moved along HEAD shows the hunks against the new base, or none.
+  for _, path in ipairs(moved) do
+    local buf = loaded_buf(path)
+    if buf and not vim.bo[buf].modified then
+      M.attach_if_pending(buf)
+    end
+  end
+  return state.pending
 end
 
 ---Tell listeners (zen, a statusline) what waits for you: the files and the notes.
@@ -409,6 +592,7 @@ function M.teardown()
   map_moves(nil)
   state.store = nil
   state.pending = {}
+  state.unreadable = {}
   require("claudecode.review.notes").reset()
   require("claudecode.diff_provider").tool_of = function()
     return nil

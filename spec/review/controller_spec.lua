@@ -782,6 +782,162 @@ describe("review controller", function()
     end)
   end)
 
+  describe("when git moves HEAD", function()
+    local handlers = require("claudecode.hooks.handlers")
+    local file
+
+    local function git(cwd, ...)
+      local res = vim
+        .system(
+          { "git", "-C", cwd, ... },
+          { text = true, env = { GIT_CONFIG_GLOBAL = "/dev/null", GIT_CONFIG_SYSTEM = "/dev/null" } }
+        )
+        :wait()
+      assert(res.code == 0, res.stderr)
+      return vim.trim(res.stdout)
+    end
+
+    ---Run `command` the way the hooks see a Bash call.
+    local function bash(command)
+      local input = { tool_name = "Bash", tool_use_id = "toolu_bash", cwd = work, tool_input = {} }
+      handlers.handle("PreToolUse", input, { dir = dir })
+      command()
+      handlers.handle("PostToolUse", input, { dir = dir })
+    end
+
+    before_each(function()
+      git(work, "init", "-q")
+      git(work, "config", "user.email", "t@example.com")
+      git(work, "config", "user.name", "t")
+      file = work .. "/a.txt"
+      write_file(file, "a\nb\nc\nd\ne\n")
+      git(work, "add", "-A")
+      git(work, "commit", "-qm", "init")
+    end)
+
+    it("takes a file out of review once you commit it", function()
+      claude_writes(file, "a\nB\nc\nd\ne\n")
+      assert.same({ file }, controller.refresh_pending())
+
+      git(work, "commit", "-qam", "yours")
+
+      assert.same({}, controller.refresh_pending())
+      assert.is_nil(store:get(file))
+    end)
+
+    it("takes a file out of review once you commit it with your own change right next to Claude's", function()
+      write_file(file, "a\nyours\nc\nd\ne\n")
+      claude_writes(file, "a\nyours\nC\nd\ne\n")
+
+      git(work, "commit", "-qam", "both")
+
+      assert.same({}, controller.refresh_pending())
+    end)
+
+    it("forgets the notes of a change you threw away before you committed something else", function()
+      local notes = require("claudecode.review.notes")
+      claude_writes(file, "a\nB\nc\nd\ne\n")
+      notes.use_dir(dir)
+      open(file)
+      write_file(
+        dir .. "/notes.json",
+        vim.json.encode({
+          version = 1,
+          notes = { { id = 1, path = file, first = 2, last = 2, text = "why", created_at = 0 } },
+        })
+      )
+      notes.reset()
+      notes.use_dir(dir)
+      assert.equal(1, notes.count())
+      vim.cmd("silent! %bwipeout!")
+
+      git(work, "checkout", "--", "a.txt")
+      write_file(work .. "/other.txt", "x\n")
+      git(work, "add", "other.txt")
+      git(work, "commit", "-qm", "other")
+
+      assert.same({}, controller.refresh_pending())
+      assert.equal(0, notes.count())
+    end)
+
+    it("keeps the hunk you did not commit", function()
+      claude_writes(file, "a\nB\nc\nd\nE\n")
+      write_file(file, "a\nB\nc\nd\ne\n")
+      git(work, "commit", "-qam", "the first hunk only")
+      write_file(file, "a\nB\nc\nd\nE\n")
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("a\nB\nc\nd\ne\n", store:get(file).text)
+    end)
+
+    it("takes a file out of review once Claude commits it", function()
+      claude_writes(file, "a\nB\nc\nd\ne\n")
+
+      bash(function()
+        git(work, "commit", "-qam", "claude")
+      end)
+      controller.on_hook({ event = "PostToolUse", dir = dir, tool_name = "Bash", files = {} })
+
+      assert.same({}, controller.pending())
+    end)
+
+    it("carries a base along your branch switch, so that only Claude's change waits", function()
+      git(work, "switch", "-q", "-c", "other")
+      write_file(file, "A\nb\nc\nd\ne\n")
+      git(work, "commit", "-qam", "other")
+      git(work, "switch", "-q", "-")
+      claude_writes(file, "a\nb\nc\nd\nE\n")
+      local buf = open(file)
+
+      git(work, "switch", "-q", "-m", "other")
+      vim.cmd("silent! checktime")
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("A\nb\nc\nd\ne\n", store:get(file).text)
+      assert.same(
+        { { "e" } },
+        vim.tbl_map(function(hunk)
+          return hunk.base_lines
+        end, engine.hunks(buf))
+      )
+    end)
+
+    it("keeps your uncommitted work that Claude's hard reset threw away, also in a file it edited before", function()
+      git(work, "switch", "-q", "-c", "other")
+      write_file(file, "A\nb\nc\nd\ne\n")
+      git(work, "commit", "-qam", "other")
+      git(work, "switch", "-q", "-")
+      write_file(file, "a\nb\nyours\nd\ne\n")
+      claude_writes(file, "a\nb\nyours\nd\nE\n")
+
+      bash(function()
+        git(work, "reset", "-q", "--hard", "other")
+      end)
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("a\nb\nyours\nd\ne\n", store:get(file).text)
+    end)
+
+    it("takes the files of a worktree out of review once you remove it, and follows HEAD in one", function()
+      local outside = vim.fn.tempname()
+      vim.fn.mkdir(outside, "p")
+      outside = vim.uv.fs_realpath(outside)
+      git(work, "worktree", "add", "-q", outside .. "/feat", "-b", "feat")
+      local committed, removed = outside .. "/feat/a.txt", outside .. "/feat/b.txt"
+      write_file(removed, "b\n")
+      claude_writes(committed, "a\nB\nc\nd\ne\n")
+      claude_writes(removed, "b, by Claude\n")
+
+      git(outside .. "/feat", "commit", "-qm", "only a", "a.txt")
+      assert.same({ removed }, controller.refresh_pending())
+
+      git(work, "worktree", "remove", "--force", outside .. "/feat")
+      assert.same({}, controller.refresh_pending())
+      assert.same({}, store:list())
+      vim.fn.delete(outside, "rf")
+    end)
+  end)
+
   it("follows the state directory a new Claude session reports", function()
     local other = vim.fn.tempname()
     local other_store = store_mod.new(other)

@@ -24,6 +24,7 @@ local M = {}
 ---@field advance boolean A note counts as a decision: the cursor moves on as after `cs`
 ---@field send_keymap string|false Global key that sends every note to Claude
 ---@field local_send_keymap string|false The same in a file under review or with a note; Enter when no note waits
+---@field list_keymap string|false Opens the list of notes in Normal mode
 
 ---@class ClaudeCodeReviewConfig
 ---@field enabled boolean
@@ -41,6 +42,7 @@ local M = {}
 ---@field review ClaudeCodeReviewConfig
 ---@field zen { enabled: boolean, keymap: string|false }
 ---@field cswap { cmd: string } `:ClaudeCode run [account]` runs Claude through this cswap
+---@field worktree { follow: boolean } Neovim follows Claude into a worktree and out of it
 
 ---@type ClaudeCodeFeaturesConfig
 M.defaults = {
@@ -85,6 +87,9 @@ M.defaults = {
   },
   cswap = {
     cmd = "cswap",
+  },
+  worktree = {
+    follow = true,
   },
 }
 
@@ -134,6 +139,8 @@ function M.validate(config)
   check(is_key(zen.keymap), "zen.keymap must be a key string or false")
   check(type(config.cswap) == "table", "cswap must be a table")
   check(type(config.cswap.cmd) == "string" and config.cswap.cmd ~= "", "cswap.cmd must be a non-empty string")
+  check(type(config.worktree) == "table", "worktree must be a table")
+  check(type(config.worktree.follow) == "boolean", "worktree.follow must be a boolean")
 end
 
 ---@param user table|nil The options passed to require("claudecode").setup
@@ -144,12 +151,14 @@ function M.config(user)
     review = user.review or {},
     zen = user.zen or {},
     cswap = user.cswap or {},
+    worktree = user.worktree or {},
   })
   M.validate(config)
   return config
 end
 
----The hint follows your keys: "cs keep · cx revert" with the defaults.
+---The hint follows your keys: "cs keep · cx revert · cr note" with the defaults. Without the note the
+---hint said nothing of notes, and they went unnoticed.
 ---@param review ClaudeCodeReviewConfig
 ---@return string|false
 function M.hint_text(review)
@@ -162,6 +171,9 @@ function M.hint_text(review)
   end
   if review.keymaps.revert then
     parts[#parts + 1] = review.keymaps.revert .. " revert"
+  end
+  if review.notes.enabled and review.keymaps.note then
+    parts[#parts + 1] = review.keymaps.note .. " note"
   end
   return #parts > 0 and table.concat(parts, " · ") or false
 end
@@ -237,6 +249,8 @@ function M.setup(user, plugin_config)
   end
 
   require("claudecode.features.cswap").setup(config.cswap)
+  -- The hooks of the review report where Claude works; without them there is nothing to follow.
+  require("claudecode.features.worktree").setup({ follow = config.review.enabled and config.worktree.follow })
 
   if config.zen.enabled then
     require("claudecode.zen").setup({

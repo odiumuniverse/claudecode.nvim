@@ -342,6 +342,15 @@ describe("hook script", function()
       assert.equal("committed\n", store:get(file).text)
     end)
 
+    it("writes down the work tree and HEAD a base was taken at", function()
+      local file = work .. "/tracked.txt"
+      run_hook("PreToolUse", tool("PreToolUse", "Edit", { file_path = file }))
+
+      local base = store:get(file)
+      assert.equal(work, base.top)
+      assert.equal(vim.trim(git(work, "rev-parse", "HEAD")), base.head)
+    end)
+
     it("marks files Bash created as new and leaves untouched files alone", function()
       write_file(work .. "/old-untracked.txt", "mine\n")
       run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "touch" }))
@@ -628,6 +637,30 @@ describe("hook script", function()
     editor.stop()
     assert.same({ file }, received.files)
     assert.equal("Write", received.tool_name)
+  end)
+
+  it("tells the editor where Claude works, and which worktree it entered", function()
+    local editor = start_editor()
+    local env = { CLAUDECODE_NVIM = editor.addr }
+
+    run_hook("PostToolUse", tool("PostToolUse", "Write", { file_path = work .. "/a.lua" }), env)
+    local after_write = editor.received()
+    run_hook(
+      "PostToolUse",
+      tool("PostToolUse", "EnterWorktree", { path = "/elsewhere/wt" }, {
+        tool_response = { worktreePath = "/elsewhere/wt", worktreeBranch = "feat" },
+      }),
+      env
+    )
+    local after_enter
+    vim.wait(3000, function()
+      after_enter = editor.received()
+      return after_enter and after_enter.tool_name == "EnterWorktree"
+    end, 20)
+    editor.stop()
+
+    assert.equal(work, after_write.cwd)
+    assert.equal("/elsewhere/wt", after_enter.cwd)
   end)
 
   it("finishes quickly when the editor socket is gone", function()

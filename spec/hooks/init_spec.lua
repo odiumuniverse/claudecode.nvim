@@ -104,6 +104,11 @@ describe("review hooks wiring", function()
       assert.is_true(entry.hooks[1].timeout > 0)
     end
     assert.equal("Edit|Write|MultiEdit|NotebookEdit|Bash", settings.hooks.PreToolUse[1].matcher)
+    -- After a call only: Neovim follows Claude into a worktree and out of it.
+    assert.equal(
+      "Edit|Write|MultiEdit|NotebookEdit|Bash|EnterWorktree|ExitWorktree",
+      settings.hooks.PostToolUse[1].matcher
+    )
   end)
 
   it("turns off Claude's own notification, which the Neovim terminal would print as text", function()

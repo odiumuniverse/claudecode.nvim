@@ -17,6 +17,35 @@ local RECEIVER = "local ok, bridge = pcall(require, 'claudecode.review.bridge') 
 
 M.TIMEOUT_MS = 500
 
+---Hand a connection whose request went out to a small process that keeps it open until the editor
+---answers, so the hook can go. A Neovim at a hit-enter prompt runs the request once you leave the
+---prompt, but drops it if its client has hung up meanwhile; seen live on 0.12.6. `head -c 1` reads the
+---first byte of the answer, or the end of the connection when the editor quits, and exits.
+---@param handle uv.uv_stream_t
+---@return boolean held
+local function hold(handle)
+  pcall(handle.read_stop, handle)
+  -- libuv made the socket non-blocking, and the process shares that with us: head would fail at once.
+  uv.stream_set_blocking(handle, true)
+  local proc
+  local ok, spawned = pcall(uv.spawn, "head", {
+    args = { "-c", "1" },
+    -- stdin is the connection; stdout and stderr go nowhere, so Claude Code does not wait on them.
+    stdio = { handle, nil, nil },
+    detached = true,
+  }, function()
+    if proc and not proc:is_closing() then
+      proc:close()
+    end
+  end)
+  proc = ok and spawned or nil
+  if not proc then
+    return false
+  end
+  proc:unref()
+  return true
+end
+
 ---Send `payload` to `require("claudecode.review.bridge").on_hook` in the editor at `addr`.
 ---@param addr string|nil Server address: a socket path or host:port
 ---@param payload table
@@ -32,6 +61,7 @@ function M.send(addr, payload)
   local host, port = addr:match("^([^/]+):(%d+)$")
   local done, sent = false, false
   local handles = {}
+  local written ---@type uv.uv_stream_t|nil The connection whose request went out
 
   -- The first outcome counts: the answer and the end of the connection may come together.
   local function finish(ok)
@@ -57,6 +87,8 @@ function M.send(addr, payload)
       handle:write(message, function(write_err)
         if write_err then
           finish(false)
+        else
+          written = handle
         end
       end)
     end
@@ -103,6 +135,9 @@ function M.send(addr, payload)
   vim.wait(M.TIMEOUT_MS, function()
     return done
   end, 5)
+  if not done and written then
+    hold(written)
+  end
   for _, handle in ipairs(handles) do
     if not handle:is_closing() then
       handle:close()
