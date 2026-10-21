@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (2026-10-21)
 
 Review that keeps up with git and with worktrees, Neovim that follows Claude into a worktree, and a list of files that shows what matters first.
 
