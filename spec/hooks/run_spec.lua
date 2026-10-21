@@ -468,6 +468,83 @@ describe("hook script", function()
       assert.equal("before\n", base.text)
       assert.is_false(base.new_file)
     end)
+
+    describe("with a worktree", function()
+      local outside
+
+      before_each(function()
+        outside = vim.fn.tempname()
+        vim.fn.mkdir(outside, "p")
+        outside = vim.uv.fs_realpath(outside)
+        git(work, "worktree", "add", "-q", outside .. "/feat", "-b", "feat")
+      end)
+
+      after_each(function()
+        vim.fn.delete(outside, "rf")
+      end)
+
+      it("snapshots the worktree Claude stands in, your staged and unstaged work included", function()
+        -- EnterWorktree moves the cwd of the hooks into the worktree.
+        local file = outside .. "/feat/tracked.txt"
+        write_file(file, "staged\n")
+        git(outside .. "/feat", "add", "tracked.txt")
+        write_file(file, "uncommitted\n")
+        local extra = { cwd = outside .. "/feat" }
+        run_hook("PreToolUse", tool("PreToolUse", "Bash", { command = "sed" }, extra), { CLAUDE_PROJECT_DIR = work })
+        write_file(file, "by bash\n")
+
+        run_hook("PostToolUse", tool("PostToolUse", "Bash", { command = "sed" }, extra), { CLAUDE_PROJECT_DIR = work })
+
+        assert.equal("uncommitted\n", store:get(file).text)
+      end)
+
+      it("takes bases in a worktree that Claude reaches with cd from the repository", function()
+        -- Outside the project Claude Code puts the shell back, so the hooks still stand in the repository.
+        local file = outside .. "/feat/tracked.txt"
+        local cmd = { command = "cd " .. outside .. "/feat && make generate" }
+        run_hook("PreToolUse", tool("PreToolUse", "Bash", cmd))
+        write_file(file, "generated\n")
+
+        run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd))
+
+        assert.equal("committed\n", store:get(file).text)
+      end)
+    end)
+
+    describe("with a worktree inside the repository", function()
+      local nested
+
+      before_each(function()
+        nested = work .. "/.claude/worktrees/x"
+      end)
+
+      it("takes no base for the worktree directory that Bash created", function()
+        local cmd = { command = "git worktree add .claude/worktrees/x -b x" }
+        run_hook("PreToolUse", tool("PreToolUse", "Bash", cmd))
+        git(work, "worktree", "add", "-q", nested, "-b", "x")
+
+        run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd))
+
+        assert.same({}, store:list())
+      end)
+
+      it("takes bases of the files Bash changed in it", function()
+        git(work, "worktree", "add", "-q", nested, "-b", "x")
+        local cmd = { command = "sed -i '' s/committed/changed/ .claude/worktrees/x/tracked.txt" }
+        run_hook("PreToolUse", tool("PreToolUse", "Bash", cmd))
+        write_file(nested .. "/tracked.txt", "changed\n")
+
+        run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd))
+
+        assert.equal("committed\n", store:get(nested .. "/tracked.txt").text)
+        assert.same(
+          { nested .. "/tracked.txt" },
+          vim.tbl_map(function(base)
+            return base.path
+          end, store:list())
+        )
+      end)
+    end)
   end)
 
   describe("around Bash in a folder of repositories", function()
@@ -520,6 +597,23 @@ describe("hook script", function()
       run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd, extra), env)
 
       assert.equal("committed in web\n", store:get(work .. "/web/tracked.txt").text)
+    end)
+
+    it("takes bases in a worktree outside the folder that Claude reaches with cd", function()
+      -- ~/project holds the repositories, ~/project-worktrees/api-feat a worktree of api.
+      local outside = vim.fn.tempname()
+      vim.fn.mkdir(outside, "p")
+      outside = vim.uv.fs_realpath(outside)
+      git(work .. "/api", "worktree", "add", "-q", outside .. "/api-feat", "-b", "feat")
+      local file = outside .. "/api-feat/tracked.txt"
+      local cmd = { command = "cd " .. outside .. "/api-feat && make generate" }
+      run_hook("PreToolUse", tool("PreToolUse", "Bash", cmd))
+      write_file(file, "generated in api\n")
+
+      run_hook("PostToolUse", tool("PostToolUse", "Bash", cmd))
+
+      vim.fn.delete(outside, "rf")
+      assert.equal("committed in api\n", store:get(file).text)
     end)
   end)
 

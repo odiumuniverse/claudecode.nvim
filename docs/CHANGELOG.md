@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Bash in a worktree outside the project escaped review.** Claude Code puts its shell back into the project after a `cd` that leaves it, so `cd ~/project-worktrees/api-feat && make generate` ran with the hooks standing in the project, and the snapshot never saw the worktree. Now every Bash call also snapshots the worktrees of the project's repositories, those the command names first.
+- **A worktree inside the repository came up as a file.** `git ls-files --others` names `.claude/worktrees/x/` as a directory, and the hook took a base for it. Now the hook leaves such directories out and snapshots the worktree as one of its own.
+
 ## 1.2.0 (2026-10-21)
 
 Notes you can read over before they go and that go as a diff, review that keeps up with git and with folders of repositories, Claude's notifications in Neovim, and fewer upstream commands that did nothing in this flow.

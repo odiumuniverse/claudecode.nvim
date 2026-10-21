@@ -231,6 +231,12 @@ are reviewed:
   fmt` from the folder or `cd ../web` from a neighbor is reviewed too. The
   plugin snapshots them all at once; with 22 repositories that takes about
   0.3 s per Bash call.
+- Bash in a worktree: the one Claude works in, and every worktree of the
+  repositories above, also one outside the project that Claude reaches with
+  `cd`. Claude Code puts its shell back into the project after such a call,
+  so the hooks never stand in that worktree. A worktree inside the
+  repository, as `claude --worktree` makes them in `.claude/worktrees/`, is
+  reviewed as a worktree of its own.
 - A Bash command that moves HEAD (`git switch`, `pull`, `rebase`, `reset`):
   only your uncommitted work it threw away, and the edits Claude made after
   the checkout, compared with the new HEAD. The files git simply checked out

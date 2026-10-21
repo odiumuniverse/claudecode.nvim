@@ -157,7 +157,9 @@ local function pre_tool_use(store, input, env)
     end
   elseif input.tool_name == "Bash" then
     store:drop_stale_bash(M.STALE_BASH_S)
-    local snaps = require("claudecode.hooks.git").snapshots(input.cwd or uv.cwd(), env.project)
+    local tool_input = type(input.tool_input) == "table" and input.tool_input or {}
+    local command = type(tool_input.command) == "string" and tool_input.command or nil
+    local snaps = require("claudecode.hooks.git").snapshots(input.cwd or uv.cwd(), env.project, command)
     if #snaps > 0 then
       store:save_bash(input.tool_use_id, snaps, M.MAX_BYTES)
     end

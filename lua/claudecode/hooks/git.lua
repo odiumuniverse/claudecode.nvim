@@ -6,6 +6,8 @@
 
 local uv = vim.uv or vim.loop
 
+local repo = require("claudecode.review.repo")
+
 local M = {}
 
 -- `git hash-object -t tree /dev/null`: the tree of a repository with no commits yet.
@@ -76,6 +78,14 @@ local function split_z(out)
   return items
 end
 
+---What `ls-files --others` printed, without the directories: git names a repository or worktree inside
+---the work tree as a directory, and its files come up in its own snapshot.
+local function untracked_files(out)
+  return vim.tbl_filter(function(rel)
+    return rel:sub(-1) ~= "/"
+  end, split_z(out))
+end
+
 local function stat_key(path)
   local st = uv.fs_stat(path)
   if not st then
@@ -116,7 +126,7 @@ local function snapshot_of(top, head, stash, untracked_out)
     end
   end
   local untracked = {}
-  for i, rel in ipairs(split_z(untracked_out)) do
+  for i, rel in ipairs(untracked_files(untracked_out)) do
     untracked[rel] = i <= MAX_UNTRACKED_STAT and (stat_key(top .. "/" .. rel) or "") or ""
   end
   return { top = top, head = head, stash = stash, untracked = untracked }
@@ -127,20 +137,8 @@ end
 ---@param top string
 ---@return string|nil
 local function index_of(top)
-  local dotgit = top .. "/.git"
-  local stat = uv.fs_stat(dotgit)
-  if stat and stat.type == "directory" then
-    return dotgit .. "/index"
-  end
-  local f = stat and io.open(dotgit, "rb")
-  local dir = f and (f:read("*l") or ""):match("^gitdir: (.+)$")
-  if f then
-    f:close()
-  end
-  if not dir then
-    return nil
-  end
-  return (dir:sub(1, 1) == "/" and dir or top .. "/" .. dir) .. "/index"
+  local git_dir = repo.git_dir(top)
+  return git_dir and git_dir .. "/index" or nil
 end
 
 ---Start `stash create` on a copy of each index. On the index itself it takes `index.lock`: it would
@@ -205,22 +203,54 @@ local function repos_below(dir)
   return tops
 end
 
----Record the work trees a Bash call can touch: the repository around `cwd`, and, when the project
----root is no repository but a folder that holds several, each repository one level below it.
----@param cwd string
----@param project string|nil Where Claude was started; `cwd` when unknown
----@return table[] snaps As M.snapshot gives them; a repository git could not snapshot is left out
-function M.snapshots(cwd, project)
-  local root = project and project ~= "" and project or cwd
-  local top = M.toplevel(cwd)
-  local tops = { top }
-  if not (root == cwd and top or M.toplevel(root)) then
-    for _, repo in ipairs(repos_below(root)) do
-      if repo ~= top then
-        tops[#tops + 1] = repo
+---The worktrees of `tops` that are not among them: Claude may `cd` into one outside the project, where
+---Claude Code does not keep the shell, so the hooks still stand in the project. Those the command names
+---come first.
+---@param tops string[]
+---@param command string|nil The Bash command
+---@return string[] named Worktrees whose path is in the command
+---@return string[] others
+local function worktrees_of(tops, command)
+  local seen, named, others = {}, {}, {}
+  for _, top in ipairs(tops) do
+    seen[top] = true
+  end
+  for _, top in ipairs(tops) do
+    for _, tree in ipairs(repo.worktrees(top)) do
+      if not seen[tree] then
+        seen[tree] = true
+        local in_command = command
+          and (command:find(tree, 1, true) or command:find(vim.fn.fnamemodify(tree, ":~"), 1, true))
+        table.insert(in_command and named or others, tree)
       end
     end
   end
+  return named, others
+end
+
+---Record the work trees a Bash call can touch: the repository around `cwd`; when the project root is
+---no repository but a folder that holds several, each repository one level below it; and the
+---worktrees of all of them.
+---@param cwd string
+---@param project string|nil Where Claude was started; `cwd` when unknown
+---@param command string|nil The Bash command: the worktrees it names are snapshotted first
+---@return table[] snaps As M.snapshot gives them; a repository git could not snapshot is left out
+function M.snapshots(cwd, project, command)
+  local root = project and project ~= "" and project or cwd
+  local top = M.toplevel(cwd)
+  local below = {}
+  if not (root == cwd and top or M.toplevel(root)) then
+    for _, path in ipairs(repos_below(root)) do
+      if path ~= top then
+        below[#below + 1] = path
+      end
+    end
+  end
+  local named, others = worktrees_of(vim.list_extend(top and { top } or {}, below), command)
+  local tops = top and { top } or {}
+  vim.list_extend(tops, named)
+  vim.list_extend(tops, below)
+  vim.list_extend(tops, others)
   local count = math.min(#tops, M.MAX_REPOS)
   local taken = snapshot_all(vim.list_slice(tops, 1, count))
   local snaps = {}
@@ -345,7 +375,7 @@ local function changes_of(snap, head, diff_out, untracked_out)
     end
   end
   local now = {}
-  for _, rel in ipairs(split_z(untracked_out)) do
+  for _, rel in ipairs(untracked_files(untracked_out)) do
     now[rel] = true
     if before[rel] == nil then
       changes.created[#changes.created + 1] = top .. "/" .. rel
