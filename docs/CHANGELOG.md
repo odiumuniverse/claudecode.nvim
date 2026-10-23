@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 (2026-10-23)
 
 Fixes from a UX review: changes from outside Claude stay out of Claude's hunks, the changed words show, the hint stays in sight, and a part of a hunk can be kept or reverted.
 
