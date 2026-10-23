@@ -22,6 +22,7 @@ M.DEFAULT_HINT = "cs keep · cx revert"
 ---@class ClaudeCodeReviewDrawOpts
 ---@field word_diff? boolean  Highlight changed words inside paired lines (default true)
 ---@field hint? string|false Text at the end of the hunk under the cursor (default `DEFAULT_HINT`); false hides it
+---@field hint_overflow? "above"|"statusline" Where the hint goes when it does not fit at the end of the line (default "above")
 ---@field line_count? integer Lines of the text the hunks describe; an empty file is 0 although its buffer has one line
 
 ---Define the highlight groups. `default = true`, so a colorscheme can override them.
@@ -162,8 +163,14 @@ local function draw_hunk(bufnr, hunk, line_count, word_diff)
 
   for i = 1, hunk.cur_count do
     local row = hunk.cur_start - 1 + (i - 1)
+    -- A range to the start of the next line, not line_hl_group: Neovim draws a line_hl_group over
+    -- the background of every other highlight on the line, whatever their priorities, and the
+    -- changed words lost their color.
     vim.api.nvim_buf_set_extmark(bufnr, ns, row, 0, {
-      line_hl_group = "ClaudeCodeReviewAdd",
+      end_row = row + 1,
+      end_col = 0,
+      hl_group = "ClaudeCodeReviewAdd",
+      hl_eol = true,
       priority = LINE_PRIORITY,
       strict = false,
     })
@@ -197,12 +204,61 @@ end
 ---@type table<integer, integer>
 local hint_marks = {}
 
----Show the hint at the end of the first line of the hunk under the cursor; remove it elsewhere.
+---The hint of a buffer that went to the statusline, by buffer.
+---@type table<integer, string>
+local overflowing = {}
+
+---Does text `need` cells wide fit at the end of line `row` in every window that shows the buffer?
+---Neovim cuts end-of-line text at the window's edge, and the extmark shows in all of them.
+---@param bufnr integer
+---@param row integer
+---@param need integer
+---@return boolean
+local function fits_at_eol(bufnr, row, need)
+  local line = vim.api.nvim_buf_get_lines(bufnr, row - 1, row, false)[1] or ""
+  local width = vim.api.nvim_buf_call(bufnr, function()
+    return vim.fn.strdisplaywidth(line)
+  end)
+  for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+    local room = vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
+    local used
+    if vim.wo[win].wrap then
+      -- The text goes after the last screen line of a wrapped line.
+      used = width == 0 and 0 or (width - 1) % room + 1
+    else
+      used = math.max(0, width - vim.api.nvim_win_call(win, vim.fn.winsaveview).leftcol)
+    end
+    -- One cell stays between the line and the text.
+    if used + 1 + need > room then
+      return false
+    end
+  end
+  return true
+end
+
+---A line of its own above line 1 stays hidden until the window scrolls up into it ('topfill').
+---@param bufnr integer
+---@param fill integer Virtual lines above line 1
+local function show_above_first(bufnr, fill)
+  for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+    vim.api.nvim_win_call(win, function()
+      local view = vim.fn.winsaveview()
+      if view.topline == 1 and view.topfill < fill then
+        vim.fn.winrestview({ topline = 1, topfill = fill })
+      end
+    end)
+  end
+end
+
+---Show the hint at the end of the first line of the hunk under the cursor; remove it elsewhere. When
+---it does not fit there, it goes on a line of its own above the hunk, or to the statusline: at the
+---end of a long line in a narrow window the hint was cut off, and with it the keys.
 ---@param bufnr integer
 ---@param hunks ClaudeCodeHunk[]
 ---@param opts ClaudeCodeReviewDrawOpts
 function M.update_hint(bufnr, hunks, opts)
   opts = opts or {}
+  overflowing[bufnr] = nil
   if hint_marks[bufnr] then
     pcall(vim.api.nvim_buf_del_extmark, bufnr, ns, hint_marks[bufnr])
     hint_marks[bufnr] = nil
@@ -222,13 +278,35 @@ function M.update_hint(bufnr, hunks, opts)
   if not index then
     return
   end
-  local row = hunk_logic.anchor(hunks[index], line_count)
-  hint_marks[bufnr] = vim.api.nvim_buf_set_extmark(bufnr, ns, row - 1, 0, {
-    -- Which hunk of how many: the hunks left in this file at a glance.
-    virt_text = { { index .. "/" .. #hunks, "ClaudeCodeReviewCount" }, { "  " .. hint, "ClaudeCodeReviewHint" } },
-    virt_text_pos = "eol",
-    strict = false,
-  })
+  local row, above = hunk_logic.anchor(hunks[index], line_count)
+  -- Which hunk of how many: the hunks left in this file at a glance.
+  local chunks = { { index .. "/" .. #hunks, "ClaudeCodeReviewCount" }, { "  " .. hint, "ClaudeCodeReviewHint" } }
+  if fits_at_eol(bufnr, row, vim.fn.strdisplaywidth(chunks[1][1] .. chunks[2][1])) then
+    hint_marks[bufnr] = vim.api.nvim_buf_set_extmark(bufnr, ns, row - 1, 0, {
+      virt_text = chunks,
+      virt_text_pos = "eol",
+      strict = false,
+    })
+  elseif opts.hint_overflow == "statusline" then
+    overflowing[bufnr] = chunks[1][1] .. " " .. hint
+  else
+    -- Above the hunk, over its deleted lines.
+    hint_marks[bufnr] = vim.api.nvim_buf_set_extmark(bufnr, ns, row - 1, 0, {
+      virt_lines = { chunks },
+      virt_lines_above = true,
+      strict = false,
+    })
+    if row == 1 then
+      show_above_first(bufnr, 1 + (above and hunks[index].base_count or 0))
+    end
+  end
+end
+
+---The hint of the hunk under the cursor when it went to the statusline (`hint_overflow`), else nil.
+---@param bufnr integer
+---@return string|nil
+function M.overflowing_hint(bufnr)
+  return overflowing[bufnr]
 end
 
 ---Redraw every hunk of the buffer from scratch, hint included.
@@ -258,14 +336,7 @@ function M.draw(bufnr, hunks, opts)
   -- Neovim hides virtual lines above line 1 until the window scrolls up into them ('topfill').
   -- Show them in every window that sits at the top; a window scrolled further down keeps its view.
   if above_first > 0 then
-    for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
-      vim.api.nvim_win_call(win, function()
-        local view = vim.fn.winsaveview()
-        if view.topline == 1 and view.topfill < above_first then
-          vim.fn.winrestview({ topline = 1, topfill = above_first })
-        end
-      end)
-    end
+    show_above_first(bufnr, above_first)
   end
 end
 
@@ -273,6 +344,7 @@ end
 function M.clear(bufnr)
   vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
   hint_marks[bufnr] = nil
+  overflowing[bufnr] = nil
 end
 
 return M

@@ -119,6 +119,25 @@ describe("hook script", function()
     assert.equal("old\n", store:get(file).text)
   end)
 
+  it("takes a change made outside Claude between its edits into the base, not into Claude's hunks", function()
+    local file = work .. "/a.lua"
+    write_file(file, "a\nb\nc\nd\ne\n")
+    run_hook("PreToolUse", tool("PreToolUse", "Edit", { file_path = file }))
+    write_file(file, "a\nB\nc\nd\ne\n")
+    run_hook("PostToolUse", tool("PostToolUse", "Edit", { file_path = file }))
+
+    -- A formatter in another terminal, while Neovim did not look.
+    write_file(file, "a\nB\nc\nd\ne\nformatted\n")
+    local second = { tool_use_id = "toolu_02" }
+    run_hook("PreToolUse", tool("PreToolUse", "Edit", { file_path = file }, second))
+    write_file(file, "A\nB\nc\nd\ne\nformatted\n")
+    run_hook("PostToolUse", tool("PostToolUse", "Edit", { file_path = file }, second))
+
+    assert.equal("a\nb\nc\nd\ne\nformatted\n", store:get(file).text)
+    -- The editor finds the file as Claude's edit left it: nothing more to carry.
+    assert.is_false(store:absorb(file, read_file(file)))
+  end)
+
   it("tells Claude about your reverts with the next prompt, once", function()
     store:append_revert({ path = work .. "/a.lua", line = 2, base_lines = { "a" }, claude_lines = { "b" }, time = 1 })
 

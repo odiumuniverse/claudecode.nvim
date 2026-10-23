@@ -189,6 +189,70 @@ local function press(keys)
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(keys, true, false, true), "xt", false)
 end
 
+describe("review engine on a part of a hunk", function()
+  -- Claude renamed qty and added a method right after: one hunk of two changes.
+  local base = { "def add(qty)", "  append(qty)", "end" }
+  local claude = { "def add(quantity)", "  append(quantity)", "", "def discount(p)", "  self.p = p", "end" }
+
+  before_each(function()
+    review.setup({})
+  end)
+
+  after_each(helpers.reset)
+
+  it("reverts the selected lines on <leader>ax, writes the file, and tells only of them", function()
+    local bufnr, path = helpers.file_buffer(table.concat(claude, "\n") .. "\n")
+    local opts, calls = recorder()
+    review.attach(bufnr, base, opts)
+
+    press("3GV5G\\ax")
+
+    assert.same({ "def add(quantity)", "  append(quantity)", "end" }, lines(bufnr))
+    assert.equal("def add(quantity)\n  append(quantity)\nend\n", helpers.read_file(path))
+    assert.equal(1, #review.hunks(bufnr))
+    assert.same({ "def add(qty)", "  append(qty)" }, review.hunks(bufnr)[1].base_lines)
+    assert.equal(1, #calls.revert)
+    assert.same({ line = 3, base = {}, claude = { "", "def discount(p)", "  self.p = p" } }, {
+      line = calls.revert[1].line,
+      base = calls.revert[1].base_lines,
+      claude = calls.revert[1].claude_lines,
+    })
+  end)
+
+  it("keeps the selected lines on <leader>ak and leaves the file alone", function()
+    local text = table.concat(claude, "\n") .. "\n"
+    local bufnr, path = helpers.file_buffer(text)
+    local opts, calls = recorder()
+    review.attach(bufnr, base, opts)
+
+    press("1GV2G\\ak")
+    helpers.flush()
+
+    assert.equal(text, helpers.read_file(path))
+    assert.same({ "def add(quantity)", "  append(quantity)", "end" }, review.base(bufnr))
+    assert.same({ "", "def discount(p)", "  self.p = p" }, review.hunks(bufnr)[1].cur_lines)
+    assert.same({ "def add(quantity)", "  append(quantity)", "end" }, calls.base[#calls.base])
+  end)
+
+  it("takes the parts of two hunks in one selection, and says when it takes none", function()
+    local bufnr = helpers.buffer({ "A", "b", "C", "d" })
+    review.attach(bufnr, { "a", "b", "c", "d" }, { write_on_revert = false })
+
+    local said
+    local notify = vim.notify
+    vim.notify = function(msg)
+      said = msg
+    end
+    press("4GV4G\\ak")
+    vim.notify = notify
+    assert.equal("claudecode: no hunk here", said)
+    assert.equal(2, #review.hunks(bufnr))
+
+    press("1GV3G\\ax")
+    assert.same({ "a", "b", "c", "d" }, lines(bufnr))
+  end)
+end)
+
 describe("review engine keymaps", function()
   before_each(function()
     review.setup({})
@@ -1008,7 +1072,7 @@ describe("review engine user edits", function()
           return mark.row
         end,
         vim.tbl_filter(function(mark)
-          return mark.details.line_hl_group ~= nil
+          return mark.details.hl_group == "ClaudeCodeReviewAdd"
         end, helpers.marks(bufnr))
       )
     end
@@ -1125,7 +1189,7 @@ describe("review engine reload", function()
         return mark.row
       end,
       vim.tbl_filter(function(mark)
-        return mark.details.line_hl_group ~= nil
+        return mark.details.hl_group == "ClaudeCodeReviewAdd"
       end, helpers.marks(bufnr))
     )
     assert.same({ 6 }, rows)
@@ -1620,15 +1684,20 @@ describe("review engine on screen", function()
         return mark.details[key] ~= nil
       end, marks)
     end
+    local function of(group)
+      return vim.tbl_filter(function(mark)
+        return mark.details.hl_group == group
+      end, marks)
+    end
     -- rows of the added lines: the changed line 1 and the new last line
     assert.same(
       { 0, 6 },
       vim.tbl_map(function(mark)
         return mark.row
-      end, with("line_hl_group"))
+      end, of("ClaudeCodeReviewAdd"))
     )
     -- the changed word inside the first line
-    local words = with("hl_group")
+    local words = of("ClaudeCodeReviewAddText")
     assert.equal(1, #words)
     assert.equal(4, words[1].col)
     assert.equal(7, words[1].details.end_col)

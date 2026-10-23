@@ -32,6 +32,16 @@ local M = {}
 
 local sessions = {} ---@type table<string, ClaudeCodeProposal>
 
+---@class ClaudeCodeProviderConfig
+---@field hint? string|false The hint of a proposal, where the note key reverts with a reason; nil keeps the engine's
+
+local config = {} ---@type ClaudeCodeProviderConfig
+
+---@param opts ClaudeCodeProviderConfig|nil
+function M.setup(opts)
+  config = opts or {}
+end
+
 local function read_file(path)
   local f = io.open(path, "rb")
   if not f then
@@ -333,6 +343,7 @@ function M.open(ctx)
 
   engine.attach(buf, base_lines, {
     write_on_revert = false,
+    hint = config.hint,
     -- Claude waits for an answer here, so a note is no note for later: cr reverts the hunk and
     -- the reason goes to Claude with the answer.
     note = function(bufnr, first, last)
@@ -351,6 +362,9 @@ function M.open(ctx)
       end
     end,
   })
+  -- On the first hunk, as Enter in the list of files does: at the top of a long file the hunk and
+  -- its hint were out of sight, and the winbar names only :w.
+  engine.jump(buf, "first")
 end
 
 ---Claude closed the tab, or a new diff took its name: refuse all of the proposal, whatever hunks

@@ -19,6 +19,8 @@ local M = {}
 ---@field write_on_revert? boolean                    -- default true: cx writes the file at once
 ---@field notes? boolean                              -- false: no note keys
 ---@field note? fun(bufnr: integer, first: integer, last: integer) -- the note keys do this here instead
+---@field hint? string|false                          -- the hint here instead of the configured one
+---@field on_reload? fun()                             -- the buffer was read from disk again; hunks are recomputed first
 
 ---@class ClaudeCodeRevertRecord
 ---@field path string           -- absolute path of the buffer
@@ -39,6 +41,8 @@ local M = {}
 ---@field first? string|false
 ---@field note? string|false
 ---@field note_range? string|false
+---@field keep_range? string|false
+---@field revert_range? string|false
 
 ---@class ClaudeCodeReviewConfig
 ---@field keymaps ClaudeCodeReviewKeymaps
@@ -48,6 +52,7 @@ local M = {}
 ---@field note? fun(bufnr: integer, first: integer, last: integer) -- open a note on those lines; without it the note keys stay unmapped
 ---@field noted? fun(bufnr: integer, first: integer, last: integer): boolean -- a note on those lines: moving on skips the hunk
 ---@field hint string|false
+---@field hint_overflow "above"|"statusline" -- where the hint goes when it does not fit at the end of the line
 ---@field word_diff boolean
 
 ---@class ClaudeCodeReviewDirty
@@ -85,10 +90,13 @@ local DEFAULT_CONFIG = {
     first = "[K",
     note = "cr",
     note_range = "<leader>an",
+    keep_range = "<leader>ak",
+    revert_range = "<leader>ax",
   },
   advance = "hunk",
   cross_files = true,
   hint = render.DEFAULT_HINT,
+  hint_overflow = "above",
   word_diff = true,
 }
 
@@ -144,6 +152,10 @@ local function check_setup_opts(opts)
       if value ~= false and type(value) ~= "string" then
         fail("hint must be a string or false, got " .. vim.inspect(value))
       end
+    elseif key == "hint_overflow" then
+      if value ~= "above" and value ~= "statusline" then
+        fail("hint_overflow must be 'above' or 'statusline', got " .. vim.inspect(value))
+      end
     elseif key == "word_diff" then
       if type(value) ~= "boolean" then
         fail("word_diff must be a boolean, got " .. vim.inspect(value))
@@ -154,7 +166,7 @@ local function check_setup_opts(opts)
   end
 end
 
----@param opts { keymaps?: ClaudeCodeReviewKeymaps, advance?: "hunk"|"file"|false, cross_files?: boolean, goto_file?: fun(bufnr: integer, direction: "next"|"prev"): boolean, hint?: string|false, word_diff?: boolean }|nil
+---@param opts { keymaps?: ClaudeCodeReviewKeymaps, advance?: "hunk"|"file"|false, cross_files?: boolean, goto_file?: fun(bufnr: integer, direction: "next"|"prev"): boolean, hint?: string|false, hint_overflow?: "above"|"statusline", word_diff?: boolean }|nil
 function M.setup(opts)
   check_setup_opts(opts)
   config = vim.tbl_deep_extend("force", DEFAULT_CONFIG, opts or {})
@@ -164,7 +176,7 @@ end
 ---@param what string
 ---@param err any
 local function report_error(what, err)
-  vim.notify(("claudecode review: %s failed: %s"):format(what, tostring(err)), vim.log.levels.ERROR)
+  vim.notify(("claudecode: review %s failed: %s"):format(what, tostring(err)), vim.log.levels.ERROR)
 end
 
 ---Call a caller-supplied callback. A broken callback must not take the engine down with it.
@@ -206,7 +218,11 @@ end
 ---@param st ClaudeCodeReviewState
 ---@return ClaudeCodeReviewDrawOpts
 local function draw_opts(st)
-  return { word_diff = config.word_diff, hint = config.hint, line_count = st.line_count }
+  local hint = config.hint
+  if st.opts.hint ~= nil then
+    hint = st.opts.hint
+  end
+  return { word_diff = config.word_diff, hint = hint, hint_overflow = config.hint_overflow, line_count = st.line_count }
 end
 
 ---@param st ClaudeCodeReviewState
@@ -410,14 +426,18 @@ local function on_user_edit(st, first, last_old, last_new)
   schedule_flush(st)
 end
 
----The buffer was read from disk again (checktime, `:edit`): Claude wrote the file, so nothing is
----carried into the base; the hunks are simply worked out again.
+---The buffer was read from disk again (checktime, `:edit`): the hunks are worked out again against
+---the same base. Whether the change was Claude's is for the caller to say (`on_reload`): the engine
+---knows nothing of hooks.
 ---@param st ClaudeCodeReviewState
 local function on_reload(st)
   st.reloaded = true
   st.stamp = disk.stamp(st.bufnr)
   recompute(st)
   schedule_flush(st)
+  if st.opts.on_reload then
+    st.opts.on_reload()
+  end
 end
 
 local watch_buffer
@@ -517,7 +537,7 @@ end
 local function pick_index(st, index)
   index = index or hunk_under_cursor(st)
   if not (index and st.hunks[index]) then
-    vim.notify("claudecode review: no hunk here", vim.log.levels.INFO)
+    vim.notify("claudecode: no hunk here", vim.log.levels.INFO)
     return nil
   end
   return index
@@ -746,6 +766,17 @@ mappings_for = function(bufnr)
   add("first", "first hunk", function()
     jump(bufnr, "first", 1)
   end)
+  -- In visual mode `c` acts at once, so the keys for a part of a hunk sit on the leader, as a range
+  -- note does.
+  local function on_selection(action)
+    return function()
+      local a, b = vim.fn.line("v"), vim.fn.line(".")
+      vim.cmd.normal({ args = { vim.keycode("<Esc>") }, bang = true })
+      action(bufnr, math.min(a, b), math.max(a, b))
+    end
+  end
+  add("keep_range", "keep the selected lines", on_selection(M.keep_range), "x")
+  add("revert_range", "revert the selected lines", on_selection(M.revert_range), "x")
   local st = states[bufnr]
   local note = st and st.opts.note or config.note
   if note and not (st and st.opts.notes == false) then
@@ -934,25 +965,22 @@ local function disk_is_current(st)
   local advice = modified
       and "The buffer has unsaved edits, so it was not reloaded: reload it with :edit! or save it with :write!."
     or "The buffer was reloaded and the hunks are up to date: revert again if you still want to."
-  vim.notify("claudecode review: the file changed on disk, nothing was reverted. " .. advice, vim.log.levels.WARN)
+  vim.notify("claudecode: the file changed on disk, nothing was reverted. " .. advice, vim.log.levels.WARN)
   return false
 end
 
----Revert hunks (indices ascending) in one undo step, tell the caller about each, then save the file.
+---Revert hunks, or parts of hunks (top to bottom), in one undo step, tell the caller about each, then
+---save the file.
 ---@param st ClaudeCodeReviewState
----@param indices integer[]
+---@param reverted ClaudeCodeHunk[]
 ---@return boolean done
-local function revert_hunks(st, indices)
+local function revert_hunks(st, reverted)
   local bufnr = st.bufnr
   local write = st.opts.write_on_revert ~= false and disk.path(bufnr) ~= nil
   if write and not disk_is_current(st) then
     return false
   end
 
-  local reverted = {}
-  for i, index in ipairs(indices) do
-    reverted[i] = st.hunks[index]
-  end
   -- An empty file is one empty line in the buffer: replace that line instead of inserting next to it.
   local buffer_is_empty = #current_lines(st) == 0
 
@@ -1022,7 +1050,7 @@ function M.revert(bufnr, index)
   end
   index = pick_index(st, index)
   if index then
-    revert_hunks(st, { index })
+    revert_hunks(st, { st.hunks[index] })
   end
 end
 
@@ -1040,23 +1068,85 @@ function M.revert_lines(bufnr, first, last)
   if st.dead then
     return false
   end
-  local indices = {}
-  for i, hunk in ipairs(st.hunks) do
+  local touched = {}
+  for _, hunk in ipairs(st.hunks) do
     local top = hunk_logic.anchor(hunk, st.line_count)
     local bottom = hunk.cur_count > 0 and hunk.cur_start + hunk.cur_count - 1 or top
     if top <= last and bottom >= first then
-      indices[#indices + 1] = i
+      touched[#touched + 1] = hunk
     end
   end
-  if #indices == 0 then
+  if #touched == 0 then
     return false
   end
-  local from = hunk_logic.anchor(st.hunks[indices[1]], st.line_count)
-  if not revert_hunks(st, indices) then
+  local from = hunk_logic.anchor(touched[1], st.line_count)
+  if not revert_hunks(st, touched) then
     return false
   end
   move_on(bufnr, from)
   return true
+end
+
+---The parts of the hunks on lines `first`..`last` (hunks.part), top to bottom.
+---@param st ClaudeCodeReviewState
+---@param first integer
+---@param last integer
+---@return ClaudeCodeHunk[]
+local function parts_of(st, first, last)
+  local parts = {}
+  for _, hunk in ipairs(st.hunks) do
+    parts[#parts + 1] = hunk_logic.part(hunk, first, last, st.line_count)
+  end
+  if #parts == 0 then
+    vim.notify("claudecode: no hunk here", vim.log.levels.INFO)
+  end
+  return parts
+end
+
+---Revert only what Claude changed on lines `first`..`last`: the rest of the hunk keeps waiting. A
+---hunk of a rename and a new method could only be kept or reverted whole.
+---@param bufnr integer
+---@param first integer
+---@param last integer
+function M.revert_range(bufnr, first, last)
+  local st = state_of(bufnr)
+  if not st then
+    return
+  end
+  flush(st)
+  if st.dead then
+    return
+  end
+  local parts = parts_of(st, first, last)
+  if #parts > 0 then
+    revert_hunks(st, parts)
+  end
+end
+
+---Keep only what Claude changed on lines `first`..`last`: it goes into the base, the rest of the
+---hunk keeps waiting.
+---@param bufnr integer
+---@param first integer
+---@param last integer
+function M.keep_range(bufnr, first, last)
+  local st = state_of(bufnr)
+  if not st then
+    return
+  end
+  flush(st)
+  if st.dead then
+    return
+  end
+  local parts = parts_of(st, first, last)
+  -- Bottom up, so the base lines of the parts above stay where they are.
+  for i = #parts, 1, -1 do
+    st.base = hunk_logic.keep(st.base, parts[i])
+  end
+  if #parts > 0 then
+    st.dirty.base = true
+    recompute(st)
+    flush(st)
+  end
 end
 
 ---Keep a hunk: Claude's text becomes the base, the buffer stays as it is.
@@ -1109,11 +1199,7 @@ function M.revert_all(bufnr)
   if st.dead or #st.hunks == 0 then
     return
   end
-  local indices = {}
-  for i = 1, #st.hunks do
-    indices[i] = i
-  end
-  revert_hunks(st, indices)
+  revert_hunks(st, st.hunks)
 end
 
 return M

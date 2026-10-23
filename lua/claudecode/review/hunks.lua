@@ -252,24 +252,73 @@ end
 ---became `[first, last_new)` of the new one; `hunks` are the hunks from before the edit.
 ---Returns the 0-based half-open range `[base_first, base_last)` of the base that the old segment
 ---corresponds to, or `nil` when the edit overlaps a hunk or touches its border (it belongs to the hunk then).
+---`strict` lets an edit right at the border of a hunk go to the base: only an edit that overlaps the
+---lines of a hunk, or touches the place where a hunk deleted lines, belongs to it.
 ---@param hunks ClaudeCodeHunk[]
 ---@param first integer
 ---@param last_old integer
 ---@param last_new integer
+---@param strict? boolean
 ---@return integer|nil base_first
 ---@return integer|nil base_last
-function M.map_edit(hunks, first, last_old, last_new)
+function M.map_edit(hunks, first, last_old, last_new, strict)
   local shift = 0
   for _, hunk in ipairs(hunks) do
     local start, stop = buffer_range(hunk)
-    if first <= stop and last_old >= start then
+    local overlaps
+    if strict and start < stop then
+      overlaps = first < stop and last_old > start
+    else
+      overlaps = first <= stop and last_old >= start
+    end
+    if overlaps then
       return nil, nil
     end
-    if first > stop then
+    if first >= stop then
       shift = shift + hunk.cur_count - hunk.base_count
     end
   end
   return first - shift, last_old - shift
+end
+
+---The part of `hunk` on buffer lines `first`..`last`, as gitsigns stages a part: the selected added
+---lines go with the deleted lines at the same places, and a part that reaches the end of the hunk takes
+---the deleted lines left over too. A hunk that only deletes lines has none to select: it goes whole
+---when the selection holds the line it hangs on. Nil when the selection misses the hunk.
+---@param hunk ClaudeCodeHunk
+---@param first integer
+---@param last integer
+---@param line_count integer
+---@return ClaudeCodeHunk|nil
+function M.part(hunk, first, last, line_count)
+  if hunk.cur_count == 0 then
+    local row = M.anchor(hunk, line_count)
+    return (row >= first and row <= last) and vim.deepcopy(hunk) or nil
+  end
+  local i = math.max(first, hunk.cur_start) - hunk.cur_start + 1
+  local j = math.min(last, hunk.cur_start + hunk.cur_count - 1) - hunk.cur_start + 1
+  if i > j then
+    return nil
+  end
+  local base_last = j == hunk.cur_count and hunk.base_count or math.min(j, hunk.base_count)
+  local base_lines = i <= base_last and vim.list_slice(hunk.base_lines, i, base_last) or {}
+  local base_start
+  if #base_lines > 0 then
+    base_start = hunk.base_start + i - 1
+  elseif hunk.base_count == 0 then
+    base_start = hunk.base_start
+  else
+    -- No deleted line goes with it: an insertion after the deleted lines that stay.
+    base_start = hunk.base_start - 1 + math.min(i - 1, hunk.base_count)
+  end
+  return {
+    base_start = base_start,
+    base_count = #base_lines,
+    cur_start = hunk.cur_start + i - 1,
+    cur_count = j - i + 1,
+    base_lines = base_lines,
+    cur_lines = vim.list_slice(hunk.cur_lines, i, j),
+  }
 end
 
 ---New base after the user keeps `hunk`: its base range is replaced by Claude's lines.
@@ -291,11 +340,14 @@ end
 ---New base after an edit that needs no review (Claude in accept-edits mode) turned `before` into
 ---`after`. Parts of the edit away from the pending hunks (base → before) go into the base, the way
 ---your own edits outside a hunk do; a part that overlaps or touches a pending hunk stays in it.
+---With `strict`, a part right at the border of a hunk goes into the base (`map_edit`): a change from
+---outside Claude next to its hunk is not Claude's.
 ---@param base_lines string[]
 ---@param before_lines string[] The file before the edit
 ---@param after_lines string[] The file after the edit
+---@param strict? boolean
 ---@return string[]
-function M.carry(base_lines, before_lines, after_lines)
+function M.carry(base_lines, before_lines, after_lines, strict)
   local pending = M.compute(base_lines, before_lines)
   local edits = M.compute(before_lines, after_lines)
   local result = vim.list_slice(base_lines, 1, #base_lines)
@@ -303,7 +355,7 @@ function M.carry(base_lines, before_lines, after_lines)
   for i = #edits, 1, -1 do
     local edit = edits[i]
     local first = edit.base_count == 0 and edit.base_start or edit.base_start - 1
-    local base_first, base_last = M.map_edit(pending, first, first + edit.base_count, first + edit.cur_count)
+    local base_first, base_last = M.map_edit(pending, first, first + edit.base_count, first + edit.cur_count, strict)
     if base_first then
       local head = vim.list_slice(result, 1, base_first)
       vim.list_extend(head, edit.cur_lines)

@@ -365,6 +365,51 @@ describe("review picker", function()
     assert.is_nil(store:get(b))
   end)
 
+  describe("a new file reverted whole", function()
+    local said, notify
+
+    before_each(function()
+      said = {}
+      notify = vim.notify
+      vim.notify = function(msg)
+        said[#said + 1] = msg
+      end
+    end)
+
+    after_each(function()
+      vim.notify = notify
+    end)
+
+    it("goes with the folders it leaves empty, up to the repository, and says so", function()
+      vim.fn.system({ "git", "init", "-q", work })
+      vim.fn.mkdir(work .. "/new/deep", "p")
+      vim.fn.mkdir(work .. "/kept", "p")
+      write_file(work .. "/kept/other.txt", "x\n")
+      local b = changed("new/deep/b.txt", nil, "new\n")
+      local c = changed("kept/c.txt", nil, "c\n")
+
+      picker.revert_files({ b })
+      picker.revert_files({ c })
+
+      assert.is_nil(read_file(b))
+      assert.is_nil(vim.uv.fs_stat(work .. "/new"))
+      assert.is_not_nil(vim.uv.fs_stat(work .. "/kept/other.txt"))
+      assert.is_not_nil(vim.uv.fs_stat(work .. "/.git"))
+      assert.matches("removed .*new/deep/b%.txt, you reverted the whole new file", said[1])
+      assert.matches("removed .*kept/c%.txt, you reverted the whole new file", said[2])
+    end)
+
+    it("leaves the folders of a file outside every repository and the project alone", function()
+      vim.fn.mkdir(work .. "/memory", "p")
+      local m = changed("memory/note.md", nil, "note\n")
+
+      picker.revert_files({ m })
+
+      assert.is_nil(read_file(m))
+      assert.is_not_nil(vim.uv.fs_stat(work .. "/memory"))
+    end)
+  end)
+
   it("refuses to revert a file whose buffer has unsaved edits and no review", function()
     -- You were editing a.txt when Claude rewrote it on disk: the buffer never came under review.
     local a = work .. "/a.txt"
@@ -383,6 +428,26 @@ describe("review picker", function()
 
     assert.equal(vim.log.levels.WARN, warned)
     assert.equal("two\n", read_file(a))
+    assert.is_not_nil(store:get(a))
+  end)
+
+  it("refuses to revert a file under review whose buffer has unsaved edits", function()
+    -- From the list the buffer is out of sight: writing it would save edits you never saw go.
+    local a = changed("a.txt", "one\ntwo\n", "one\nTWO\n")
+    vim.cmd.edit(a)
+    assert.is_true(require("claudecode.review").is_attached(0))
+    vim.api.nvim_buf_set_lines(0, 0, 1, false, { "mine" })
+    local notify = vim.notify
+    local warned
+    vim.notify = function(msg, level)
+      warned = level
+    end
+
+    picker.revert_all(a)
+    vim.notify = notify
+
+    assert.equal(vim.log.levels.WARN, warned)
+    assert.equal("one\nTWO\n", read_file(a))
     assert.is_not_nil(store:get(a))
   end)
 
@@ -509,5 +574,24 @@ describe("review picker", function()
     assert.equal("snacks", picker.backend("auto"))
     _G.Snacks = snacks
     assert.equal("select", picker.backend("select"))
+  end)
+
+  it("takes the picker LazyVim is set to, when it can show that one", function()
+    local snacks, preload = rawget(_G, "Snacks"), package.preload["fzf-lua"]
+    _G.Snacks = { picker = { pick = function() end } }
+    package.preload["fzf-lua"] = function()
+      return {}
+    end
+
+    vim.g.lazyvim_picker = "fzf"
+    local fzf = picker.backend("auto")
+    vim.g.lazyvim_picker = "telescope"
+    local telescope = picker.backend("auto")
+    vim.g.lazyvim_picker = "fzf"
+    local chosen = picker.backend("snacks")
+
+    vim.g.lazyvim_picker = nil
+    _G.Snacks, package.preload["fzf-lua"], package.loaded["fzf-lua"] = snacks, preload, nil
+    assert.same({ "fzf", "snacks", "snacks" }, { fzf, telescope, chosen })
   end)
 end)

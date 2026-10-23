@@ -7,6 +7,35 @@
 
 local M = {}
 
+---Global mappings of other plugins that a review key hides in a buffer under review, or that make it
+---wait for 'timeoutlen': the same key, or a longer one that starts with it (vim-abolish's crs after
+---cr). The plugin's own global mappings say "Claude" first in their description.
+---@param review ClaudeCodeReviewConfig
+---@return string[]
+local function foreign_mappings(review)
+  local keys = { n = {}, x = {} }
+  for name, lhs in pairs(review.keymaps) do
+    if lhs then
+      -- note_range, keep_range and revert_range act on a selection.
+      table.insert(name:find("_range$") and keys.x or keys.n, lhs)
+    end
+  end
+  local found = {}
+  for mode, list in pairs(keys) do
+    local maps = vim.api.nvim_get_keymap(mode)
+    for _, lhs in ipairs(list) do
+      local key = vim.keycode(lhs)
+      for _, map in ipairs(maps) do
+        if vim.keycode(map.lhs):sub(1, #key) == key and not (map.desc or ""):find("^Claude") then
+          found[#found + 1] = ("%s is also mapped (%s)"):format(map.lhs, map.desc or map.rhs or "a Lua function")
+        end
+      end
+    end
+  end
+  table.sort(found)
+  return found
+end
+
 function M.check()
   local health = vim.health
   local features = require("claudecode.features")
@@ -78,6 +107,10 @@ function M.check()
     end
 
     health.info("File list uses " .. require("claudecode.review.picker").backend(config.review.picker))
+
+    for _, line in ipairs(foreign_mappings(config.review)) do
+      health.warn(line .. ": in a buffer under review the review's key wins; review.keymaps can move it")
+    end
   end
 
   health.start("Zen")

@@ -306,13 +306,15 @@ local function revert_one(path)
     return
   end
   local buf = loaded_buf(path)
-  if buf and engine().is_attached(buf) then
-    engine().revert_all(buf)
-    return
-  end
   local rel = vim.fn.fnamemodify(path, ":~:.")
+  -- Under review or not: from the list the buffer is out of sight, and cX there writes your unsaved
+  -- edits with the revert.
   if buf and vim.bo[buf].modified then
     vim.notify("claudecode: " .. rel .. " has unsaved edits; save or drop them first", vim.log.levels.WARN)
+    return
+  end
+  if buf and engine().is_attached(buf) then
+    engine().revert_all(buf)
     return
   end
   local base = store:get(path)
@@ -330,10 +332,7 @@ local function revert_one(path)
     })
   end
   if base.new_file then
-    vim.fn.delete(path)
-    if buf then
-      pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    end
+    controller().remove_new_file(path, buf)
   else
     -- Claude may have removed the file's directory with it.
     vim.fn.mkdir(vim.fs.dirname(path), "p")
@@ -603,6 +602,11 @@ end
 function M.backend(backend)
   if backend and backend ~= "auto" then
     return backend
+  end
+  -- The picker LazyVim is set to: snacks.nvim comes with the plugin, so snacks.picker is always
+  -- there, and a LazyVim on fzf-lua got a list unlike the rest of its pickers.
+  if vim.g.lazyvim_picker == "fzf" and pcall(require, "fzf-lua") then
+    return "fzf"
   end
   local Snacks = rawget(_G, "Snacks")
   if Snacks and Snacks.picker and type(Snacks.picker.pick) == "function" then

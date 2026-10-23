@@ -18,6 +18,8 @@ local M = {}
 ---@field sessions string[] Claude sessions that edited the file; empty for a base made before sessions were tracked
 ---@field top string|nil The git work tree of the file; nil outside git and for a base made before HEAD was tracked
 ---@field head string|nil The commit HEAD pointed to when the base last matched it (DESIGN p. 15)
+---@field known string|nil The file as review last knew it (DESIGN p. 14), in a file of its own next to the
+---  base; only `update` reads it, and nil means review never learned it
 
 ---@class ClaudeCodeReviewStore
 ---@field dir string
@@ -364,9 +366,23 @@ function Store:set_head(path, head)
   end)
 end
 
+---Replace the text review last knew of a file, next to its base, in one step.
+---@param final string The base file
+---@param known string
+---@return boolean
+local function replace_known(final, known)
+  local tmp = tmp_name(final .. ".known")
+  if not write_all(tmp, known) then
+    uv.fs_unlink(tmp)
+    return false
+  end
+  return uv.fs_rename(tmp, final .. ".known") == true
+end
+
 ---Change the text of the base of `path`, reading it and writing it back under one lock: a change that
 ---was computed from an older base would undo what you kept or decided in between. Nothing happens
----for a file without a base, so a base you just finished with is not made again.
+---for a file without a base, so a base you just finished with is not made again. `change` finds
+---`base.known` read under the same lock, and what it sets there is written with the text.
 ---@param path string
 ---@param change fun(base: ClaudeCodeReviewBase): string|nil New text of the base; nothing leaves it as it is
 ---@return boolean changed
@@ -375,13 +391,81 @@ function Store:update(path, change)
   local final = self:_base_file(path)
   return with_lock(final, self.lock_wait_ms, function()
     local base = self:get(path)
-    local text = base and change(base)
-    if not text then
+    if not base then
       return false
     end
-    base.text = text
-    return replace_base(final, base)
+    base.known = read_all(final .. ".known")
+    local known = base.known
+    local text = change(base)
+    local changed = false
+    if text then
+      base.text = text
+      changed = replace_base(final, base)
+    end
+    if base.known ~= nil and base.known ~= known then
+      changed = replace_known(final, base.known) or changed
+    end
+    return changed
   end)
+end
+
+---Write down the file as Claude's tool call or the editor's own write left it: review knows it now.
+---@param path string
+---@param known string
+---@return boolean changed
+function Store:set_known(path, known)
+  return self:update(path, function(base)
+    base.known = known
+  end)
+end
+
+---Move base text along a change from outside Claude that turned `before` into `after`: the parts
+---away from the hunks still waiting go into the base, also right next to one; the parts that overlap
+---one stay in it (hunks.carry, strict).
+---@param base_text string
+---@param before string
+---@param after string
+---@return string
+function M.carry(base_text, before, after)
+  local text = require("claudecode.review.text")
+  local lines = require("claudecode.review.hunks").carry(
+    (text.to_lines(base_text)),
+    (text.to_lines(before)),
+    (text.to_lines(after)),
+    true
+  )
+  local eol = base_text == "" and after:sub(-1) == "\n" or base_text:sub(-1) == "\n"
+  return text.to_text(lines, eol)
+end
+
+---A change made to the file outside Claude's tool calls joins the base, not Claude's hunks: what
+---changed between the text review last knew and `current` is carried into the base, as an edit taken
+---without review is (DESIGN p. 14). A base that never learned the text learns `current` and moves
+---nothing, as review did before it kept the text.
+---@param path string
+---@param current string|nil The file now; nil, a deleted file, changes nothing
+---@return boolean carried The base moved
+function Store:absorb(path, current)
+  if current == nil then
+    return false
+  end
+  local final = self:_base_file(M.normalize(path))
+  -- Nearly every base is as review knew it: no lock for those.
+  if read_all(final .. ".known") == current then
+    return false
+  end
+  local carried = false
+  self:update(path, function(base)
+    if base.known == nil or base.known == current then
+      base.known = current
+      return nil
+    end
+    local text = M.carry(base.text, base.known, current)
+    base.known = current
+    carried = text ~= base.text
+    return carried and text or nil
+  end)
+  return carried
 end
 
 ---@param path string
@@ -389,6 +473,7 @@ function Store:remove(path)
   local final = self:_base_file(M.normalize(path))
   with_lock(final, self.lock_wait_ms, function()
     uv.fs_unlink(final)
+    uv.fs_unlink(final .. ".known")
   end)
 end
 
@@ -644,6 +729,26 @@ function Store:drop_stale_bash(max_age)
       end
     end
   end
+end
+
+---Is a Bash call of Claude's under way, one that may be writing any file? Its snapshot stays until
+---its PostToolUse; a snapshot older than `max_age` belongs to a call that never finished.
+---@param max_age integer Seconds
+---@return boolean
+function Store:bash_running(max_age)
+  local handle = uv.fs_scandir(self.dir .. "/bash")
+  local cutoff = os.time() - max_age
+  while handle do
+    local name = uv.fs_scandir_next(handle)
+    if not name then
+      break
+    end
+    local stat = name:match("^[%w_-]+%.json$") and uv.fs_stat(self.dir .. "/bash/" .. name)
+    if stat and stat.mtime.sec >= cutoff then
+      return true
+    end
+  end
+  return false
 end
 
 ---Remove the copies of untracked files that a Bash call kept, once PostToolUse has read them.

@@ -86,15 +86,36 @@ function M.store()
   return state.store
 end
 
----A whole new file you reverted is Claude's file, not yours: remove it from disk.
-local function remove_new_file(buf, path)
-  vim.schedule(function()
-    if vim.api.nvim_buf_is_valid(buf) then
-      pcall(vim.api.nvim_buf_delete, buf, { force = true })
-    end
-    vim.fn.delete(path)
-    vim.notify("claudecode: removed " .. vim.fn.fnamemodify(path, ":~:.") .. ", you reverted the whole new file")
-  end)
+---How far up the folders a new file leaves empty may go: to its work tree, else to the project around
+---Neovim's directory. A file outside both (Claude's memory under ~/.claude, say) takes no folder along.
+---@param path string
+---@return string|nil
+local function cleanup_limit(path)
+  local top = repo.top_of(path)
+  if top then
+    return top
+  end
+  local cwd = uv.fs_realpath(vim.fn.getcwd()) or vim.fn.getcwd()
+  local root = repo.top_of(cwd) or cwd
+  return vim.startswith(path, root .. "/") and root or nil
+end
+
+---A whole new file you reverted is Claude's file, not yours: remove it from disk with the folders it
+---leaves empty, and say so. The list of files used to delete it without a word and leave its folder.
+---@param path string
+---@param buf integer|nil Its buffer, wiped with it
+function M.remove_new_file(path, buf)
+  if buf and vim.api.nvim_buf_is_valid(buf) then
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end
+  local limit = cleanup_limit(path)
+  vim.fn.delete(path)
+  -- fs_rmdir removes only an empty folder.
+  local dir = vim.fs.dirname(path)
+  while limit and vim.startswith(dir, limit .. "/") and uv.fs_rmdir(dir) do
+    dir = vim.fs.dirname(dir)
+  end
+  vim.notify("claudecode: removed " .. vim.fn.fnamemodify(path, ":~:.") .. ", you reverted the whole new file")
 end
 
 ---An edit that Claude Code was not allowed to make never reports back, and what changed in the file
@@ -117,6 +138,33 @@ end
 ---@return boolean
 function M.in_doubt(path)
   return state.store ~= nil and state.store:in_doubt(path, M.EDITING_MAX_AGE_S)
+end
+
+---A change made to the file outside Claude's tool calls (a formatter, a generator, git without moving
+---HEAD, an editor elsewhere) goes into the base, not into Claude's hunks (Store:absorb). Not while
+---Claude may be writing the file, an edit of it or any Bash call under way, and not while its buffer
+---holds unsaved edits of yours: those go into the base as you type. At first every change on disk
+---joined Claude's hunks, and a revert threw away someone else's work.
+---@param path string
+---@param editing table<string, true> Paths of the edits under way
+---@param bash_running? boolean A Bash call is under way; looked up when not given
+---@return boolean carried The base moved
+local function absorb(path, editing, bash_running)
+  local store = state.store
+  if not store or editing[path] or store:in_doubt(path, M.EDITING_MAX_AGE_S) then
+    return false
+  end
+  if bash_running == nil then
+    bash_running = store:bash_running(M.EDITING_MAX_AGE_S)
+  end
+  if bash_running then
+    return false
+  end
+  local buf = loaded_buf(path)
+  if buf and vim.bo[buf].modified then
+    return false
+  end
+  return store:absorb(path, read_file(path))
 end
 
 ---No hunk holds the final newline. When the text that came back reaches the end of the file, the
@@ -147,7 +195,7 @@ function M.attach_if_pending(buf)
   end
   local path = store_mod.normalize(name)
   local store = state.store
-  forget_refused(store)
+  absorb(path, forget_refused(store))
   local base = store:get(path)
   if not base then
     if engine.is_attached(buf) then
@@ -184,9 +232,20 @@ function M.attach_if_pending(buf)
         require("claudecode.review.notes").drop_file(path)
       end
       if base.new_file and reverted and empty then
-        remove_new_file(buf, path)
+        vim.schedule(function()
+          M.remove_new_file(path, buf)
+        end)
       end
       M.refresh_pending()
+    end,
+    -- Read from disk again: a change from outside Claude goes into the base, and the review starts
+    -- over on the new base. Later, since the engine is in the middle of its own callback.
+    on_reload = function()
+      vim.schedule(function()
+        if vim.api.nvim_buf_is_valid(buf) and absorb(path, forget_refused(store)) then
+          M.attach_if_pending(buf)
+        end
+      end)
     end,
   })
   require("claudecode.review.notes").map_send(buf)
@@ -417,6 +476,13 @@ function M.refresh_pending()
     local editing = forget_refused(state.store)
     local bases = state.store:list()
     moved = follow_heads(state.store, bases, editing)
+    -- A change from outside Claude goes into the base before anything is counted.
+    local bash_running = state.store:bash_running(M.EDITING_MAX_AGE_S)
+    for _, base in ipairs(bases) do
+      if absorb(base.path, editing, bash_running) then
+        moved[#moved + 1] = base.path
+      end
+    end
     if #moved > 0 then
       bases = state.store:list()
     end
@@ -466,11 +532,14 @@ function M.pending()
 end
 
 ---What waits for you as a short text for a statusline: "review: 2 files · 3 notes", or "" when
----nothing waits, so that a statusline component disappears.
+---nothing waits, so that a statusline component disappears. Called without counts, as a statusline
+---does, it starts with the hint of the hunk under the cursor when that went to the statusline
+---(`hint_overflow`); zen passes its counts and keeps its counter short.
 ---@param files? integer Files waiting for review; the controller's count by default
 ---@param notes? integer Notes not sent yet
 ---@return string
 function M.status(files, notes)
+  local hint = files == nil and require("claudecode.review.render").overflowing_hint(vim.api.nvim_get_current_buf())
   files = files or #state.pending
   notes = notes or require("claudecode.review.notes").count()
   local parts = {}
@@ -480,7 +549,11 @@ function M.status(files, notes)
   if notes > 0 then
     parts[#parts + 1] = ("%d %s"):format(notes, notes == 1 and "note" or "notes")
   end
-  return #parts > 0 and ("review: " .. table.concat(parts, " · ")) or ""
+  local counts = #parts > 0 and ("review: " .. table.concat(parts, " · ")) or ""
+  if hint then
+    return counts == "" and hint or (hint .. " · " .. counts)
+  end
+  return counts
 end
 
 ---Open the file after (or before) the one in `bufnr` among the files waiting for review, at its
@@ -512,7 +585,7 @@ function M.goto_file(bufnr, direction)
   end
   local ok, err = pcall(vim.cmd.edit, vim.fn.fnameescape(target))
   if not ok then
-    vim.notify("claudecode review: " .. tostring(err), vim.log.levels.WARN)
+    vim.notify("claudecode: " .. tostring(err), vim.log.levels.WARN)
     return false
   end
   engine.jump(vim.api.nvim_get_current_buf(), forward and "first" or "last")

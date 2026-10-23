@@ -17,6 +17,8 @@ local M = {}
 ---@field first string|false
 ---@field note string|false       Note on the line under the cursor
 ---@field note_range string|false Note on the selected lines (visual mode)
+---@field keep_range string|false Keep what Claude changed on the selected lines (visual mode)
+---@field revert_range string|false Revert what Claude changed on the selected lines (visual mode)
 
 ---@class ClaudeCodeReviewNotesConfig
 ---@field enabled boolean
@@ -34,6 +36,7 @@ local M = {}
 ---@field advance "hunk"|"file"|false After keep or revert: the next hunk, then the next file, or stay
 ---@field cross_files boolean `]k` past the last hunk and `[k` before the first go to the next or previous file
 ---@field hint boolean|string Hint at the hunk under the cursor; true builds it from the keymaps
+---@field hint_overflow "above"|"statusline" Where the hint goes when it does not fit at the end of the line
 ---@field word_diff boolean Highlight changed words inside changed lines
 ---@field before_write boolean Review Claude's proposals before they are written (Manual mode)
 ---@field picker "auto"|"snacks"|"fzf"|"select"
@@ -62,6 +65,9 @@ M.defaults = {
       -- r is no motion either; in visual mode `c` acts at once, so a range note goes on the leader.
       note = "cr",
       note_range = "<leader>an",
+      -- A part of a hunk, the same way: in Normal mode <leader>ak lists the files waiting for review.
+      keep_range = "<leader>ak",
+      revert_range = "<leader>ax",
     },
     notes = {
       enabled = true,
@@ -77,6 +83,8 @@ M.defaults = {
     advance = "hunk",
     cross_files = true,
     hint = true,
+    -- A line of its own above the hunk: at the end of a long line in a narrow window the hint was cut off.
+    hint_overflow = "above",
     word_diff = true,
     before_write = true,
     picker = "auto",
@@ -128,6 +136,10 @@ function M.validate(config)
   check(is_key(notes.local_send_keymap), "review.notes.local_send_keymap must be a key string or false")
   check(is_key(notes.list_keymap), "review.notes.list_keymap must be a key string or false")
   check(type(review.hint) == "boolean" or type(review.hint) == "string", "review.hint must be a boolean or a string")
+  check(
+    review.hint_overflow == "above" or review.hint_overflow == "statusline",
+    "review.hint_overflow must be 'above' or 'statusline'"
+  )
   check(type(review.word_diff) == "boolean", "review.word_diff must be a boolean")
   check(type(review.before_write) == "boolean", "review.before_write must be a boolean")
   check(
@@ -158,13 +170,16 @@ function M.config(user)
 end
 
 ---The hint follows your keys: "cs keep · cx revert · cr note" with the defaults. Without the note the
----hint said nothing of notes, and they went unnoticed.
+---hint said nothing of notes, and they went unnoticed. In a proposal the note key reverts the hunk
+---with a reason (DESIGN p. 22), notes or not, and the hint says so.
 ---@param review ClaudeCodeReviewConfig
+---@param opts? { proposal?: boolean }
 ---@return string|false
-function M.hint_text(review)
+function M.hint_text(review, opts)
   if review.hint ~= true then
     return review.hint
   end
+  local proposal = opts and opts.proposal
   local parts = {}
   if review.keymaps.keep then
     parts[#parts + 1] = review.keymaps.keep .. " keep"
@@ -172,7 +187,9 @@ function M.hint_text(review)
   if review.keymaps.revert then
     parts[#parts + 1] = review.keymaps.revert .. " revert"
   end
-  if review.notes.enabled and review.keymaps.note then
+  if review.keymaps.note and proposal then
+    parts[#parts + 1] = review.keymaps.note .. " revert with reason"
+  elseif review.keymaps.note and review.notes.enabled then
     parts[#parts + 1] = review.keymaps.note .. " note"
   end
   return #parts > 0 and table.concat(parts, " · ") or false
@@ -208,6 +225,7 @@ function M.setup(user, plugin_config)
       note = notes.enabled and notes_mod.open or nil,
       noted = notes.enabled and notes.advance and notes_mod.noted or nil,
       hint = M.hint_text(config.review),
+      hint_overflow = config.review.hint_overflow,
       word_diff = config.review.word_diff,
     })
     -- Your own diff_opts.provider shows proposals too, so manual mode asks for it as well.
@@ -223,6 +241,7 @@ function M.setup(user, plugin_config)
     local diff_opts = plugin_config and plugin_config.diff_opts
     if config.review.before_write and diff_opts and diff_opts.provider == nil then
       diff_opts.provider = require("claudecode.review.provider")
+      diff_opts.provider.setup({ hint = M.hint_text(config.review, { proposal = true }) })
     end
 
     local function show()

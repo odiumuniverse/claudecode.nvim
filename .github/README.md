@@ -101,25 +101,28 @@ In auto mode Claude edits your files right away, the way it does in the terminal
 - deleted lines appear in red above the change, as virtual lines that are not part of the file;
 - added lines get a green background;
 - inside a changed line, only the changed words are highlighted;
-- the hunk under the cursor shows which hunk of how many in the file it is, and the keys: `2/5  cs keep · cx revert`;
+- the hunk under the cursor shows which hunk of how many in the file it is, and the keys: `2/5  cs keep · cx revert · cr note`. When that does not fit at the end of a long line, it goes on a line of its own above the hunk, or with `review.hint_overflow = "statusline"` into the statusline;
 - the statusline shows how many files wait for review and how many notes you have not sent, `review: 4 files · 2 notes`, and nothing once they are done. The LazyVim spec adds this to lualine; elsewhere it is `require("claudecode.review.controller").status()`.
 
-| Key          | What it does                                              |
-| ------------ | --------------------------------------------------------- |
-| `cs`         | Keep the hunk under the cursor                            |
-| `cx`         | Revert it; the file is written at once                    |
-| `cS` / `cX`  | Keep or revert every hunk in the file                     |
-| `]k` / `[k`  | Next or previous hunk (takes a count), then file          |
-| `]K` / `[K`  | Last or first hunk                                        |
-| `cr`         | Note for Claude on this line; `<leader>an` on a selection |
-| `cR`         | Send every note to Claude, from any buffer                |
-| Shift+Enter  | The same, in a file under review or with a note           |
-| `<leader>ak` | Files waiting for review: open, keep all, revert all      |
-| `<leader>an` | Your notes: edit, delete, send all                        |
+| Key                         | What it does                                              |
+| --------------------------- | --------------------------------------------------------- |
+| `cs`                        | Keep the hunk under the cursor                            |
+| `cx`                        | Revert it; the file is written at once                    |
+| `cS` / `cX`                 | Keep or revert every hunk in the file                     |
+| `<leader>ak` / `<leader>ax` | On a selection: keep or revert only those lines           |
+| `]k` / `[k`                 | Next or previous hunk (takes a count), then file          |
+| `]K` / `[K`                 | Last or first hunk                                        |
+| `cr`                        | Note for Claude on this line; `<leader>an` on a selection |
+| `cR`                        | Send every note to Claude, from any buffer                |
+| Shift+Enter                 | The same, in a file under review or with a note           |
+| `<leader>ak`                | Files waiting for review: open, keep all, revert all      |
+| `<leader>an`                | Your notes: edit, delete, send all                        |
 
 After `cs` or `cx` the cursor moves on to the next hunk, so a file is reviewed with one key per hunk; `advance = "file"` goes on to the next file too. `]k` past the last hunk opens the next file waiting for review, and `[k` before the first one goes back to the previous file.
 
-The hunk keys exist only in buffers under review; `<leader>ak` and `<leader>an` work everywhere, and so do `]k` and `[k`, which in any other file open the next or previous file waiting for review. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. In a buffer under review `c` waits for its next key without a timeout, so `c`, a pause, then `s` still keeps the hunk. The list of files shows for each file the lines added and removed, in green and red, what waits, when the file came under review and the path last, `+12 -3  3 hunks · 1 note  14:58  lua/cart.lua`, and a file whose hunks are decided stays on it while it has notes. It uses snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it, and `<Tab>` picks several files for either. In snacks.picker the list sits over the preview, both full width; a layout you set for the source `claudecode_review` wins.
+**A part of a hunk.** When Claude renamed something and added a method right after it, the two are one hunk. Select the method in Visual mode and press `<leader>ax` to revert only it, or select the rename and press `<leader>ak` to keep only it; the rest keeps waiting. As in gitsigns, the selected added lines go with the deleted lines at the same places, and a selection that reaches the end of a hunk takes its other deleted lines too.
+
+The hunk keys exist only in buffers under review; `<leader>ak` and `<leader>an` work everywhere, and so do `]k` and `[k`, which in any other file open the next or previous file waiting for review. Neovim waits for a motion after `c` anyway, and `s` and `x` are none, so the keys delay nothing: `k`, `K` and `cw` work as always. In a buffer under review `c` waits for its next key without a timeout, so `c`, a pause, then `s` still keeps the hunk. The list of files shows for each file the lines added and removed, in green and red, what waits, when the file came under review and the path last, `+12 -3  3 hunks · 1 note  14:58  lua/cart.lua`, and a file whose hunks are decided stays on it while it has notes. It uses the picker LazyVim is set to, or else snacks.picker, fzf-lua or `vim.ui.select`, whichever it finds first; in snacks.picker and fzf-lua, `<A-o>` keeps a whole file and `<A-x>` reverts it, and `<Tab>` picks several files for either. Reverting a file Claude created deletes it, says so, and removes the folders it leaves empty; a file whose buffer holds unsaved edits is not reverted from the list. In snacks.picker the list sits over the preview, both full width; a layout you set for the source `claudecode_review` wins.
 
 **Ask Claude to rework a change without leaving Neovim.** `cr` opens a box right under the line with the cursor; the code below moves down instead of hiding, so a long hunk stays in sight. Type what you want and press Enter: the note is saved at once and survives a restart, and the box stays where it was, dimmed and without the key hints, so your eyes need not look for it. The cursor moves on to the next hunk. Leave notes in as many files as you like, then press Shift+Enter, in the box or in Normal mode in a file under review or with a note, or `cR` anywhere, and every note goes to Claude in one message and is submitted: each place as file:line, the code there as a diff (what Claude removed with `-`, what it added with `+`) and your words. The message is typed into the Claude terminal in Neovim; while Claude works, Claude Code queues it. Where no note waits, Shift+Enter in Normal mode is Enter. `review.notes.send = "enter"` sends each note on Enter instead. `<C-s>` in the box does what Shift+Enter does, for a terminal that cannot tell them apart. Before you send, `<leader>an` lists every note by file and line with the lines of Claude's hunk there, and the preview shows the code as the review does, the note under it: Enter opens a note to edit it, `<A-d>` deletes it, `<C-s>` sends them all. When Claude's change in a file is gone without review (you threw it away with git or in lazygit, or Claude undid it), its notes go too; after `cs` they stay.
 
@@ -142,6 +145,7 @@ Unless Claude is in accept-edits or plan mode (see [Modes](#modes)):
 - Files outside the project as well, such as Claude's memory under `~/.claude/`: review follows Claude's edit tools wherever they write.
 - Not reviewed: binary files, files over 2 MB, new files Bash creates in paths that `.gitignore` covers, edits outside a Claude tool call (yours, `git pull`, other programs), Bash edits outside git repositories, and an edit the same Bash call commits (`sed -i f && git commit -am …`): after the call `f` matches the new HEAD, as after a checkout.
 - If you refuse an edit and then create or change that file yourself, review treats the file as yours.
+- A file already under review that changes outside Claude, by a formatter or a generator in another terminal, `git stash pop` or another editor: that change goes into the text the file is compared with, not into Claude's hunks, so reverting them leaves it alone. The plugin keeps the file as Claude's last tool call left it and carries what changed since into the base, in Neovim and before Claude's next edit or Bash call. A change that overlaps one of Claude's hunks becomes part of it, as your own edit inside a hunk does.
 
 ### How it works
 
@@ -151,9 +155,9 @@ If you start Claude yourself (`terminal.provider = "none"`), the hooks are not a
 
 ## Review before write
 
-In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal answers with what is there now: Claude writes it, or gets a rejection when it equals the file. `cS` takes the whole proposal, `cX` refuses all of it.
+In Manual mode Claude asks before each edit. The plugin opens the proposal in place of the file, with the same hunks and keys, the cursor on the first hunk. When no hunk is left, the text you kept goes to Claude; if you reverted every hunk, Claude gets a rejection. `:w` in the proposal answers with what is there now: Claude writes it, or gets a rejection when it equals the file. `cS` takes the whole proposal, `cX` refuses all of it.
 
-**Reject with a reason.** `cr` in a proposal reverts the hunk with what you type in the box, and Claude reworks the place at once, in the same turn. If you kept other hunks, the reason goes with the note about your reverts. If you reverted every hunk, the plugin answers in Claude's own permission dialog, "No, and tell Claude what to do differently", since a rejection over the IDE connection carries no text. Each key goes out only once the dialog on screen shows what that key needs; when that cannot be done (Claude outside Neovim, or a Claude Code update changed the dialog), the proposal is rejected plainly and the reason goes to the clipboard.
+**Reject with a reason.** `cr` in a proposal reverts the hunk with what you type in the box, and Claude reworks the place at once, in the same turn; the hint there reads `cs keep · cx revert · cr revert with reason`. If you kept other hunks, the reason goes with the note about your reverts. If you reverted every hunk, the plugin answers in Claude's own permission dialog, "No, and tell Claude what to do differently", since a rejection over the IDE connection carries no text. Each key goes out only once the dialog on screen shows what that key needs; when that cannot be done (Claude outside Neovim, or a Claude Code update changed the dialog), the proposal is rejected plainly and the reason goes to the clipboard.
 
 Claude sends UTF-8. The plugin compares it with the file in the file's own encoding, so a Latin-1 or UTF-16 file shows only what Claude changed. It reads the encoding from the open buffer, or else from the byte order mark and `'fileencodings'`. The protocol carries text only, so Claude writes UTF-8 after you accept: a Latin-1 or UTF-16 file becomes UTF-8. A byte order mark stays.
 
@@ -210,6 +214,7 @@ opts = {
       keep = "cs", revert = "cx", keep_all = "cS", revert_all = "cX",
       next = "]k", prev = "[k", last = "]K", first = "[K",
       note = "cr", note_range = "<leader>an", -- a note for Claude; note_range is for visual mode
+      keep_range = "<leader>ak", revert_range = "<leader>ax", -- visual mode: only the selected lines
     },
     notes = {
       enabled = true,
@@ -223,8 +228,9 @@ opts = {
     advance = "hunk",           -- after cs/cx: "hunk" the next hunk, "file" then the next file, false stay
     cross_files = true,         -- ]k past the last hunk and [k before the first go to the next/previous file
     hint = true,                -- true builds the hint from your keys; a string replaces it; false hides it
+    hint_overflow = "above",    -- a hint that does not fit at the end of the line: "above" the hunk or "statusline"
     word_diff = true,
-    picker = "auto",            -- "snacks", "fzf" or "select"
+    picker = "auto",            -- LazyVim's picker, else the first found: "snacks", "fzf" or "select"
   },
   zen = {
     enabled = true,

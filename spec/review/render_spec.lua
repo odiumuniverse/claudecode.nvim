@@ -70,6 +70,17 @@ local function marks_with(bufnr, key)
   end, helpers.marks(bufnr))
 end
 
+---Marks painted with one highlight group: "ClaudeCodeReviewAdd" for added lines,
+---"ClaudeCodeReviewAddText" for the changed words in them.
+---@param bufnr integer
+---@param group string
+---@return table[]
+local function marks_of(bufnr, group)
+  return vim.tbl_filter(function(mark)
+    return mark.details.hl_group == group
+  end, helpers.marks(bufnr))
+end
+
 ---Text of one virtual line, chunks glued.
 ---@param virt_line table[]
 ---@return string
@@ -87,6 +98,23 @@ local function text_width(win)
   return vim.api.nvim_win_get_width(win) - vim.fn.getwininfo(win)[1].textoff
 end
 
+---The background Neovim draws at a buffer position of the current window, as the screen shows it.
+---@param lnum integer 1-based
+---@param col integer 0-based byte
+---@return integer|nil
+local function screen_bg(lnum, col)
+  vim.cmd("redraw!")
+  local pos = vim.fn.screenpos(0, lnum, col + 1)
+  return vim.api.nvim__inspect_cell(1, pos.row - 1, pos.col - 1)[2].background
+end
+
+---Plain colors for the review groups, so that a spec can tell them apart on the screen.
+local function distinct_colors()
+  vim.o.termguicolors = true
+  vim.api.nvim_set_hl(0, "ClaudeCodeReviewAdd", { bg = 0x24462a })
+  vim.api.nvim_set_hl(0, "ClaudeCodeReviewAddText", { bg = 0x7a5a00 })
+end
+
 describe("review.render.draw", function()
   before_each(function()
     render.setup()
@@ -94,7 +122,7 @@ describe("review.render.draw", function()
 
   after_each(helpers.reset)
 
-  it("paints added lines with line_hl_group and hangs deleted ones above them", function()
+  it("paints added lines and hangs deleted ones above them", function()
     local bufnr = helpers.buffer({ "a", "X", "Y", "c" })
     local h = hunk({
       base_start = 2,
@@ -107,11 +135,9 @@ describe("review.render.draw", function()
 
     render.draw(bufnr, { h }, {})
 
-    local added = marks_with(bufnr, "line_hl_group")
+    local added = marks_of(bufnr, "ClaudeCodeReviewAdd")
     assert.equal(2, #added)
     assert.same({ 1, 2 }, { added[1].row, added[2].row })
-    assert.equal("ClaudeCodeReviewAdd", added[1].details.line_hl_group)
-    assert.equal("ClaudeCodeReviewAdd", added[2].details.line_hl_group)
 
     local deleted = marks_with(bufnr, "virt_lines")
     assert.equal(1, #deleted)
@@ -155,7 +181,7 @@ describe("review.render.draw", function()
     local deleted = marks_with(bufnr, "virt_lines")[1]
     assert.equal(1, deleted.row)
     assert.is_true(deleted.details.virt_lines_above)
-    assert.same({}, marks_with(bufnr, "line_hl_group"))
+    assert.same({}, marks_of(bufnr, "ClaudeCodeReviewAdd"))
   end)
 
   it("hangs a deleted file tail below the last line", function()
@@ -191,7 +217,7 @@ describe("review.render.draw", function()
       { 0, 1, 2 },
       vim.tbl_map(function(mark)
         return mark.row
-      end, marks_with(bufnr, "line_hl_group"))
+      end, marks_of(bufnr, "ClaudeCodeReviewAdd"))
     )
     assert.same({}, marks_with(bufnr, "virt_lines"))
   end)
@@ -209,14 +235,11 @@ describe("review.render.draw", function()
 
     render.draw(bufnr, { h }, {})
 
-    local words = marks_with(bufnr, "hl_group")
+    local words = marks_of(bufnr, "ClaudeCodeReviewAddText")
     assert.equal(1, #words)
     assert.equal(0, words[1].row)
     assert.equal(4, words[1].col)
     assert.equal(7, words[1].details.end_col)
-    assert.equal("ClaudeCodeReviewAddText", words[1].details.hl_group)
-    local line_hl = marks_with(bufnr, "line_hl_group")[1]
-    assert.is_true(words[1].details.priority > line_hl.details.priority)
 
     local chunks = marks_with(bufnr, "virt_lines")[1].details.virt_lines[1]
     assert.equal("foo ", chunks[1][1])
@@ -224,6 +247,59 @@ describe("review.render.draw", function()
     assert.equal(" baz", chunks[3][1])
     assert.same({ "ClaudeCodeReviewDelete", "ClaudeCodeReviewDeleteText" }, chunks[2][2])
     assert.equal("ClaudeCodeReviewDelete", chunks[1][2])
+  end)
+
+  describe("on the screen", function()
+    after_each(function()
+      vim.o.cursorline = false
+      vim.cmd("highlight clear ClaudeCodeReviewAdd")
+      vim.cmd("highlight clear ClaudeCodeReviewAddText")
+      render.setup()
+    end)
+
+    it("shows a changed word of an added line in its own color", function()
+      local bufnr = helpers.buffer({ "top", "foo qux baz" })
+      distinct_colors()
+      render.draw(bufnr, {
+        hunk({
+          base_start = 2,
+          base_count = 1,
+          cur_start = 2,
+          cur_count = 1,
+          base_lines = { "foo bar baz" },
+          cur_lines = { "foo qux baz" },
+        }),
+      }, {})
+
+      assert.equal(0x7a5a00, screen_bg(2, 4))
+      assert.equal(0x24462a, screen_bg(2, 0))
+    end)
+
+    it("keeps an added line green under the cursor line", function()
+      local bufnr = helpers.buffer({ "top", "new", "end" })
+      distinct_colors()
+      vim.api.nvim_set_hl(0, "CursorLine", { bg = 0x303030 })
+      vim.o.cursorline = true
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      render.draw(bufnr, { hunk({ base_start = 1, cur_start = 2, cur_count = 1, cur_lines = { "new" } }) }, {})
+
+      assert.equal(0x24462a, screen_bg(2, 1))
+      vim.api.nvim_win_set_cursor(0, { 3, 0 })
+      assert.equal(0x303030, screen_bg(3, 1))
+    end)
+
+    it("paints an empty added line and an added last line to the window edge", function()
+      local bufnr = helpers.buffer({ "top", "", "last" })
+      distinct_colors()
+      render.draw(bufnr, { hunk({ base_start = 1, cur_start = 2, cur_count = 2, cur_lines = { "", "last" } }) }, {})
+
+      vim.cmd("redraw!")
+      local width = vim.api.nvim_win_get_width(0)
+      for _, row in ipairs({ 1, 2 }) do
+        assert.equal(0x24462a, vim.api.nvim__inspect_cell(1, row, 0)[2].background)
+        assert.equal(0x24462a, vim.api.nvim__inspect_cell(1, row, width - 1)[2].background)
+      end
+    end)
   end)
 
   it("counts the bytes of Cyrillic words, not characters", function()
@@ -239,7 +315,7 @@ describe("review.render.draw", function()
 
     render.draw(bufnr, { h }, {})
 
-    local words = marks_with(bufnr, "hl_group")
+    local words = marks_of(bufnr, "ClaudeCodeReviewAddText")
     assert.equal(13, words[1].col)
     assert.equal(21, words[1].details.end_col)
     local chunks = marks_with(bufnr, "virt_lines")[1].details.virt_lines[1]
@@ -259,7 +335,7 @@ describe("review.render.draw", function()
 
     render.draw(bufnr, { h }, { word_diff = false })
 
-    assert.same({}, marks_with(bufnr, "hl_group"))
+    assert.same({}, marks_of(bufnr, "ClaudeCodeReviewAddText"))
     local chunks = marks_with(bufnr, "virt_lines")[1].details.virt_lines[1]
     assert.equal("foo bar baz", vim.trim(chunks[1][1]))
     assert.equal("ClaudeCodeReviewDelete", chunks[1][2])
@@ -279,7 +355,7 @@ describe("review.render.draw", function()
     render.draw(bufnr, { h }, {})
     render.draw(bufnr, { h }, {})
 
-    assert.equal(1, #marks_with(bufnr, "line_hl_group"))
+    assert.equal(1, #marks_of(bufnr, "ClaudeCodeReviewAdd"))
     assert.equal(1, #marks_with(bufnr, "virt_lines"))
   end)
 
@@ -411,5 +487,88 @@ describe("review.render hint", function()
     render.draw(bufnr, { changed, second }, {})
 
     assert.equal("  cs keep · cx revert", hints(bufnr)[1].details.virt_text[2][1])
+  end)
+
+  describe("that does not fit at the end of the line", function()
+    local expected = { { "1/1", "ClaudeCodeReviewCount" }, { "  " .. hint, "ClaudeCodeReviewHint" } }
+
+    ---Virtual lines that carry the hint, not the deleted text.
+    local function hint_lines(bufnr)
+      return vim.tbl_filter(function(mark)
+        return virt_text(mark.details.virt_lines[1]):find(hint, 1, true) ~= nil
+      end, marks_with(bufnr, "virt_lines"))
+    end
+
+    ---A hunk that changed line 2 into `line`.
+    local function changed_into(line)
+      return hunk({
+        base_start = 2,
+        base_count = 1,
+        cur_start = 2,
+        cur_count = 1,
+        base_lines = { "b" },
+        cur_lines = { line },
+      })
+    end
+
+    it("goes on a line of its own above the hunk", function()
+      local long = string.rep("x", vim.api.nvim_win_get_width(0) - 10)
+      local bufnr = helpers.buffer({ "a", long, "c" })
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      render.draw(bufnr, { changed_into(long) }, { hint = hint })
+
+      assert.same({}, hints(bufnr))
+      local found = hint_lines(bufnr)
+      assert.equal(1, #found)
+      assert.equal(1, found[1].row)
+      assert.is_true(found[1].details.virt_lines_above)
+      assert.same({ expected }, found[1].details.virt_lines)
+    end)
+
+    it("is measured against the narrowest window that shows the file", function()
+      local line = string.rep("x", 30)
+      local bufnr = helpers.buffer({ "a", line, "c" })
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+      local wide = vim.api.nvim_get_current_win()
+      vim.cmd("vsplit")
+      vim.api.nvim_win_set_width(0, 40)
+      vim.api.nvim_set_current_win(wide)
+
+      render.draw(bufnr, { changed_into(line) }, { hint = hint })
+
+      assert.same({}, hints(bufnr))
+      assert.equal(1, #hint_lines(bufnr))
+    end)
+
+    it("goes above the line a pure deletion hangs on", function()
+      local long = string.rep("x", vim.api.nvim_win_get_width(0) - 10)
+      local bufnr = helpers.buffer({ "a", long })
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      render.draw(bufnr, { hunk({ base_start = 2, base_count = 1, cur_start = 1, base_lines = { "b" } }) }, {
+        hint = hint,
+      })
+
+      local found = hint_lines(bufnr)
+      assert.equal(1, #found)
+      assert.equal(1, found[1].row)
+    end)
+
+    it("goes to the statusline instead, when you say so", function()
+      local long = string.rep("x", vim.api.nvim_win_get_width(0) - 10)
+      local bufnr = helpers.buffer({ "a", long, "c" })
+      vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+      render.draw(bufnr, { changed_into(long) }, { hint = hint, hint_overflow = "statusline" })
+
+      assert.same({}, hints(bufnr))
+      assert.same({}, hint_lines(bufnr))
+      assert.equal("1/1 " .. hint, render.overflowing_hint(bufnr))
+
+      vim.api.nvim_win_set_cursor(0, { 1, 0 })
+      render.update_hint(bufnr, { changed_into(long) }, { hint = hint, hint_overflow = "statusline" })
+      assert.is_nil(render.overflowing_hint(bufnr))
+    end)
   end)
 end)

@@ -148,6 +148,16 @@ In visual mode `<leader>an` (`review.keymaps.note_range`) takes a note on the
 selected lines. `cR` sends every note to Claude from any buffer
 (|claudecode-notes|).
 
+A part of a hunk, in visual mode: `<leader>ak` (`review.keymaps.keep_range`)
+keeps what Claude changed on the selected lines, `<leader>ax`
+(`review.keymaps.revert_range`) reverts it and writes the file. The rest of
+the hunk keeps waiting. As in gitsigns, the selected added lines go with the
+deleted lines at the same places, and a selection that reaches the end of a
+hunk takes its other deleted lines too. A hunk that only deletes lines goes
+whole when the selection holds the line it hangs on. So a rename and a new
+method that Claude wrote one after the other, one hunk, can be decided one
+by one: select the method and press `<leader>ax`.
+
 Keeping makes Claude's text the new base. The buffer and the file stay as
 they are.
 
@@ -204,6 +214,11 @@ For each file you can:
     keep all      Keep every hunk in the file.
     revert all    Revert every hunk in the file and tell Claude.
 
+Reverting a file Claude created deletes it, says so, and removes the folders
+it leaves empty, up to its repository or the project and never above. A file
+whose buffer holds unsaved edits is not reverted from the list: save or drop
+them first.
+
 The list uses snacks.picker, fzf-lua or `vim.ui.select`, whichever
 `review.picker` picks (|claudecode-review.picker|). In snacks.picker and
 fzf-lua, <CR> opens the file, <A-o> keeps all of it and <A-x> reverts all of
@@ -223,8 +238,10 @@ lines and the diff keep their ends. A layout you set for the source
                                                  *claudecode-review-status*
 For a statusline, `require("claudecode.review.controller").status()` gives
 "review: 2 files", "review: 1 file", or "" when nothing waits, so the
-component disappears. The LazyVim spec in the repository adds it to lualine;
-by hand:
+component disappears. With `review.hint_overflow = "statusline"` the hint of
+the hunk under the cursor comes first when it does not fit at the end of the
+line (|claudecode-review.hint_overflow|). The LazyVim spec in the repository
+adds it to lualine; by hand:
 >lua
     { function() return require("claudecode.review.controller").status() end,
       color = "ClaudeCodeReviewCount" }
@@ -270,13 +287,30 @@ Not reviewed:
 
 - binary files (a NUL byte in the first 8000 bytes) and files over 2 MB;
 - new files Bash creates in paths that `.gitignore` covers;
-- edits outside a Claude tool call: yours, `git pull`, other programs;
+- edits outside a Claude tool call: yours, `git pull`, other programs, also
+  in a file under review (|claudecode-review-outside|);
 - Bash edits outside git repositories;
 - an edit the same Bash call commits (`sed -i f && git commit -am …`): after
   the call `f` matches the new HEAD, as after a checkout.
 
 If you refuse an edit and then create or change that file yourself, review
 treats the file as yours.
+
+                                                 *claudecode-review-outside*
+A file already under review can change outside Claude too: a formatter or a
+generator in another terminal, `git stash pop`, an editor elsewhere. That
+change goes into the text the file is compared with, not into Claude's
+hunks, so reverting Claude's hunks leaves it alone. The plugin keeps the
+file as Claude's last tool call left it, next to the base, and carries what
+changed since into the base: when Neovim reads the file again, when it looks
+at the list, and before Claude's next edit or Bash call. A change that
+overlaps one of Claude's hunks becomes part of it, as your own edit inside
+a hunk does; one right next to a hunk does not. Nothing is carried while an
+edit or a Bash call of Claude's is under way, or while the buffer holds
+unsaved edits of yours. A file deleted outside Claude stays on the list as
+deleted. A file that came under review with version 1.3.0 or earlier
+learns its text the first time the plugin sees it, and only later changes
+are carried.
 
                                                     *claudecode-review-head*
 A file under review follows git's HEAD. When HEAD moves outside Claude's
@@ -648,6 +682,7 @@ a message that names the option. Defaults:
           keep = "cs", revert = "cx", keep_all = "cS", revert_all = "cX",
           next = "]k", prev = "[k", last = "]K", first = "[K",
           note = "cr", note_range = "<leader>an",
+          keep_range = "<leader>ak", revert_range = "<leader>ax",
         },
         notes = {
           enabled = true,
@@ -661,6 +696,7 @@ a message that names the option. Defaults:
         advance = "hunk",
         cross_files = true,
         hint = true,
+        hint_overflow = "above",
         word_diff = true,
         picker = "auto",
       },
@@ -735,6 +771,17 @@ review.keymaps.note_range               *claudecode-review.keymaps.note_range*
     Visual mode: open a note on the selected lines. Not on `c`: in Visual
     mode `c` acts at once, and a mapping on it would make it wait.
 
+review.keymaps.keep_range               *claudecode-review.keymaps.keep_range*
+    Type: string or false. Default: `"<leader>ak"`.
+    Visual mode: keep what Claude changed on the selected lines; the rest of
+    the hunk keeps waiting (|claudecode-review-keys|). In normal mode the
+    same key lists the files waiting for review.
+
+review.keymaps.revert_range           *claudecode-review.keymaps.revert_range*
+    Type: string or false. Default: `"<leader>ax"`.
+    Visual mode: revert what Claude changed on the selected lines and write
+    the file; the rest of the hunk keeps waiting.
+
 review.notes                                         *claudecode-review.notes*
     Type: table. Notes for Claude (|claudecode-notes|).
 
@@ -795,8 +842,20 @@ review.hint                                           *claudecode-review.hint*
     Type: boolean or string. Default: `true`.
     The hint at the hunk under the cursor. `true` builds it from your keys,
     "cs keep · cx revert · cr note" with the defaults; the note is left out
-    when notes are off. A string replaces it, `false` hides it. The number
-    of the hunk, "2/5", comes before it either way and goes with it.
+    when notes are off. In a proposal (|claudecode-review-before-write|) it
+    reads "cs keep · cx revert · cr revert with reason", since `cr` reverts
+    the hunk there. A string replaces it, `false` hides it. The number of
+    the hunk, "2/5", comes before it either way and goes with it.
+
+review.hint_overflow                         *claudecode-review.hint_overflow*
+    Type: string. Default: `"above"`.
+    Where the hint goes when it does not fit at the end of the line, in the
+    narrowest window that shows the file. "above" puts it on a line of its
+    own above the hunk, over Claude's deleted lines: the code moves down by
+    that line while the cursor is in the hunk. "statusline"
+    puts it in front of `require("claudecode.review.controller").status()`
+    instead, "3/5 cs keep · cx revert · cr note · review: 2 files", and the
+    code stays where it is.
 
 review.word_diff                                 *claudecode-review.word_diff*
     Type: boolean. Default: `true`.
@@ -805,7 +864,8 @@ review.word_diff                                 *claudecode-review.word_diff*
 review.picker                                       *claudecode-review.picker*
     Type: string. Default: `"auto"`.
     Which list shows the files waiting for review: "snacks", "fzf" (fzf-lua)
-    or "select" (`vim.ui.select`). "auto" takes the first one it finds, in
+    or "select" (`vim.ui.select`). "auto" takes fzf-lua when LazyVim is set
+    to it (`vim.g.lazyvim_picker = "fzf"`), else the first one it finds, in
     that order.
 
 zen.enabled                                           *claudecode-zen.enabled*
@@ -974,6 +1034,9 @@ zen and accounts follow and report:
 - how many files wait for review, where the state directory is, whether other
   users can read it, and the last errors in `hooks.log`;
 - which list shows the files (|claudecode-review-files|);
+- a global mapping of another plugin on a review key, or a longer one that
+  starts with it: `cs` of nvim-surround, `crs` of vim-abolish. In a buffer
+  under review the review's key wins; `review.keymaps` moves it;
 - whether zen can work with your `terminal.provider` (|claudecode-zen|);
 - whether `:ClaudeCode run` finds cswap (|claudecode-cswap|).
 

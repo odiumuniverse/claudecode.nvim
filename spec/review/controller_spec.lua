@@ -27,10 +27,11 @@ describe("review controller", function()
     return vim.api.nvim_get_current_buf()
   end
 
-  -- Claude edits a file the way the hooks see it: snapshot, write, notify.
+  -- Claude edits a file the way the hooks see it: snapshot, write, write down the text, notify.
   local function claude_writes(path, text, session)
     store:snapshot(path, session)
     write_file(path, text)
+    store:set_known(path, text)
     controller.on_hook({ event = "PostToolUse", dir = dir, tool_name = "Write", files = { path } })
   end
 
@@ -92,6 +93,89 @@ describe("review controller", function()
 
     assert.same({ "one", "added" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
     assert.is_false(engine.is_attached(buf))
+  end)
+
+  describe("a change made outside Claude", function()
+    local file
+
+    ---Another program writes the file: a formatter, a generator, an editor elsewhere.
+    local function outside_writes(text)
+      -- A new mtime second, so that :checktime sees the change whatever the size.
+      vim.uv.fs_utime(file, os.time() - 10, os.time() - 10)
+      write_file(file, text)
+    end
+
+    before_each(function()
+      file = work .. "/a.txt"
+      write_file(file, "one\ntwo\n")
+      claude_writes(file, "one\nTWO\n")
+    end)
+
+    it("joins the base of an open file, and a revert leaves it alone", function()
+      local buf = open(file)
+
+      outside_writes("one\nTWO\nthree\n")
+      vim.cmd("silent checktime")
+      require("helpers").flush()
+
+      assert.same({ "one", "TWO", "three" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+      assert.same({ "one", "two", "three" }, engine.base(buf))
+      engine.revert_all(buf)
+      assert.equal("one\ntwo\nthree\n", read_file(file))
+    end)
+
+    it("is Claude's while an edit of Claude's is under way", function()
+      local buf = open(file)
+      store:begin_edit("toolu_1", file, false, store_mod.stamp(file), "Edit")
+
+      outside_writes("one\nTWO\nthree\n")
+      vim.cmd("silent checktime")
+      require("helpers").flush()
+
+      assert.same({ "one", "two" }, engine.base(buf))
+    end)
+
+    it("is not what you save yourself: your edit goes into the base once", function()
+      local buf = open(file)
+      vim.api.nvim_buf_set_lines(buf, 0, 0, false, { "zero" })
+      require("helpers").flush()
+      vim.cmd("silent write")
+
+      controller.refresh_pending()
+
+      assert.equal("zero\none\ntwo\n", store:get(file).text)
+    end)
+
+    it("does not empty the base of a file deleted outside Claude", function()
+      vim.fn.delete(file)
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("one\ntwo\n", store:get(file).text)
+    end)
+
+    it("leaves a base made before review kept the text as it was, and learns the text", function()
+      local older = work .. "/b.txt"
+      write_file(older, "one\ntwo\n")
+      store:snapshot(older)
+      write_file(older, "one\nTWO\nthree\n")
+
+      -- Claude's edit and the outside change look alike: both stay in the hunks, as before.
+      controller.refresh_pending()
+      assert.equal("one\ntwo\n", store:get(older).text)
+
+      write_file(older, "one\nTWO\nthree\nfour\n")
+      controller.refresh_pending()
+      assert.equal("one\ntwo\nfour\n", store:get(older).text)
+    end)
+
+    it("joins the base of a closed file, so neither the list nor its revert takes it for Claude's", function()
+      outside_writes("one\nTWO\nthree\n")
+
+      assert.same({ file }, controller.refresh_pending())
+      assert.equal("one\ntwo\nthree\n", store:get(file).text)
+      require("claudecode.review.picker").revert_files({ file })
+      assert.equal("one\ntwo\nthree\n", read_file(file))
+    end)
   end)
 
   it("leaves a buffer with your unsaved edits alone and warns", function()
@@ -960,6 +1044,23 @@ describe("review controller", function()
 
     claude_writes(work .. "/b.txt", "two\n")
     assert.equal("review: 2 files", controller.status())
+  end)
+
+  it("puts the hint first when it went to the statusline, and keeps it out of zen's counter", function()
+    engine.setup({ hint = "cs keep", hint_overflow = "statusline" })
+    local file = work .. "/a.txt"
+    write_file(file, "one\n")
+    local long = string.rep("x", vim.api.nvim_win_get_width(0))
+    local buf = open(file)
+    claude_writes(file, "one\n" .. long .. "\n")
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = buf })
+
+    local status, zen = controller.status(), controller.status(1, 0)
+    engine.setup({})
+
+    assert.equal("1/1 cs keep · review: 1 file", status)
+    assert.equal("review: 1 file", zen)
   end)
 
   describe("moving between the files waiting for review", function()

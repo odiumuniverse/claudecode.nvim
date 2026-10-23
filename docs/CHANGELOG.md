@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+Fixes from a UX review: changes from outside Claude stay out of Claude's hunks, the changed words show, the hint stays in sight, and a part of a hunk can be kept or reverted.
+
+### Upgrading
+
+- With LazyVim set to fzf-lua (`vim.g.lazyvim_picker = "fzf"`) the lists of files and notes open in fzf-lua, as LazyVim's other lists do. `review.picker = "snacks"` keeps snacks.picker.
+- The list no longer reverts a file whose buffer holds unsaved edits, also when the file is under review: it used to write those edits with the revert. Save or drop them first.
+- In Visual mode in a buffer under review `<leader>ak` keeps and `<leader>ax` reverts the selected lines. In Normal mode `<leader>ak` lists the files as before.
+- Messages begin with "claudecode:"; some said "claudecode review:".
+
+### Added
+
+- **A part of a hunk.** Select lines of a hunk and press `<leader>ak` to keep what Claude changed there, or `<leader>ax` to revert it; the rest of the hunk keeps waiting. As in gitsigns, the selected added lines go with the deleted lines at the same places. A rename and a new method that Claude wrote one after the other, one hunk, can now be decided one by one. The options are `review.keymaps.keep_range` and `review.keymaps.revert_range`; both work in a proposal too.
+- **`review.hint_overflow`.** A hint that does not fit at the end of the line goes on a line of its own above the hunk (`"above"`, the default) or in front of `controller.status()` in the statusline (`"statusline"`).
+- **`:checkhealth claudecode` names a mapping of another plugin on a review key**, such as `cs` of nvim-surround or `crs` of vim-abolish, which the review's key hides in a buffer under review.
+
+### Fixed
+
+- **A change from outside Claude became one of Claude's hunks, and a revert threw it away.** A formatter or a generator in another terminal, `git stash pop` or another editor changed a file under review, and the change joined Claude's hunks: reverting them erased it. Now the plugin keeps the file as Claude's last tool call left it, next to the base, and carries what changed since into the base, in Neovim and before Claude's next edit or Bash call; reverting Claude's hunks leaves that change alone. A change that overlaps one of Claude's hunks joins it, as your own edit does. Bases from 1.3.0 learn the file the first time the plugin sees them.
+- **The changed words of an added line did not light up.** Added lines were painted with `line_hl_group`, which Neovim draws over the background of every other highlight on the line, whatever its priority. Now they are painted with a range highlight, and the changed words show in `ClaudeCodeReviewAddText`; the cursor line keeps the green, and so do an empty added line and the last line of the file.
+- **The hint was cut off in a narrow window.** At the end of a long line, with Claude's terminal beside the code, the hint and its keys went past the edge of the window. Now it moves above the hunk, or to the statusline, when it does not fit in the narrowest window that shows the file.
+- **The list deleted a file Claude created without a word,** and left its empty folder. Now it says "removed …, you reverted the whole new file", as `cX` in the buffer does, and removes the folders the file leaves empty, up to its repository or the project.
+- **A proposal opened at the top of the file,** with the hunk and its hint out of sight. Now the cursor goes to the first hunk, as Enter in the list does, and the hint of a proposal says what `cr` does there: `cs keep · cx revert · cr revert with reason`.
+
 ## 1.3.0 (2026-10-21)
 
 Review that keeps up with git and with worktrees, Neovim that follows Claude into a worktree, and a list of files that shows what matters first.

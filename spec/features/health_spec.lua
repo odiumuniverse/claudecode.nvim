@@ -50,6 +50,22 @@ describe(":checkhealth claudecode", function()
     assert.matches(":ClaudeCode run %[account%] runs Claude through sh", run_health())
   end)
 
+  it("warns about a mapping of another plugin on a review key, and not about its own", function()
+    features.state.config = features.config({})
+    vim.keymap.set("n", "cs", "<Nop>", { desc = "Change a surrounding pair" })
+    vim.keymap.set("n", "crs", "<Nop>", { desc = "Coerce to snake_case" })
+    vim.keymap.set("n", "]k", "<Nop>", { desc = "Claude review: next file waiting for review" })
+
+    local text = run_health()
+    vim.keymap.del("n", "cs")
+    vim.keymap.del("n", "crs")
+    vim.keymap.del("n", "]k")
+
+    assert.matches("cs is also mapped %(Change a surrounding pair%)", text)
+    assert.matches("crs is also mapped %(Coerce to snake_case%)", text)
+    assert.is_nil(text:find("]k is also mapped", 1, true))
+  end)
+
   it("shows the settings file of this editor by its own name", function()
     features.state.config = features.config({})
     local hooks = require("claudecode.hooks")

@@ -13,6 +13,9 @@ local EDIT_TOOLS = { Edit = true, Write = true, MultiEdit = true, NotebookEdit =
 M.MAX_BYTES = 2 * 1024 * 1024
 -- A Bash snapshot older than this belongs to a call that never finished.
 M.STALE_BASH_S = 24 * 3600
+-- An edit or a Bash call under way this long ago never finished: it no longer stops a change from
+-- outside going into the base. The editor waits as long (controller.EDITING_MAX_AGE_S).
+M.EDITING_MAX_AGE_S = 30 * 60
 local SNIFF_BYTES = 8000
 
 ---A file past MAX_BYTES is not read at all: it stays out of review, and reading it would cost
@@ -105,6 +108,7 @@ local function carry(store, path, before, current, session_id)
     local lines = hunks.carry(base_lines, before_lines, after_lines)
     local eol = base.text == "" and current:sub(-1) == "\n" or base.text:sub(-1) == "\n"
     joined = not same_changes(hunks.compute(base_lines, before_lines), hunks.compute(lines, after_lines))
+    base.known = current
     return text.to_text(lines, eol)
   end)
   -- An edit that joined a hunk still waiting is part of it now, and a revert takes it back: that
@@ -113,6 +117,38 @@ local function carry(store, path, before, current, session_id)
     store:add_session(path, session_id)
   end
   return moved
+end
+
+---A change made to these files outside Claude since review last knew them (a formatter in another
+---terminal while Neovim did not look) goes into their bases before Claude touches them: after
+---Claude's edit it could no longer be told from Claude's (Store:absorb). Not while another edit or
+---Bash call of Claude's may be writing them.
+---@param store ClaudeCodeReviewStore
+---@param paths string[]
+local function absorb(store, paths)
+  if store:bash_running(M.EDITING_MAX_AGE_S) then
+    return
+  end
+  local editing = store:editing(M.EDITING_MAX_AGE_S)
+  for _, path in ipairs(paths) do
+    path = require("claudecode.review.store").normalize(path)
+    if not editing[path] then
+      local current, too_big = read_all(path)
+      if not too_big then
+        store:absorb(path, current)
+      end
+    end
+  end
+end
+
+---After Claude's tool call: review knows the file as the call left it.
+---@param store ClaudeCodeReviewStore
+---@param path string
+local function learn(store, path)
+  local current, too_big = read_all(path)
+  if current and not too_big then
+    store:set_known(path, current)
+  end
 end
 
 local function context(event, text)
@@ -137,6 +173,7 @@ local function pre_tool_use(store, input, env)
       text, too_big = read_all(path)
     end
     if path and reviewable(text, too_big) then
+      absorb(store, { path })
       if unreviewed(input) then
         -- No review for this edit: a base already waiting for you only moves along with it.
         if store:get(path) then
@@ -157,6 +194,13 @@ local function pre_tool_use(store, input, env)
     end
   elseif input.tool_name == "Bash" then
     store:drop_stale_bash(M.STALE_BASH_S)
+    -- A Bash call may write any file under review.
+    absorb(
+      store,
+      vim.tbl_map(function(base)
+        return base.path
+      end, store:list())
+    )
     local tool_input = type(input.tool_input) == "table" and input.tool_input or {}
     local command = type(tool_input.command) == "string" and tool_input.command or nil
     local snaps = require("claudecode.hooks.git").snapshots(input.cwd or uv.cwd(), env.project, command)
@@ -221,6 +265,7 @@ local function post_tool_use(store, input, env)
         store:remove(path)
       elseif base then
         store:add_session(path, input.session_id)
+        learn(store, path)
       end
       payload.files[1] = require("claudecode.review.store").normalize(path)
     end
@@ -258,6 +303,7 @@ local function post_tool_use(store, input, env)
           if reviewable(change.text) and reviewable(read_all(change.path)) then
             store:forget_refused(change.path)
             store:snapshot_text(change.path, change.text or "", change.text == nil, input.session_id)
+            learn(store, change.path)
             payload.files[#payload.files + 1] = change.path
           end
         end
@@ -265,6 +311,7 @@ local function post_tool_use(store, input, env)
           if reviewable(read_all(path)) then
             store:forget_refused(path)
             store:snapshot_text(path, "", true, input.session_id)
+            learn(store, path)
             payload.files[#payload.files + 1] = path
           end
         end

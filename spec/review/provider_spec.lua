@@ -78,6 +78,37 @@ describe("review provider", function()
     assert.is_true(vim.api.nvim_buf_is_valid(file_buf))
   end)
 
+  it("puts the cursor on the first hunk of the proposal", function()
+    local file = work .. "/a.lua"
+    write_file(file, "one\ntwo\nthree\nfour\nfive\n")
+    vim.cmd.edit(file)
+
+    propose(file, "one\ntwo\nthree\nFOUR\nfive\n")
+
+    assert.equal(proposal_buf(), vim.api.nvim_get_current_buf())
+    assert.same({ 4, 0 }, vim.api.nvim_win_get_cursor(0))
+  end)
+
+  it("shows its own hint, where cr reverts with a reason", function()
+    provider.setup({ hint = "cs keep · cx revert · cr revert with reason" })
+    local file = work .. "/a.lua"
+    write_file(file, "one\ntwo\n")
+    vim.cmd.edit(file)
+
+    propose(file, "one\nTWO\n")
+    local buf = proposal_buf()
+    vim.api.nvim_exec_autocmds("CursorMoved", { buffer = buf })
+
+    local hints = {}
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, 0, -1, { details = true })) do
+      for _, chunk in ipairs(mark[4].virt_text or {}) do
+        hints[#hints + 1] = chunk[1]
+      end
+    end
+    assert.same({ "1/1", "  cs keep · cx revert · cr revert with reason" }, hints)
+    provider.setup({})
+  end)
+
   it("takes a proposal with nothing to review at once: the same text, or only a final newline", function()
     local same, newline = work .. "/same.txt", work .. "/newline.txt"
     write_file(same, "one\ntwo\n")
@@ -179,6 +210,24 @@ describe("review provider", function()
 
     assert.equal("ONE\ntwo\nTHREE\n", written(handle))
     assert.equal(file, vim.api.nvim_buf_get_name(0))
+  end)
+
+  it("takes back a part of a hunk with <leader>ax, and hands Claude the rest you keep", function()
+    local file = work .. "/a.txt"
+    write_file(file, "one\ntwo\nthree\n")
+    vim.cmd.edit(file)
+    local handle = propose(file, "ONE\nTWO\nthree\n")
+    local buf = proposal_buf()
+    local function press(keys)
+      vim.api.nvim_feedkeys(keys, "xt", false)
+    end
+
+    press("2GV2G\\ax")
+    assert.same({ "ONE", "two", "three" }, vim.api.nvim_buf_get_lines(buf, 0, -1, false))
+    press("1Gcs")
+    vim.wait(100)
+
+    assert.equal("ONE\ntwo\nthree\n", written(handle))
   end)
 
   it("accepts Claude's text when you keep every hunk and puts your file back in the window", function()

@@ -18,6 +18,12 @@ describe("feature options", function()
     assert.equal("<M-z>", config.zen.keymap)
   end)
 
+  it("keeps or reverts the selected lines of a hunk on the leader, in visual mode", function()
+    local keymaps = features.config(nil).review.keymaps
+    assert.equal("<leader>ak", keymaps.keep_range)
+    assert.equal("<leader>ax", keymaps.revert_range)
+  end)
+
   it("merges your keys over the defaults", function()
     local config = features.config({ review = { keymaps = { keep = "<leader>y", revert_all = false } } })
 
@@ -71,6 +77,15 @@ describe("feature options", function()
     assert.matches("zen.keymap must be", config_error({ zen = { keymap = "" } }))
   end)
 
+  it("puts a hint that does not fit at the end of the line above the hunk, or in the statusline", function()
+    assert.equal("above", features.config(nil).review.hint_overflow)
+    assert.equal("statusline", features.config({ review = { hint_overflow = "statusline" } }).review.hint_overflow)
+    assert.matches(
+      "review.hint_overflow must be 'above' or 'statusline'",
+      config_error({ review = { hint_overflow = "right" } })
+    )
+  end)
+
   it("follows Claude into a worktree unless you say no", function()
     assert.is_true(features.config(nil).worktree.follow)
     assert.is_false(features.config({ worktree = { follow = false } }).worktree.follow)
@@ -97,6 +112,23 @@ describe("feature options", function()
     )
     assert.is_false(features.hint_text(features.config({ review = { hint = false } }).review))
     assert.equal("custom", features.hint_text(features.config({ review = { hint = "custom" } }).review))
+  end)
+
+  it("names what the note key does in a proposal: it reverts with a reason, notes or not", function()
+    local proposal = { proposal = true }
+    assert.equal(
+      "cs keep · cx revert · cr revert with reason",
+      features.hint_text(features.config(nil).review, proposal)
+    )
+    assert.equal(
+      "cs keep · cx revert · cr revert with reason",
+      features.hint_text(features.config({ review = { notes = { enabled = false } } }).review, proposal)
+    )
+    assert.equal(
+      "cs keep · cx revert",
+      features.hint_text(features.config({ review = { keymaps = { note = false } } }).review, proposal)
+    )
+    assert.equal("custom", features.hint_text(features.config({ review = { hint = "custom" } }).review, proposal))
   end)
 
   it("moves on to the next hunk after a decision, and lets ]k cross files, by default", function()
