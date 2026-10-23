@@ -16,7 +16,11 @@ The plugin connects the Claude Code CLI to Neovim over the same WebSocket MCP pr
 - **Notes for Claude.** Write what to rework right under the line, in as many files as you like, and send every note in one message.
 - **Zen mode.** Run Claude full screen inside Neovim and flip to the code with one key.
 
-https://github.com/user-attachments/assets/38136234-b505-4214-966a-de0f8af7af5f
+
+
+https://github.com/user-attachments/assets/d73ae76b-5275-43ff-a12c-5db5bcab75b1
+
+
 
 With [cswap](https://github.com/realiti4/claude-swap) (claude-swap) it also switches the Claude account Neovim runs: `:ClaudeCode run 1`.
 
