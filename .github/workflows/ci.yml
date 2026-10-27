@@ -34,7 +34,7 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 install -y build-essential libreadline-dev unzip
 
       - name: Set up mise
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
 
       - name: Cache Lua test rocks
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -71,7 +71,7 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 install -y build-essential libreadline-dev unzip
 
       - name: Set up mise
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
 
       - name: Cache Lua test rocks
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -101,7 +101,7 @@ jobs:
       # Neovim pinned in mise.toml, as in the jobs above. rhysd/action-setup-vim broke on the
       # Ubuntu 26 runners (EXDEV renaming its download across devices).
       - name: Set up Neovim with mise
-        uses: jdx/mise-action@9b200bcecbfd6303e69a4a261b2e09e3757440a7 # v5.2.0
+        uses: jdx/mise-action@82a612c5ab8bcda7cc5db6b7e81a8e7584c3dc6e # v5.2.3
         with:
           install_args: neovim
 
