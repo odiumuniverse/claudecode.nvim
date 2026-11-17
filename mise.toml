@@ -14,10 +14,11 @@
 
 [settings]
 # Maintain a committed mise.lock pinning resolved URLs + checksums for the
-# binary-download tools (the integrity role flake.lock used to play).
-# Caveats: the conda-backed luajit only locks the platform it was resolved on
-# (Linux CI backfills its entry on first install); source-built tools (lua,
-# neovim) and npm-backed prettier record a URL/version but no checksum.
+# tools (the integrity role flake.lock used to play). Keep it complete: CI runs
+# `mise install --locked`, which never rewrites the file and, since mise
+# 2026.11.0, fails on a tool without a checksum for its platform.
+# Caveats: the conda-backed luajit locks only the platforms it was resolved
+# for, and npm-backed prettier records a version but no checksum.
 # Regenerate with: mise lock -p linux-x64,macos-arm64
 lockfile = true
 
