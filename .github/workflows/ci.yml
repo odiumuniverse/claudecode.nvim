@@ -35,6 +35,11 @@ jobs:
 
       - name: Set up mise
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          # Pinned as upstream does: the action adds --locked, and its rules change between mise releases
+          # (2026.11.0 started to require a checksum). sha256 is the linux-x64 mise binary of the release.
+          version: 2026.11.5
+          sha256: 7a5b051d6f17d335c502f8047a5175cf3103f347d91942771c60da4e302ebcb0
 
       - name: Cache Lua test rocks
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -72,6 +77,10 @@ jobs:
 
       - name: Set up mise
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          # Pinned, as in unit-tests.
+          version: 2026.11.5
+          sha256: 7a5b051d6f17d335c502f8047a5175cf3103f347d91942771c60da4e302ebcb0
 
       - name: Cache Lua test rocks
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -104,6 +113,9 @@ jobs:
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           install_args: neovim
+          # Pinned, as in unit-tests.
+          version: 2026.11.5
+          sha256: 7a5b051d6f17d335c502f8047a5175cf3103f347d91942771c60da4e302ebcb0
 
       - name: Install test dependencies
         run: |
